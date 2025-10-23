@@ -572,6 +572,59 @@ kubectl describe pvc data-garage-0 -n garage
 2. Storage secret errors: Verify `airbyte-storage-secrets` applied
 3. Resource constraints: Check `kubectl top pods -n airbyte`
 
+### Airbyte Source Setup Fails with 500 Error
+
+**Root Cause:** Airbyte server cannot access S3 storage for logs due to missing AWS credentials in `airbyte-airbyte-secrets`.
+
+**Symptoms:**
+- Source connection check fails with 500 Internal Server Error
+- Server logs show: `Unable to load credentials from any of the providers in the chain`
+- Connector check pods go into Error state
+
+**Solution:**
+
+1. Verify Garage S3 buckets exist:
+```bash
+POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n garage $POD -- /garage bucket list
+
+# Should show: airbyte-log-storage, airbyte-state-storage, airbyte-config-storage
+```
+
+2. If buckets are missing, create them:
+```bash
+kubectl exec -n garage $POD -- /garage bucket create airbyte-log-storage
+kubectl exec -n garage $POD -- /garage bucket create airbyte-state-storage
+kubectl exec -n garage $POD -- /garage bucket create airbyte-config-storage
+
+# Grant permissions to lakehouse-access key
+kubectl exec -n garage $POD -- /garage bucket allow --read --write airbyte-log-storage --key lakehouse-access
+kubectl exec -n garage $POD -- /garage bucket allow --read --write airbyte-state-storage --key lakehouse-access
+kubectl exec -n garage $POD -- /garage bucket allow --read --write airbyte-config-storage --key lakehouse-access
+```
+
+3. Patch the Helm-generated secret with AWS credentials:
+```bash
+# Get credentials from your secrets.yaml file (base64 encoded)
+ACCESS_KEY_ID=$(kubectl get secret airbyte-secrets -n airbyte -o jsonpath='{.data.aws-secret-access-key-id}')
+SECRET_ACCESS_KEY=$(kubectl get secret airbyte-secrets -n airbyte -o jsonpath='{.data.aws-secret-access-key-secret}')
+
+# Patch the Helm-generated secret
+kubectl patch secret airbyte-airbyte-secrets -n airbyte --type merge -p "{\"data\":{\"AWS_ACCESS_KEY_ID\":\"$ACCESS_KEY_ID\",\"AWS_SECRET_ACCESS_KEY\":\"$SECRET_ACCESS_KEY\"}}"
+
+# Restart server to pick up credentials
+kubectl rollout restart deployment/airbyte-server -n airbyte
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=server -n airbyte --timeout=120s
+```
+
+4. Verify credentials are loaded:
+```bash
+kubectl exec -n airbyte deployment/airbyte-server -- env | grep -E '^AWS_ACCESS_KEY_ID=|^AWS_SECRET_ACCESS_KEY='
+# Should show the Garage S3 credentials (GK9fe811be5e47db3e8a8cf785)
+```
+
+**Important:** This patch is required after each Airbyte Helm install/upgrade because the Helm chart does not properly map credentials from `airbyte-secrets` to `airbyte-airbyte-secrets`.
+
 ### DBT Cannot Connect to Trino
 
 **Check:**

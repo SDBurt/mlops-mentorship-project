@@ -10,7 +10,7 @@ global:
   storage:
     type: s3
     # Secret containing S3 credentials
-    storageSecretName: airbyte-storage-secrets
+    storageSecretName: airbyte-secrets
     bucket:
       log: airbyte-log-storage
       state: airbyte-state-storage
