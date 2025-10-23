@@ -1,0 +1,103 @@
+# Airbyte Data Integration Platform Configuration
+# See values-default.yaml for all available options
+
+global:
+  # Base URL for Airbyte server (internal Kubernetes service)
+  # Note: In Airbyte V2, the UI is served by airbyte-server (not webapp)
+  airbyteUrl: "http://airbyte-airbyte-server-svc.airbyte.svc.cluster.local:8001"
+
+  # Garage S3 Storage configuration
+  storage:
+    type: s3
+    # Secret containing S3 credentials
+    storageSecretName: airbyte-storage-secrets
+    bucket:
+      log: airbyte-log-storage
+      state: airbyte-state-storage
+      workloadOutput: airbyte-config-storage
+    s3:
+      region: garage
+      authenticationType: credentials
+      # Garage S3 API endpoint
+      endpoint: http://garage.garage.svc.cluster.local:3900
+      pathStyleAccess: true
+
+  # TODO (Phase 2): Configure Garage/S3 storage for lakehouse integration
+  # storage:
+  #   type: s3
+  #   bucket:
+  #     log: lakehouse-airbyte-logs
+  #     state: lakehouse-airbyte-state
+  #     workloadOutput: lakehouse-airbyte-output
+  #   s3:
+  #     region: garage
+  #     authenticationType: credentials
+  #     # Endpoint will be: http://garage.garage.svc.cluster.local:3900
+
+# Enable internal PostgreSQL (each service manages its own DB)
+postgresql:
+  enabled: true
+  auth:
+    username: airbyte
+    password: airbyte123  # TODO: Change for production
+    database: airbyte
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# Webapp configuration
+# Note: In Airbyte Helm Chart V2, webapp is merged into server component
+webapp:
+  enabled: false
+
+# Server configuration
+server:
+  enabled: true
+  service:
+    type: ClusterIP
+    port: 8001
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+# Worker configuration (does the actual sync work)
+worker:
+  enabled: true
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+
+# Temporal workflow engine
+temporal:
+  enabled: true
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  extraEnv:
+    - name: DB_PORT
+      value: "5432"
+    - name: POSTGRES_TLS_ENABLED
+      value: "false"
+    - name: SQL_TLS_ENABLED
+      value: "false"
+
+# Bootloader (initializes database)
+airbyte-bootloader:
+  enabled: true
+
+# MinIO disabled - using Garage for S3-compatible storage
+minio:
+  enabled: false

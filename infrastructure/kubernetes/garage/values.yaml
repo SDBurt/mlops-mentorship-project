@@ -1,0 +1,62 @@
+# Garage S3-Compatible Storage Configuration
+# See values-default.yaml for all available options
+
+# Garage core settings
+garage:
+  # Single-node replication for local development
+  # Change to "3" for production multi-node setup
+  replicationMode: "1"
+
+  # Database engine (lmdb is default and recommended)
+  dbEngine: "lmdb"
+
+  # RPC secret for node communication
+  # Empty string causes Garage to auto-generate and store in k8s Secret
+  # This is the most secure approach for production
+  rpcSecret: ""
+
+  # Compression level (1 is fast, good for dev)
+  compressionLevel: "1"
+
+  # S3 API configuration
+  s3:
+    api:
+      region: "garage"
+      rootDomain: ".s3.garage.localhost"
+    web:
+      rootDomain: ".web.garage.localhost"
+      index: "index.html"
+
+# Persistent storage
+persistence:
+  enabled: true
+  meta:
+    size: 1Gi  # Metadata (can stay small)
+  data:
+    size: 10Gi  # Actual data storage (increase as needed)
+
+# Kubernetes deployment
+deployment:
+  kind: StatefulSet
+  replicaCount: 1  # Single replica for dev
+
+# Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Services remain as ClusterIP (access via port-forward)
+service:
+  type: ClusterIP
+
+# Disable ingress (using port-forward for local dev)
+ingress:
+  s3:
+    api:
+      enabled: false
+  web:
+    enabled: false

@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: database
+  labels:
+    app: postgres
+    component: database
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        envFrom:
+        - secretRef:
+            name: postgres-secret
+        env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pg_isready -U airbyte
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pg_isready -U airbyte
+          initialDelaySeconds: 5
+          periodSeconds: 10
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 20Gi

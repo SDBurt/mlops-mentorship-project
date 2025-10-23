@@ -1,0 +1,38 @@
+# DBT Profiles Configuration
+# https://docs.getdbt.com/reference/profiles.yml
+
+# This file configures database connections for DBT
+# In production, use environment variables for sensitive credentials
+
+lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none  # No authentication for local development
+      host: localhost
+      port: 8080
+      database: lakehouse  # Iceberg catalog name
+      schema: bronze  # Default schema
+      threads: 4
+      http_scheme: http
+      session_properties:
+        query_max_run_time: 4h
+        exchange_compression: true
+
+    prod:
+      type: trino
+      method: none
+      host: trino.trino.svc.cluster.local  # Kubernetes service DNS
+      port: 8080
+      database: lakehouse
+      schema: bronze
+      threads: 8
+      http_scheme: http
+      session_properties:
+        query_max_run_time: 8h
+        exchange_compression: true
+        query_result_cache_enabled: true
+
+# Database connects to Trino's Iceberg catalog
+# Port-forward for local dev: kubectl port-forward svc/trino 8080:8080 -n trino

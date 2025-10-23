@@ -1,0 +1,86 @@
+# Trino Distributed SQL Query Engine Configuration
+# Queries Iceberg tables stored in Garage S3
+
+# Coordinator configuration
+coordinator:
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+
+# Worker configuration
+worker:
+  replicas: 2  # Start with 2 workers for local development
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 1000m
+    limits:
+      memory: 4Gi
+      cpu: 2000m
+
+# Service configuration
+service:
+  type: ClusterIP  # Use ClusterIP for internal access only
+  port: 8080
+
+# Iceberg catalog configuration for Garage S3
+# TODO (Phase 2): Enable Iceberg catalog
+#
+# Option 1 - Hive Metastore (Recommended for learning):
+# additionalCatalogs:
+#   iceberg: |
+#     connector.name=iceberg
+#     iceberg.catalog.type=hive_metastore
+#     hive.metastore.uri=thrift://hive-metastore.hive.svc.cluster.local:9083
+#     fs.native-s3.enabled=true
+#     s3.endpoint=http://garage.garage.svc.cluster.local:3900
+#     s3.path-style-access=true
+#     s3.aws-access-key=${ENV:S3_ACCESS_KEY}
+#     s3.aws-secret-key=${ENV:S3_SECRET_KEY}
+#
+# Option 2 - REST Catalog with Polaris (Phase 3):
+# additionalCatalogs:
+#   iceberg: |
+#     connector.name=iceberg
+#     iceberg.catalog.type=rest
+#     iceberg.rest-catalog.uri=http://polaris.polaris.svc.cluster.local:8181
+#     fs.native-s3.enabled=true
+#     s3.endpoint=http://garage.garage.svc.cluster.local:3900
+#     s3.path-style-access=true
+#     s3.aws-access-key=${ENV:S3_ACCESS_KEY}
+#     s3.aws-secret-key=${ENV:S3_SECRET_KEY}
+
+# Environment variables for S3 credentials from Kubernetes Secret
+# Uncomment when enabling Iceberg catalog:
+# env:
+#   - name: S3_ACCESS_KEY
+#     valueFrom:
+#       secretKeyRef:
+#         name: trino-s3-credentials
+#         key: aws-access-key-id
+#   - name: S3_SECRET_KEY
+#     valueFrom:
+#       secretKeyRef:
+#         name: trino-s3-credentials
+#         key: aws-secret-access-key
+
+# Server configuration
+server:
+  config:
+    query:
+      maxMemory: "4GB"
+      maxMemoryPerNode: "2GB"
+    memory:
+      heapHeadroomPerNode: "1GB"
+
+# JVM configuration
+jvm:
+  maxHeapSize: "8G"
+  gcMethod:
+    type: "UseG1GC"
+    g1:
+      heapRegionSize: "32M"
