@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **learning-focused lakehouse platform** built on Kubernetes. The goal is progressive learning from fundamentals to advanced data engineering, MLOps, and real-time streaming concepts.
+This is a **mentorship learning project** focused on building an end-to-end MLOps platform. The journey starts with foundational data engineering (batch pipelines, dimensional modeling) and progressively integrates MLOps capabilities (feature stores, model training, model serving).
 
 **Key Philosophy:**
-- Hands-on learning through manual deployment and configuration
-- No automation scripts - all commands documented in markdown guides
-- Example templates and patterns (not production-ready until data sources configured)
-- Portfolio-quality enterprise patterns for demonstration
+- **Learn by Building**: Start with data foundation, then add ML capabilities
+- **Hands-on Practice**: Manual deployment and configuration to understand each component
+- **MLOps Focus**: Phase 4 (MLOps integration) is the primary learning goal
+- **Progress Tracking**: README.md contains weekly learning progress sections
+- **Portfolio Quality**: Demonstrate enterprise patterns for production systems
 
-**Important:** This is a learning/portfolio project. Users should follow step-by-step guides to understand each component, not use automated deployment tools.
+**Important:** This is a mentorship project. Follow the phased approach in README.md and track progress weekly. DBT models are example templates - not ready until data sources configured.
 
 ## Architecture
 

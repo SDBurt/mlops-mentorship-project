@@ -1,521 +1,497 @@
-# Modern Data Lakehouse Platform
+# MLOps Lakehouse Platform - A Mentorship Learning Project
 
-A **learning-focused portfolio project** demonstrating modern data engineering and MLOps practices. Built incrementally from fundamentals to advanced concepts, this platform showcases a complete data lakehouse architecture on Kubernetes with Apache Iceberg, distributed query processing with Trino, and end-to-end orchestration with Dagster.
+A **hands-on learning journey** from foundational data engineering to production MLOps. This project demonstrates how to build a complete data lakehouse platform on Kubernetes, then extend it with machine learning workflows, feature stores, model serving, and ML governance.
 
-## Learning Philosophy
+## Project Vision
 
-This project emphasizes **progressive learning** and **hands-on practice**:
+**Learn by Building**: Start with a solid data platform foundation, then progressively integrate MLOps capabilities. This project showcases the full spectrum of modern data and ML engineering - from raw data ingestion to serving ML models in production.
 
-- **Start Simple**: Begin with batch ingestion, basic transformations, and foundational concepts
-- **Build Incrementally**: Add complexity layer by layer (batch → real-time, SQL → ML, local → production)
-- **Learn by Doing**: Each phase introduces new tools and patterns to master
-- **Portfolio Quality**: Demonstrate enterprise best practices suitable for production environments
+**End Goal**: A production-ready platform that demonstrates:
+- Modern data engineering (batch pipelines, dimensional modeling, data quality)
+- MLOps best practices (feature stores, model versioning, automated training)
+- Platform engineering (Kubernetes, infrastructure as code, monitoring)
+- Data governance (access control, lineage, compliance)
 
-**Learning Path:**
-1. **Phase 1-2**: Master batch data pipelines, SQL transformations, dimensional modeling
-2. **Phase 3**: Learn data governance, access control, and compliance
-3. **Phase 4**: Explore ML workflows, feature stores, and model serving
-4. **Phase 5**: Understand real-time streaming and production operations
+## Learning Path
 
-## Overview
+This project follows a deliberate progression that mirrors real-world platform development:
 
-This platform implements a lakehouse architecture using open table formats (Apache Iceberg) with Parquet storage, enabling ACID transactions, schema evolution, and time travel capabilities. The project is structured as a **monorepo with clear domain separation** to support team collaboration without conflicts.
+### Phase 1-2: Data Foundation (Learn First)
+**Build the data pipeline infrastructure**
+- Deploy Kubernetes services (Garage, Airbyte, Dagster, Trino)
+- Implement batch data ingestion with Airbyte
+- Create DBT transformations (Bronze → Silver → Gold)
+- Build dimensional models (star schema)
+- Master SQL, data modeling, and pipeline orchestration
 
-**Key Features:**
-- Modern lakehouse architecture with Apache Iceberg tables
-- S3-compatible object storage with Garage
-- Custom data integration pipelines with Airbyte
-- Orchestration and transformation with Dagster + DBT Core
-- Distributed SQL queries with Trino
-- Business intelligence with Apache Superset
-- Cloud-native deployment on Kubernetes
+**Why this matters**: You can't do MLOps without a solid data foundation. Features come from data pipelines.
 
-## Architecture
+### Phase 3: Data Governance (Learn Second)
+**Add catalog and access control**
+- Deploy Polaris REST Catalog for unified metadata
+- Implement RBAC for tables and features
+- Set up audit logging and lineage tracking
+- Learn data governance patterns
+
+**Why this matters**: Production ML requires governance. Who can access features? Who deployed this model?
+
+### Phase 4: MLOps Integration (Learn Third - Primary Goal)
+**Extend the platform with ML capabilities**
+- Deploy Feast feature store (online + offline)
+- Set up Kubeflow for ML pipelines
+- Implement DVC for data/model versioning
+- Build training pipelines
+- Deploy models with KServe
+- Monitor model performance
+
+**Why this matters**: This is where data engineering meets machine learning. The ultimate goal of this project.
+
+### Phase 5: Real-Time & Production (Learn Fourth)
+**Add streaming and production hardening**
+- Kafka/Redpanda for real-time ingestion
+- Stream processing with Flink
+- Real-time feature computation
+- Production monitoring and observability
+
+## Architecture Overview
+
+### Current Focus: Data Pipeline Foundation
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Data Sources                              │
-│  (APIs, Databases, Streaming, Files, Custom Connectors)         │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Airbyte (Ingestion)                           │
-│              Custom Sources & Connectors                         │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                 Garage (S3-Compatible Storage)                   │
-│                     Parquet Files + Metadata                     │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Apache Iceberg (Table Format)                   │
-│         ACID Transactions, Schema Evolution, Time Travel         │
-└──────────┬──────────────────────────────────────┬───────────────┘
-           │                                       │
-           ▼                                       ▼
-┌──────────────────────────┐       ┌──────────────────────────────┐
-│  Dagster + DBT Core      │       │    Trino (Query Engine)      │
-│  (Orchestration +        │       │  (Distributed SQL Queries)   │
-│   Transformation)        │       └──────────────┬───────────────┘
-└──────────────────────────┘                      │
-                                                  ▼
-                                   ┌──────────────────────────────┐
-                                   │  Apache Superset (Analytics) │
-                                   │    Dashboards & BI           │
-                                   └──────────────────────────────┘
+Data Sources
+    ↓
+[Airbyte] - Ingestion
+    ↓
+[Garage S3] - Object Storage (Parquet files)
+    ↓
+[Apache Iceberg] - Table Format (ACID, Schema Evolution)
+    ↓
+[DBT] - Transformations (Bronze → Silver → Gold)
+    ↓
+[Trino] - Query Engine
+    ↓
+Analytics & BI
 ```
 
-## Current Stack (Phase 1)
+### Future Goal: MLOps Platform
 
-**Infrastructure:**
-- Kubernetes for container orchestration
-- Garage for S3-compatible object storage
-- PostgreSQL for metadata storage
+```
+Data Pipeline (above)
+    ↓
+[Feast] - Feature Store
+    ├─→ Online Store (Redis) - Low-latency serving
+    └─→ Offline Store (Iceberg) - Training data
+         ↓
+    [Kubeflow] - ML Pipeline Orchestration
+         ├─→ Training Jobs
+         ├─→ Hyperparameter Tuning
+         └─→ Experiment Tracking
+              ↓
+    [DVC] - Data & Model Versioning
+         ↓
+    [Model Registry] - Version Management
+         ↓
+    [KServe] - Model Serving
+         ↓
+    Production Predictions
+```
 
-**Data Ingestion:**
-- Airbyte with custom source connectors
-- Support for batch and streaming data
+## Current Stack
 
-**Storage Layer:**
-- Apache Iceberg table format
-- Parquet columnar storage
-- ACID transactions and schema evolution
+**Infrastructure** (Kubernetes-native):
+- **Kubernetes**: Container orchestration (Docker Desktop / minikube)
+- **Helm**: Package management for services
+- **Garage**: S3-compatible object storage (lightweight alternative to MinIO)
+- **PostgreSQL**: Metadata storage (embedded in Airbyte/Dagster)
 
-**Deployment:**
-- Helm charts for service management
-- Local development with port-forwarding
-- Infrastructure as Code with shell scripts
+**Data Platform**:
+- **Airbyte**: Data ingestion with 300+ connectors
+- **Apache Iceberg**: Open table format (ACID, time travel, schema evolution)
+- **DBT**: SQL-based transformations (medallion architecture)
+- **Dagster**: Asset-centric orchestration
+- **Trino**: Distributed SQL query engine
 
-## Roadmap
+**Future MLOps Stack** (Phase 4):
+- **Feast**: Feature store (online + offline)
+- **Kubeflow**: ML platform (pipelines, notebooks, training)
+- **DVC**: Data and model versioning
+- **KServe**: Model serving
+- **MLflow/Weights & Biases**: Experiment tracking
 
-### Phase 1: Foundation ✓ (Current)
-- [x] Kubernetes cluster setup
-- [x] Garage S3-compatible storage
-- [x] Airbyte for data ingestion
-- [x] Dagster deployment foundation
-- [x] Infrastructure automation scripts
-- [ ] Apache Iceberg integration
-- [ ] Custom Airbyte connectors
-- [ ] Initial Parquet data pipelines
+## My Learning Progress
 
-### Phase 2: Analytics & Orchestration (In Progress)
-- [ ] Dagster orchestration workflows
-- [ ] DBT Core for transformations
-- [ ] **Star schema dimensional modeling** (fact + dimension tables)
-- [ ] Trino for distributed queries
-- [ ] Apache Superset for analytics
-- [ ] Iceberg table management
-- [ ] Data quality framework
-- [ ] Pipeline monitoring and alerting
+### Week 1-2: Infrastructure Foundation
+**Status**: [x] Complete
 
-**Learning Goals:**
-- Master SQL transformations and medallion architecture
-- Understand dimensional modeling (star schema) for analytics
-- Learn DBT best practices and testing
-- Build production-grade data pipelines
+**What was Learned**:
+- Kubernetes fundamentals (pods, services, namespaces, StatefulSets)
+- Helm package management (charts, releases, values files)
+- Kubernetes networking (DNS, cross-namespace communication)
+- Persistent storage with PVCs
 
-### Phase 3: Data Governance & Catalog (Planned)
-- [ ] Apache Polaris catalog for Iceberg
-- [ ] Unified catalog with RBAC (role-based access control)
-- [ ] Table-level access control policies
-- [ ] Row/column-level security in Trino
-- [ ] Data lineage visualization
-- [ ] Audit logging and compliance
-- [ ] Data quality monitoring dashboard
-- [ ] PII detection and masking
-- [ ] Automated schema validation
+**Tasks Completed**:
+- [x] Garage S3 storage with cluster initialization
+- [x] Airbyte V2 with embedded PostgreSQL
+- [x] Dagster with embedded PostgreSQL
+- [x] Trino query engine
 
-### Phase 4: ML/MLOps Integration (Planned)
-- [ ] Feast feature store deployment
-  - Online store (Redis) for low-latency serving
-  - Offline store (Iceberg/Parquet in Garage)
-  - Feature registry and versioning
-- [ ] Kubeflow ML platform
-  - Kubeflow Pipelines for training workflows
-  - Jupyter notebooks for data science
-  - Model training on Kubernetes
-  - Experiment tracking
-- [ ] DVC (Data Version Control)
-  - ML dataset versioning with Garage backend
-  - Model versioning and registry
-  - Experiment reproducibility
-  - Integration with git workflows
-- [ ] Feature engineering pipelines (Dagster + Feast)
-- [ ] Model serving infrastructure (KServe)
-- [ ] A/B testing framework
-- [ ] Model monitoring and drift detection
+**Key Challenges Solved**:
+- Garage cluster initialization (non-obvious required step)
+- Cross-namespace service communication via DNS
+- StatefulSet storage management with PVCs
 
-### Phase 5: Real-Time Streaming (Planned - Learning Focus)
-- [ ] **Real-time ingestion architecture** (learning goal)
-- [ ] Apache Kafka deployment and concepts
-  - Topics, partitions, consumer groups
-  - Stream processing fundamentals
-  - Kafka Connect for sources
-- [ ] Alternative: Redpanda (Kafka-compatible, simpler operations)
-- [ ] Stream processing with:
-  - Option 1: Flink for complex event processing
-  - Option 2: Kafka Streams for simpler use cases
-- [ ] Real-time → Iceberg integration
-- [ ] Change Data Capture (CDC) patterns
-- [ ] Lambda architecture (batch + streaming)
-- [ ] Late-arriving data handling
+**Documentation Created**:
+- 18 comprehensive topic guides in [docs/topics/](docs/topics/)
+- [SETUP_GUIDE.md](docs/SETUP_GUIDE.md) - Step-by-step deployment
+- [TEARDOWN.md](docs/TEARDOWN.md) - Clean uninstall procedures
 
-**Learning Goals:**
-- Understand stream processing concepts and patterns
-- Compare Kafka vs alternatives (Redpanda, Pulsar)
-- Learn to handle event-time vs processing-time
-- Master exactly-once semantics
-- Build unified batch + streaming pipelines
+### Week 3-4: Data Pipeline Implementation
+**Status**: 🔄 In Progress
 
-### Phase 6: Production-Ready (Planned)
-- [ ] MetalLB for load balancing
-- [ ] Traefik ingress controller
-- [ ] Prometheus + Grafana monitoring stack
-- [ ] Automated backups and disaster recovery
-- [ ] Security hardening (network policies, pod security)
-- [ ] CI/CD pipelines for pipelines and models
-- [ ] Performance optimization and tuning
-- [ ] Multi-region deployment
-- [ ] Cost optimization and resource management
+**Current Focus**:
+- [ ] Configure Airbyte data sources
+- [ ] Configure Airbyte Iceberg destination (S3 + Garage)
+- [ ] Ingest raw data as Iceberg tables to Garage S3
+- [ ] Configure Trino to read Airbyte's Iceberg catalog
+- [ ] Build DBT project structure
+- [ ] Implement Bronze layer (staging views)
+- [ ] Implement Silver layer (cleaned dimensions)
+- [ ] Implement Gold layer (star schema facts)
+- [ ] Test DBT transformations via Trino
+
+**Learning Goals**:
+- Master Iceberg table format and operations
+- Understand medallion architecture (Bronze/Silver/Gold)
+- Learn dimensional modeling (star schema)
+- Practice SQL transformations with DBT
+- Understand incremental models and partitioning
+
+**Blockers/Questions**:
+- _(Record any challenges or questions here)_
+
+**Resources Used**:
+- [Apache Iceberg docs](docs/topics/apache-iceberg.md)
+- [DBT docs](docs/topics/dbt.md)
+- [Medallion Architecture guide](docs/topics/medallion-architecture.md)
+- [Star Schema patterns](docs/topics/star-schema.md)
+
+### Week 5-6: Orchestration & Data Quality
+**Status**: ⏳ Planned
+
+**Planned Tasks**:
+- [ ] Create Dagster assets for DBT models
+- [ ] Set up daily refresh schedules
+- [ ] Implement data quality tests in DBT
+- [ ] Build Dagster sensors for Airbyte syncs
+- [ ] Create monitoring dashboards
+- [ ] Set up alerting for pipeline failures
+
+**Learning Goals**:
+- Dagster asset-centric orchestration
+- DBT testing framework
+- Pipeline monitoring best practices
+- Error handling and retry strategies
+
+### Week 7-8: Data Governance (Phase 3)
+**Status**: ⏳ Planned
+
+**Planned Tasks**:
+- [ ] Deploy Apache Polaris REST Catalog
+- [ ] Migrate Airbyte + Trino to use Polaris catalog
+- [ ] Implement RBAC policies for table access
+- [ ] Set up audit logging and monitoring
+- [ ] Document table lineage
+- [ ] Multi-engine catalog sharing
+
+**Learning Goals**:
+- Modern REST catalog vs embedded catalogs
+- Fine-grained access control for data lakes
+- Governance and compliance in production systems
+- Centralized metadata management
+
+### Week 9-12: MLOps Integration (Phase 4) - PRIMARY GOAL
+**Status**: ⏳ Planned
+
+**Planned Tasks**:
+- [ ] Deploy Feast feature store
+  - [ ] Configure offline store (Iceberg/Garage)
+  - [ ] Configure online store (Redis)
+  - [ ] Define feature views from Gold tables
+- [ ] Deploy Kubeflow platform
+  - [ ] Set up Kubeflow Pipelines
+  - [ ] Create Jupyter notebook environment
+  - [ ] Build first training pipeline
+- [ ] Set up DVC for versioning
+  - [ ] Configure Garage as remote storage
+  - [ ] Version training datasets
+  - [ ] Track model artifacts
+- [ ] Build ML pipelines
+  - [ ] Feature engineering from DBT models
+  - [ ] Model training workflow
+  - [ ] Hyperparameter tuning with Katib
+  - [ ] Model evaluation and validation
+- [ ] Deploy model serving
+  - [ ] Set up KServe
+  - [ ] Deploy first model
+  - [ ] Implement A/B testing
+- [ ] Implement monitoring
+  - [ ] Track model performance
+  - [ ] Detect data drift
+  - [ ] Alert on degradation
+
+**Learning Goals**:
+- Feature store architecture and patterns
+- ML pipeline orchestration
+- Model versioning and registry
+- Production model serving
+- ML monitoring and observability
+
+### Phase 5+: Real-Time & Production
+**Status**: ⏳ Future
+
+**Topics to Learn**:
+- Stream processing with Kafka/Flink
+- Real-time feature computation
+- Lambda architecture (batch + streaming)
+- Production hardening and SRE practices
 
 ## Quick Start
 
 ### Prerequisites
-- Kubernetes cluster (minikube, kind, k3d, or Docker Desktop)
-- Docker and Docker Compose
-- Helm 3.x
-- kubectl configured
+```bash
+# Verify prerequisites
+kubectl version --client    # Kubernetes CLI
+helm version               # Helm package manager
+docker --version          # Docker (for local cluster)
+```
 
 ### Deploy the Platform
 
+**Step 1: Follow the Setup Guide**
 ```bash
-# Deploy all services
-./scripts/deploy-all.sh
-
-# Set up port forwarding
-./scripts/port-forward.sh
+# Comprehensive step-by-step guide with explanations
+cat SETUP_GUIDE.md
 ```
 
-### Access Services
+**Step 2: Deploy Services in Order**
+```bash
+# 1. Storage layer (Garage)
+helm upgrade --install garage infrastructure/helm/garage \
+  -f infrastructure/kubernetes/garage/values.yaml \
+  -n garage --create-namespace --wait
 
-- **Garage S3 API**: http://localhost:3900
-- **Garage Admin**: http://localhost:3903
-- **Airbyte UI**: http://localhost:8080
-- **Dagster UI**: http://localhost:3000
+# 2. Ingestion (Airbyte)
+helm upgrade --install airbyte airbyte-v2/airbyte --version 2.0.18 \
+  -f infrastructure/kubernetes/airbyte/values.yaml \
+  -n airbyte --create-namespace --wait --timeout 10m
+
+# 3. Orchestration (Dagster)
+helm upgrade --install dagster dagster/dagster \
+  -f infrastructure/kubernetes/dagster/values.yaml \
+  -n dagster --create-namespace
+
+# 4. Query engine (Trino)
+helm upgrade --install trino trino/trino \
+  -f infrastructure/kubernetes/trino/values.yaml \
+  -n trino --create-namespace --wait --timeout 10m
+```
+
+**Step 3: Access Services**
+```bash
+# Port-forward UIs (each in separate terminal)
+kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n trino svc/trino 8081:8080
+```
+
+- Airbyte: http://localhost:8080
+- Dagster: http://localhost:3000
+- Trino: http://localhost:8081
 
 ### Check Status
-
 ```bash
-./scripts/status.sh              # View all deployments
-./scripts/logs.sh <service>      # View service logs
+# View all deployments
+kubectl get pods --all-namespaces | grep -E 'garage|airbyte|dagster|trino'
+
+# Check specific service
+kubectl get pods -n garage
+kubectl logs -n garage garage-0 --tail=100
 ```
 
 ## Project Structure
 
-**Monorepo with Domain Separation** - Organized so team members can work independently without conflicts:
-
 ```
 .
-├── scripts/                    # Shared deployment scripts
-│   ├── deploy-all.sh
-│   ├── deploy-garage.sh
-│   ├── deploy-airbyte.sh
-│   ├── deploy-dagster.sh
-│   ├── port-forward.sh
-│   └── status.sh
+├── docs/                          # Comprehensive documentation
+│   ├── topics/                   # 18 detailed topic guides
+│   │   ├── kubernetes-fundamentals.md
+│   │   ├── garage.md
+│   │   ├── airbyte.md
+│   │   ├── dagster.md
+│   │   ├── trino.md
+│   │   ├── dbt.md
+│   │   ├── apache-iceberg.md
+│   │   ├── hive-metastore.md
+│   │   ├── polaris-rest-catalog.md
+│   │   ├── medallion-architecture.md
+│   │   ├── star-schema.md
+│   │   ├── mlops.md              # Phase 4 guide
+│   │   └── ... (more)
+│   ├── ARCHITECTURE.md           # Technical deep dive
+│   └── SETUP_GUIDE.md           # Step-by-step deployment
 │
-├── infrastructure/             # Infrastructure team domain
-│   ├── kubernetes/            # K8s manifests and Helm values
-│   │   ├── garage/           # S3-compatible storage
-│   │   │   ├── values.yaml
-│   │   │   ├── values-default.yaml
-│   │   │   └── secrets.yaml (gitignored)
-│   │   ├── airbyte/          # Data ingestion
-│   │   ├── dagster/          # Orchestration
-│   │   ├── trino/            # Query engine (Phase 2)
-│   │   ├── superset/         # BI tool (Phase 2)
-│   │   └── namespaces/       # K8s namespace definitions
-│   ├── docker/               # Docker Compose services
-│   └── scripts/              # Setup and cleanup
+├── infrastructure/               # Platform infrastructure
+│   ├── kubernetes/              # K8s manifests and Helm values
+│   │   ├── garage/             # S3 storage
+│   │   ├── airbyte/            # Data ingestion
+│   │   ├── dagster/            # Orchestration
+│   │   ├── trino/              # Query engine
+│   │   ├── polaris/            # Polaris REST Catalog (Phase 3)
+│   │   └── namespaces/         # Namespace definitions
+│   └── helm/                   # Local Helm charts
+│       └── garage/             # Garage Helm chart
 │
-├── ingestion/                  # Data ingestion team domain
-│   ├── airbyte/              # Custom Airbyte connectors
-│   │   ├── source-custom-api/
-│   │   └── connector-configs/
-│   └── streaming/            # Real-time ingestion (Phase 5)
-│       ├── kafka/            # Kafka configurations
-│       └── flink/            # Stream processing jobs
+├── transformations/             # DBT transformations
+│   └── dbt/
+│       ├── models/
+│       │   ├── sources.yml     # Raw data sources
+│       │   ├── bronze/         # Staging views
+│       │   ├── silver/         # Cleaned dimensions
+│       │   └── gold/           # Star schema facts
+│       ├── dbt_project.yml
+│       └── profiles.yml        # Trino connection
 │
-├── orchestration/              # Orchestration team domain
-│   ├── dagster/              # Dagster pipelines
-│   │   ├── assets/          # Software-defined assets
-│   │   ├── jobs/            # Job definitions
-│   │   ├── schedules/       # Schedule definitions
-│   │   ├── sensors/         # Sensor definitions
-│   │   └── resources/       # Resource configurations
-│   └── tests/               # Pipeline tests
+├── orchestration/               # Dagster pipelines
+│   └── dagster/
+│       ├── assets/             # DBT assets, custom assets
+│       ├── jobs/               # Job definitions
+│       ├── schedules/          # Schedules
+│       └── sensors/            # Sensors (Airbyte triggers)
 │
-├── transformations/            # Analytics engineering team domain
-│   ├── dbt/                 # DBT transformation models
-│   │   ├── models/
-│   │   │   ├── staging/    # Bronze → Silver
-│   │   │   ├── intermediate/ # Business logic
-│   │   │   └── marts/      # Silver → Gold (star schema)
-│   │   │       ├── core/   # Core business entities
-│   │   │       ├── finance/ # Finance mart
-│   │   │       └── marketing/ # Marketing mart
-│   │   ├── tests/          # DBT tests
-│   │   ├── macros/         # Reusable SQL macros
-│   │   └── analyses/       # Ad-hoc analyses
-│   └── sql/                # Standalone SQL scripts
+├── lakehouse/                   # Iceberg schemas & conventions
+│   ├── schemas/
+│   │   ├── bronze/
+│   │   ├── silver/
+│   │   └── gold/
+│   └── conventions/            # Naming standards
 │
-├── lakehouse/                  # Data modeling team domain
-│   ├── schemas/              # Iceberg table schemas
-│   │   ├── bronze/          # Raw data schemas
-│   │   ├── silver/          # Cleaned data schemas
-│   │   └── gold/            # Analytics schemas (star schema)
-│   ├── conventions/         # Naming conventions
-│   └── migrations/          # Schema migrations
+├── ml/                          # MLOps (Phase 4)
+│   ├── feast/                  # Feature store
+│   │   ├── features/          # Feature definitions
+│   │   └── entities/          # Entity definitions
+│   ├── kubeflow/              # ML pipelines
+│   │   ├── pipelines/         # Training workflows
+│   │   └── components/        # Reusable components
+│   ├── models/                # Model code
+│   │   ├── training/
+│   │   ├── evaluation/
+│   │   └── serving/
+│   ├── notebooks/             # Jupyter notebooks
+│   └── dvc/                   # DVC versioning
 │
-├── ml/                         # ML engineering team domain (Phase 4)
-│   ├── feast/               # Feature store definitions
-│   │   ├── features/       # Feature views
-│   │   └── entities/       # Entity definitions
-│   ├── kubeflow/            # ML pipeline definitions
-│   │   ├── pipelines/      # Training pipelines
-│   │   └── components/     # Reusable components
-│   ├── models/              # Model code and experiments
-│   │   ├── training/       # Training scripts
-│   │   ├── evaluation/     # Evaluation scripts
-│   │   └── serving/        # Model serving code
-│   ├── notebooks/           # Jupyter notebooks
-│   └── dvc/                 # DVC configuration
-│       ├── .dvc/
-│       └── dvc.yaml        # DVC pipeline definitions
+├── analytics/                   # BI & dashboards (Phase 2+)
+│   └── superset/
 │
-├── analytics/                  # BI/Analytics team domain
-│   ├── superset/            # Superset dashboards
-│   │   ├── dashboards/     # Dashboard exports
-│   │   └── datasets/       # Dataset definitions
-│   └── reports/            # Scheduled reports
-│
-├── docs/                      # Documentation
-│   ├── ARCHITECTURE.md       # Technical architecture
-│   ├── data-modeling.md      # Data modeling guide
-│   ├── team-structure.md     # Team collaboration guide
-│   └── onboarding.md         # New member onboarding
-│
-└── README.md                  # Project overview
-
+├── SETUP_GUIDE.md              # Comprehensive setup walkthrough
+├── TEARDOWN.md                 # Clean uninstall guide
+├── ARCHITECTURE.md             # Technical architecture
+├── CLAUDE.md                   # Project conventions & guidance
+└── README.md                   # This file
 ```
 
-**Team Domains and Responsibilities:**
+## Key Learning Resources
 
-| Domain | Team | Focus Area | Primary Tools |
-|--------|------|-----------|---------------|
-| `infrastructure/` | Platform/DevOps | K8s, deployments, infrastructure | Helm, kubectl |
-| `ingestion/` | Data Engineering | Source connectors, CDC, streaming | Airbyte, Kafka |
-| `orchestration/` | Data Engineering | Pipeline orchestration, scheduling | Dagster |
-| `transformations/` | Analytics Engineering | SQL transformations, data quality | DBT, SQL |
-| `lakehouse/` | Data Architecture | Schema design, data modeling | Iceberg, SQL |
-| `ml/` | ML Engineering | Features, training, serving | Feast, Kubeflow, Python |
-| `analytics/` | Analytics/BI | Dashboards, reporting | Superset, SQL |
+### Documentation
+- **[SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**: Complete deployment walkthrough with explanations
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Technical deep dive into design decisions
+- **[docs/topics/](docs/topics/)**: 18 comprehensive guides on every component
 
-**Collaboration Patterns:**
-- Teams work in their own directories with minimal cross-domain PRs
-- Shared contracts: Iceberg table schemas in `lakehouse/schemas/`
-- Integration points: Dagster orchestrates across all domains
-- Code ownership: CODEOWNERS file defines team responsibilities
+### Essential Topics
+- [Kubernetes Fundamentals](docs/topics/kubernetes-fundamentals.md)
+- [Helm Package Management](docs/topics/helm-package-management.md)
+- [Apache Iceberg](docs/topics/apache-iceberg.md)
+- [DBT Transformations](docs/topics/dbt.md)
+- [Medallion Architecture](docs/topics/medallion-architecture.md)
+- [Star Schema Design](docs/topics/star-schema.md)
+- [MLOps Overview](docs/topics/mlops.md)
 
-## Working with the Platform
+### External Resources
+- [Apache Iceberg Documentation](https://iceberg.apache.org/docs/latest/)
+- [DBT Documentation](https://docs.getdbt.com/)
+- [Dagster Documentation](https://docs.dagster.io/)
+- [Feast Documentation](https://docs.feast.dev/)
+- [Kubeflow Documentation](https://www.kubeflow.org/docs/)
 
-### Airbyte - Data Ingestion
+## Mentorship Notes
 
-1. Access UI at http://localhost:8080
-2. Configure custom source connectors
-3. Set up destinations (Garage/S3)
-4. Define sync schedules and transformations
-5. Monitor data pipeline health
+### What I'm Learning
+This project teaches the complete modern data stack:
 
-### Garage - Object Storage
+**Foundation Skills**:
+- Kubernetes deployment and management
+- Infrastructure as code with Helm
+- SQL and dimensional modeling
+- Data pipeline orchestration
+- Testing and data quality
 
-Initialize and configure S3-compatible storage:
+**Advanced Skills**:
+- Apache Iceberg table format
+- DBT incremental models and testing
+- Asset-centric orchestration with Dagster
+- Distributed query optimization with Trino
 
-```bash
-# Get pod name
-POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+**MLOps Skills** (Phase 4 focus):
+- Feature store architecture
+- ML pipeline orchestration
+- Model versioning and registry
+- Production model serving
+- ML monitoring and drift detection
 
-# Check cluster status
-kubectl exec -n garage $POD -- garage status
+### Challenges & Solutions
 
-# Create S3 access credentials
-kubectl exec -n garage $POD -- garage key new --name lakehouse-access
-```
+**Challenge**: Garage cluster initialization was not automatic
+**Solution**: Must explicitly assign storage roles and apply layout after deployment. Documented in [Garage guide](docs/topics/garage.md).
 
-### Iceberg Tables
+**Challenge**: Understanding StatefulSets vs Deployments
+**Solution**: StatefulSets provide stable pod names and dedicated storage - critical for databases. See [Stateful Applications](docs/topics/stateful-applications.md).
 
-Data is stored as Iceberg tables with Parquet files, providing:
-- ACID transactions
-- Schema evolution without rewrites
-- Time travel and rollback capabilities
-- Partition evolution
-- Hidden partitioning
+**Challenge**: Cross-namespace service communication
+**Solution**: Use full DNS names: `service.namespace.svc.cluster.local`. See [Cross-Namespace Communication](docs/topics/cross-namespace-communication.md).
 
-See `lakehouse/README.md` for table conventions and best practices.
+### Questions for Mentor
+- _(Record questions to discuss during mentorship sessions)_
+-
+-
 
-### Dagster - Orchestration
-
-Dagster orchestrates the entire data platform:
-
-```bash
-# Initialize Dagster project (first time)
-cd orchestration/
-dagster project scaffold --name data-platform
-
-# Develop locally
-dagster dev
-```
-
-See `orchestration/README.md` for pipeline development guide.
-
-## Development Workflow
-
-### Creating Data Pipelines
-
-1. **Ingest** - Configure Airbyte sources and connectors
-2. **Store** - Write Parquet files to Garage/S3
-3. **Catalog** - Register as Iceberg tables
-4. **Transform** - Build DBT models
-5. **Orchestrate** - Schedule with Dagster
-6. **Query** - Access via Trino
-7. **Visualize** - Create Superset dashboards
-
-### Best Practices
-
-- Use Iceberg for all analytical tables
-- Store raw data in Parquet format
-- Implement medallion architecture (bronze/silver/gold layers)
-- Version control all pipelines and transformations
-- Test data quality at each stage
-- Monitor pipeline performance and SLAs
-- Document data lineage
-
-## MLOps Integration (Phase 4)
-
-This platform will integrate comprehensive ML capabilities:
-
-### Feature Store (Feast)
-- **Online Store**: Redis for low-latency feature serving (<10ms)
-- **Offline Store**: Iceberg tables in Garage for training data
-- **Feature Registry**: Versioned feature definitions
-- **Integration**: Dagster orchestrates feature materialization from Iceberg → Feast
-
-### ML Platform (Kubeflow)
-- **Kubeflow Pipelines**: Training workflow orchestration
-- **Notebooks**: JupyterHub for data science workloads
-- **Training**: Distributed training on Kubernetes (TensorFlow, PyTorch)
-- **Experiments**: MLflow integration for tracking
-- **Integration**: Reads from Iceberg, writes models to Garage/S3
-
-### Data Versioning (DVC)
-- **Dataset Versioning**: Track training datasets in git + Garage
-- **Model Registry**: Version ML models with metadata
-- **Reproducibility**: Recreate any experiment from version history
-- **Integration**: Uses Garage S3 as remote storage backend
-
-### ML Data Flow
-```
-Iceberg Tables (Gold Layer)
-    ↓
-Feature Engineering (Dagster + DBT)
-    ↓
-Feast Feature Store
-    ├─→ Online Store (Redis) → Model Serving (KServe)
-    └─→ Offline Store (Iceberg) → Training (Kubeflow)
-                                        ↓
-                                   DVC Versioning
-                                        ↓
-                                   Model Registry
-                                        ↓
-                                   Deployment
-```
-
-## Technical Highlights
-
-### Why Iceberg?
-
-- **ACID Transactions**: Consistent reads and writes
-- **Schema Evolution**: Add/remove/rename columns without rewrites
-- **Time Travel**: Query historical data snapshots
-- **Partition Evolution**: Change partitioning without data migration
-- **Performance**: Metadata-based query planning
-
-### Why Garage?
-
-- Lightweight S3-compatible storage
-- Self-hosted alternative to cloud object storage
-- Perfect for local development and testing
-- Production-ready distributed architecture
-
-### Why Dagster + DBT?
-
-- Native DBT integration in Dagster
-- Asset-centric orchestration
-- Software-defined assets
-- Built-in data lineage
-- Comprehensive testing framework
-
-## Configuration
-
-See `ARCHITECTURE.md` for detailed configuration guides including:
-- Iceberg catalog configuration
-- Garage S3 credentials and policies
-- Trino connector setup
-- DBT profiles and models
-- Superset data source connections
-
-## Monitoring and Logs
-
-```bash
-# View service logs
-./scripts/logs.sh garage
-./scripts/logs.sh airbyte
-./scripts/logs.sh dagster
-
-# Check resource usage
-kubectl top pods -n garage
-kubectl top pods -n airbyte
-kubectl top pods -n dagster
-
-# View all deployments
-./scripts/status.sh
-```
+### Next Session Goals
+- _(Prepare topics to cover in next mentorship session)_
+-
+-
 
 ## Cleanup
 
 ```bash
-cd infrastructure/scripts
-./cleanup.sh
+# Uninstall all services (see TEARDOWN.md for details)
+helm uninstall dagster -n dagster
+helm uninstall trino -n trino
+helm uninstall airbyte -n airbyte
+helm uninstall garage -n garage
+
+# Delete namespaces
+kubectl delete namespace dagster trino airbyte garage
 ```
-
-## Resources
-
-- [Apache Iceberg Documentation](https://iceberg.apache.org/docs/latest/)
-- [Garage Documentation](https://garagehq.deuxfleurs.fr/documentation/)
-- [Airbyte Documentation](https://docs.airbyte.com/)
-- [Dagster Documentation](https://docs.dagster.io/)
-- [DBT Documentation](https://docs.getdbt.com/)
-- [Trino Documentation](https://trino.io/docs/current/)
-- [Apache Superset Documentation](https://superset.apache.org/docs/intro)
 
 ## License
 
-This is a portfolio project for demonstration purposes.
+This is a personal learning project for mentorship and portfolio purposes.
 
-## Contact
+## Acknowledgments
 
-For questions or collaboration opportunities, please reach out via the repository.
+This project synthesizes concepts and best practices from:
+- Apache Iceberg community
+- DBT Labs documentation
+- Dagster Labs examples
+- Kubernetes documentation
+- MLOps community resources
+
+Built with guidance from mentors and the data engineering community.
