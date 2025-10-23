@@ -22,7 +22,7 @@ infrastructure/
 
 Follow the comprehensive step-by-step guide:
 
-**See: [SETUP_GUIDE.md](../SETUP_GUIDE.md)** in the project root
+**See: [SETUP_GUIDE.md](../docs/SETUP_GUIDE.md)**
 
 This guide walks you through every command with explanations, verification steps, and troubleshooting tips.
 
@@ -352,7 +352,7 @@ cp -r /tmp/garage-repo/script/helm/garage helm/garage
 rm -rf /tmp/garage-repo
 
 # 3. Deploy in order
-# See SETUP_GUIDE.md for detailed steps
+# See docs/SETUP_GUIDE.md for detailed steps
 
 # Garage
 kubectl apply -f kubernetes/namespaces/garage.yaml
@@ -393,7 +393,7 @@ helm uninstall garage -n garage
 kubectl delete namespace airbyte dagster trino garage database --wait=true
 ```
 
-See [TEARDOWN.md](../TEARDOWN.md) for detailed teardown steps with verification.
+See [TEARDOWN.md](../docs/TEARDOWN.md) for detailed teardown steps with verification.
 
 ### Check Status
 
@@ -566,9 +566,9 @@ kubectl get pv
 
 ## Additional Resources
 
-- **Main Setup Guide**: [../SETUP_GUIDE.md](../SETUP_GUIDE.md)
-- **Teardown Guide**: [../TEARDOWN.md](../TEARDOWN.md)
-- **Architecture**: [../ARCHITECTURE.md](../ARCHITECTURE.md)
+- **Main Setup Guide**: [../docs/SETUP_GUIDE.md](../docs/SETUP_GUIDE.md)
+- **Teardown Guide**: [../docs/TEARDOWN.md](../docs/TEARDOWN.md)
+- **Architecture**: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
 - **Project Guide**: [../CLAUDE.md](../CLAUDE.md)
 
 ---

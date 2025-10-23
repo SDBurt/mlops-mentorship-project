@@ -29,7 +29,9 @@ See `values.yaml` for full configuration.
 
 ```bash
 # Deploy Trino
-./scripts/deploy-trino.sh
+helm upgrade --install trino trino/trino \
+  -f values.yaml \
+  -n trino --create-namespace --wait --timeout 10m
 
 # Check status
 kubectl get pods -n trino
@@ -73,7 +75,7 @@ dbt run --select bronze.*
 
 ## Next Steps
 
-1. Deploy Trino: `./scripts/deploy-trino.sh`
+1. Deploy Trino (see Deployment section above)
 2. Configure Airbyte to create Iceberg tables
 3. Query raw data via Trino
 4. Run DBT transformations

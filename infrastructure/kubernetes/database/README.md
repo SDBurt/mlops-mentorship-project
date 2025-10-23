@@ -19,8 +19,18 @@ Stored in `postgres-secret.yaml`:
 ## Deployment
 
 ```bash
-cd infrastructure/scripts
-./deploy-database.sh
+# Create namespace
+kubectl apply -f namespace.yaml
+
+# Create secret
+kubectl apply -f postgres-secret.yaml
+
+# Deploy PostgreSQL
+kubectl apply -f postgres-statefulset.yaml
+kubectl apply -f postgres-service.yaml
+
+# Wait for ready
+kubectl wait --for=condition=ready pod -l app=postgres -n database --timeout=300s
 ```
 
 ## Verification

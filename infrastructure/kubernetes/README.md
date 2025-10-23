@@ -100,15 +100,9 @@ helm repo add trino https://trinodb.github.io/charts
 
 ## Deployment
 
-All services are deployed using the scripts in `/scripts/`:
+For complete deployment instructions, see [docs/SETUP_GUIDE.md](../../docs/SETUP_GUIDE.md).
 
-```bash
-./scripts/deploy-all.sh        # Deploy everything
-./scripts/deploy-garage.sh     # Deploy Garage only
-./scripts/deploy-airbyte.sh    # Deploy Airbyte only
-./scripts/deploy-dagster.sh    # Deploy Dagster only
-./scripts/deploy-trino.sh      # Deploy Trino only
-```
+All services are deployed manually using Helm commands to ensure understanding of each component.
 
 ## Configuration Best Practices
 
