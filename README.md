@@ -270,7 +270,7 @@ docker --version          # Docker (for local cluster)
 **Step 1: Follow the Setup Guide**
 ```bash
 # Comprehensive step-by-step guide with explanations
-cat SETUP_GUIDE.md
+cat docs/SETUP_GUIDE.md
 ```
 
 **Step 2: Deploy Services in Order**
@@ -338,7 +338,8 @@ kubectl logs -n garage garage-0 --tail=100
 │   │   ├── mlops.md              # Phase 4 guide
 │   │   └── ... (more)
 │   ├── ARCHITECTURE.md           # Technical deep dive
-│   └── SETUP_GUIDE.md           # Step-by-step deployment
+│   ├── SETUP_GUIDE.md            # Step-by-step deployment
+│   └── TEARDOWN.md               # Clean uninstall guide
 │
 ├── infrastructure/               # Platform infrastructure
 │   ├── kubernetes/              # K8s manifests and Helm values
@@ -392,9 +393,6 @@ kubectl logs -n garage garage-0 --tail=100
 ├── analytics/                   # BI & dashboards (Phase 2+)
 │   └── superset/
 │
-├── SETUP_GUIDE.md              # Comprehensive setup walkthrough
-├── TEARDOWN.md                 # Clean uninstall guide
-├── ARCHITECTURE.md             # Technical architecture
 ├── CLAUDE.md                   # Project conventions & guidance
 └── README.md                   # This file
 ```
@@ -471,7 +469,7 @@ This project teaches the complete modern data stack:
 ## Cleanup
 
 ```bash
-# Uninstall all services (see TEARDOWN.md for details)
+# Uninstall all services (see docs/TEARDOWN.md for details)
 helm uninstall dagster -n dagster
 helm uninstall trino -n trino
 helm uninstall airbyte -n airbyte
