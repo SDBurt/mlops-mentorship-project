@@ -10,7 +10,7 @@ In this lakehouse platform, networking is critical for service integration: [Air
 
 ## Why Networking Matters for This Platform
 
-**Service Discovery**: Components discover each other automatically using DNS names (e.g., `garage.garage.svc.cluster.local`) instead of IP addresses.
+**Service Discovery**: Components discover each other automatically using DNS names (e.g., `garage`) instead of IP addresses.
 
 **Cross-Namespace Communication**: Services in different namespaces communicate seamlessly (Airbyte in `airbyte` namespace talks to Garage in `garage` namespace).
 
@@ -32,7 +32,7 @@ In this lakehouse platform, networking is critical for service integration: [Air
 **Example**:
 ```bash
 # List pods with IPs
-kubectl get pods -n garage -o wide
+kubectl get pods -n lakehouse -o wide
 
 # Expected output:
 # NAME       READY   STATUS    IP           NODE
@@ -42,12 +42,12 @@ kubectl get pods -n garage -o wide
 **Testing pod-to-pod communication**:
 ```bash
 # Get Garage pod IP
-GARAGE_IP=$(kubectl get pod garage-0 -n garage -o jsonpath='{.status.podIP}')
+GARAGE_IP=$(kubectl get pod garage-0 -n lakehouse -o jsonpath='{.status.podIP}')
 echo "Garage IP: $GARAGE_IP"
 
 # Test from another pod (Trino namespace)
-TRINO_POD=$(kubectl get pod -n trino -l app.kubernetes.io/component=coordinator -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n trino $TRINO_POD -- curl -I http://$GARAGE_IP:3900
+TRINO_POD=$(kubectl get pod -n lakehouse -l app.kubernetes.io/component=coordinator -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n lakehouse $TRINO_POD -- curl -I http://$GARAGE_IP:3900
 
 # Expected: HTTP response from Garage S3 API
 ```
@@ -69,7 +69,7 @@ kubectl exec -n trino $TRINO_POD -- curl -I http://$GARAGE_IP:3900
 **Example - Garage Service**:
 ```bash
 # View Garage service
-kubectl get svc -n garage garage
+kubectl get svc -n lakehouse garage
 
 # Expected output:
 # NAME     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE
@@ -124,26 +124,26 @@ kubectl get endpoints garage -n garage
 ```
 
 **In this platform**:
-- `garage.garage.svc.cluster.local` → Garage S3 API
-- `trino.trino.svc.cluster.local` → Trino coordinator
+- `garage` → Garage S3 API
+- `trino` → Trino coordinator
 - `dagster-dagster-webserver.dagster.svc.cluster.local` → Dagster UI
 - `airbyte-airbyte-server-svc.airbyte.svc.cluster.local` → Airbyte API
 
 **Shorthand within same namespace**:
-- From `garage` namespace: `garage` (short form) or `garage.garage.svc.cluster.local` (FQDN)
-- From `airbyte` namespace: Must use `garage.garage.svc.cluster.local` (cross-namespace)
+- From `garage` namespace: `garage` (short form) or `garage` (FQDN)
+- From `airbyte` namespace: Must use `garage` (cross-namespace)
 
 **Example - Test DNS Resolution**:
 ```bash
 # Run debug pod to test DNS
-kubectl run -it --rm debug --image=busybox --restart=Never -n airbyte -- nslookup garage.garage.svc.cluster.local
+kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- nslookup garage
 
 # Expected output:
 # Server:    10.96.0.10
 # Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
 #
-# Name:      garage.garage.svc.cluster.local
-# Address 1: 10.96.100.50 garage.garage.svc.cluster.local
+# Name:      garage
+# Address 1: 10.96.100.50 garage
 ```
 
 **What this shows**:
@@ -153,7 +153,7 @@ kubectl run -it --rm debug --image=busybox --restart=Never -n airbyte -- nslooku
 **Test HTTP connectivity**:
 ```bash
 # From Airbyte pod, access Garage S3 API
-kubectl exec -n airbyte <airbyte-pod> -- curl -I http://garage.garage.svc.cluster.local:3900
+kubectl exec -n lakehouse <airbyte-pod> -- curl -I http://garage:3900
 
 # Expected: HTTP 403 or 200 response
 ```
@@ -178,7 +178,7 @@ kubectl port-forward -n <namespace> <resource-type>/<resource-name> <local-port>
 **Example - Forward Airbyte UI**:
 ```bash
 # Forward Airbyte service port 8001 → localhost:8080
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
 
 # Output:
 # Forwarding from 127.0.0.1:8080 -> 8001
@@ -197,28 +197,28 @@ kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
 **Multiple port-forwards** (use separate terminals):
 ```bash
 # Terminal 1: Airbyte UI
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
 
 # Terminal 2: Dagster UI
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 
 # Terminal 3: Trino UI (avoid 8080 conflict with Airbyte)
-kubectl port-forward -n trino svc/trino 8081:8080
+kubectl port-forward -n lakehouse svc/trino 8081:8080
 
 # Terminal 4: Garage S3 API
-kubectl port-forward -n garage svc/garage 3900:3900
+kubectl port-forward -n lakehouse svc/garage 3900:3900
 ```
 
 **Port-forward to pod instead of service**:
 ```bash
 # Useful for debugging specific pod
-kubectl port-forward -n garage pod/garage-0 3900:3900
+kubectl port-forward -n lakehouse pod/garage-0 3900:3900
 ```
 
 **Background port-forward** (Linux/Mac):
 ```bash
 # Run in background
-kubectl port-forward -n garage svc/garage 3900:3900 &
+kubectl port-forward -n lakehouse svc/garage 3900:3900 &
 PF_PID=$!
 
 # Do work...
@@ -236,7 +236,7 @@ kill $PF_PID
 
 **Example - Garage Headless Service**:
 ```bash
-kubectl get svc -n garage garage-headless
+kubectl get svc -n lakehouse garage-headless
 
 # Expected output:
 # NAME              TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)             AGE
@@ -246,7 +246,7 @@ kubectl get svc -n garage garage-headless
 **DNS behavior with headless service**:
 ```bash
 # Regular service → Returns ClusterIP
-nslookup garage.garage.svc.cluster.local
+nslookup garage
 # Answer: 10.96.100.50
 
 # Headless service → Returns all pod IPs
@@ -317,22 +317,22 @@ global:
   storage:
     type: s3
     s3:
-      endpoint: http://garage.garage.svc.cluster.local:3900
+      endpoint: http://garage:3900
       bucketName: lakehouse
       accessKeyId: <from-garage-key-create>
       secretAccessKey: <from-garage-key-create>
 ```
 
 **What happens**:
-1. Airbyte pod resolves `garage.garage.svc.cluster.local` via DNS → `10.96.100.50`
+1. Airbyte pod resolves `garage` via DNS → `10.96.100.50`
 2. Connects to ClusterIP `10.96.100.50:3900`
 3. Kubernetes routes traffic to `garage-0` pod (10.244.0.5:3900)
 
 **Verification**:
 ```bash
 # From Airbyte pod, test connectivity
-AIRBYTE_POD=$(kubectl get pod -n airbyte -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n airbyte $AIRBYTE_POD -- curl -I http://garage.garage.svc.cluster.local:3900
+AIRBYTE_POD=$(kubectl get pod -n lakehouse -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n lakehouse $AIRBYTE_POD -- curl -I http://garage:3900
 
 # Expected: HTTP 403 Forbidden (S3 API rejects unauthenticated request)
 ```
@@ -359,7 +359,7 @@ lakehouse:
   outputs:
     prod:
       type: trino
-      host: trino.trino.svc.cluster.local  # Full DNS name
+      host: trino  # Full DNS name
       port: 8080
       database: lakehouse
       schema: analytics
@@ -378,14 +378,14 @@ coordinator:
       connector.name=iceberg
       iceberg.catalog.type=hive_metastore
       hive.metastore.uri=thrift://hive-metastore.database.svc.cluster.local:9083
-      hive.s3.endpoint=http://garage.garage.svc.cluster.local:3900
+      hive.s3.endpoint=http://garage:3900
       hive.s3.path-style-access=true
       hive.s3.aws-access-key=<from-garage-key-create>
       hive.s3.aws-secret-key=<from-garage-key-create>
 ```
 
 **What happens**:
-1. Trino coordinator pod resolves `garage.garage.svc.cluster.local` → `10.96.100.50`
+1. Trino coordinator pod resolves `garage` → `10.96.100.50`
 2. Sends S3 API requests (ListObjects, GetObject, etc.)
 3. Garage returns Parquet files
 4. Trino workers read and process data in parallel
@@ -394,7 +394,7 @@ coordinator:
 
 ### Cannot Resolve DNS Name
 
-**Symptom**: `nslookup: can't resolve 'garage.garage.svc.cluster.local'`
+**Symptom**: `nslookup: can't resolve 'garage'`
 
 **Check CoreDNS is running**:
 ```bash
@@ -406,7 +406,7 @@ kubectl get pods -n kube-system -l k8s-app=kube-dns
 **Check DNS configuration**:
 ```bash
 # View pod DNS config
-kubectl exec -n garage garage-0 -- cat /etc/resolv.conf
+kubectl exec -n lakehouse garage-0 -- cat /etc/resolv.conf
 
 # Expected output:
 # nameserver 10.96.0.10
@@ -416,7 +416,7 @@ kubectl exec -n garage garage-0 -- cat /etc/resolv.conf
 
 **Test DNS from pod**:
 ```bash
-kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup garage.garage.svc.cluster.local
+kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup garage
 ```
 
 **Common causes**:
@@ -442,12 +442,12 @@ kubectl get endpoints garage -n garage
 **Debug**:
 ```bash
 # View service selector
-kubectl get svc garage -n garage -o jsonpath='{.spec.selector}'
+kubectl get svc garage -n lakehouse -o jsonpath='{.spec.selector}'
 
 # Output: {"app.kubernetes.io/name":"garage"}
 
 # Check pod labels
-kubectl get pods -n garage --show-labels
+kubectl get pods -n lakehouse --show-labels
 
 # Verify pod has matching label "app.kubernetes.io/name=garage"
 ```
@@ -482,7 +482,7 @@ kubectl exec -n <namespace> <pod-name> -- netstat -tlnp
 **Check DNS resolution**:
 ```bash
 # From source namespace, test DNS
-kubectl exec -n airbyte <pod> -- nslookup garage.garage.svc.cluster.local
+kubectl exec -n lakehouse <pod> -- nslookup garage
 ```
 
 **Check service exists in target namespace**:
@@ -497,7 +497,7 @@ kubectl describe networkpolicy <policy-name> -n garage
 ```
 
 **Common causes**:
-- Typo in DNS name (forgot namespace: `garage` vs `garage.garage.svc.cluster.local`)
+- Typo in DNS name (forgot namespace: `garage` vs `garage`)
 - NetworkPolicy blocking traffic
 - Service not exposed on expected port
 
@@ -514,7 +514,7 @@ kubectl describe networkpolicy <policy-name> -n garage
 
 **Good**:
 ```yaml
-endpoint: http://garage.garage.svc.cluster.local:3900
+endpoint: http://garage:3900
 ```
 
 **Bad**:
@@ -526,7 +526,7 @@ endpoint: http://10.244.0.5:3900  # Pod IP changes on restart!
 
 **Good** (explicit, works from any namespace):
 ```yaml
-host: trino.trino.svc.cluster.local
+host: trino
 ```
 
 **Acceptable** (within same namespace only):
@@ -538,14 +538,14 @@ host: trino
 
 ```bash
 # Test from client namespace
-kubectl run -it --rm debug --image=busybox --restart=Never -n airbyte -- wget -O- http://garage.garage.svc.cluster.local:3900
+kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- wget -O- http://garage:3900
 ```
 
 ### 4. Use Port-Forward for Local Dev Only
 
 **Good** (local development):
 ```bash
-kubectl port-forward -n trino svc/trino 8080:8080
+kubectl port-forward -n lakehouse svc/trino 8080:8080
 ```
 
 **Better** (production):

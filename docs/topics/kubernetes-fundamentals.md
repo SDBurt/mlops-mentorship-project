@@ -101,8 +101,8 @@ kubectl exec -it <pod-name> -n <namespace> -- /bin/bash  # Shell into container
 - **LoadBalancer**: Provisions cloud load balancer (AWS ELB, GCP LB)
 
 **In this platform** (all ClusterIP):
-- `garage.garage.svc.cluster.local:3900` - Garage S3 API
-- `trino.trino.svc.cluster.local:8080` - Trino coordinator
+- `garage:3900` - Garage S3 API
+- `trino:8080` - Trino coordinator
 - `dagster-postgresql.dagster.svc.cluster.local:5432` - Dagster database
 
 **Example**:
@@ -156,7 +156,7 @@ kubectl get endpoints -n <namespace>           # View backend pods
 kubectl get deployments -n airbyte
 
 # Scale deployment
-kubectl scale deployment airbyte-server -n airbyte --replicas=2
+kubectl scale deployment airbyte-server -n lakehouse --replicas=2
 
 # View rollout status
 kubectl rollout status deployment/airbyte-server -n airbyte
@@ -208,7 +208,7 @@ kubectl get statefulset -n garage
 **Scaling StatefulSets**:
 ```bash
 # Scale to 3 replicas (creates garage-1, garage-2 in order)
-kubectl scale statefulset garage -n garage --replicas=3
+kubectl scale statefulset garage -n lakehouse --replicas=3
 
 # Pods created sequentially: garage-0 → garage-1 → garage-2
 ```
@@ -289,11 +289,11 @@ kubectl get pv                                 # List PersistentVolumes (cluster
    - Starts Garage container
 
 5. **Service created**:
-   - `garage` service provides stable DNS: `garage.garage.svc.cluster.local`
+   - `garage` service provides stable DNS: `garage`
    - Routes traffic to `garage-0` pod
 
 6. **Other services connect**:
-   - [Airbyte](airbyte.md) uses `http://garage.garage.svc.cluster.local:3900` to write data
+   - [Airbyte](airbyte.md) uses `http://garage:3900` to write data
    - [Trino](trino.md) uses same endpoint to query data
 
 ## Common Patterns in This Platform
@@ -439,10 +439,10 @@ kubectl logs <pod-name> -n <namespace> --previous
 kubectl get endpoints <service-name> -n <namespace>
 
 # Test DNS resolution
-kubectl run -it --rm debug --image=busybox --restart=Never -n <namespace> -- nslookup garage.garage.svc.cluster.local
+kubectl run -it --rm debug --image=busybox --restart=Never -n <namespace> -- nslookup garage
 
 # Test connectivity
-kubectl exec -it <pod-name> -n <namespace> -- curl http://garage.garage.svc.cluster.local:3900
+kubectl exec -it <pod-name> -n <namespace> -- curl http://garage:3900
 ```
 
 **Common causes**:

@@ -29,7 +29,7 @@ helm list --all-namespaces
 kubectl get pvc --all-namespaces
 ```
 
-Expected output should show: airbyte, garage, dagster, database, trino namespaces and various Helm releases.
+Expected output should show: `lakehouse` namespace and various Helm releases (garage, airbyte, dagster, trino).
 
 ---
 
@@ -38,24 +38,23 @@ Expected output should show: airbyte, garage, dagster, database, trino namespace
 Uninstall all Helm releases in reverse dependency order:
 
 ```bash
-# Uninstall Dagster (orchestration - depends on database)
-helm uninstall dagster -n dagster
+# All services in lakehouse namespace - uninstall in reverse dependency order
 
-# Uninstall old dev Dagster instance (if exists)
-helm uninstall dagster-dev -n default
+# Uninstall Dagster (orchestration - depends on storage)
+helm uninstall dagster -n lakehouse
 
 # Uninstall Trino (query engine - depends on storage)
-helm uninstall trino -n trino
+helm uninstall trino -n lakehouse
 
-# Uninstall Airbyte (ingestion - depends on database and storage)
-# Note: If Airbyte was deployed via Helm
-helm uninstall airbyte -n airbyte
+# Uninstall Airbyte (ingestion - depends on storage)
+helm uninstall airbyte -n lakehouse
 
 # Uninstall Garage (S3 storage - base layer)
-helm uninstall garage -n garage
+helm uninstall garage -n lakehouse
 
-# Uninstall PostgreSQL dev instance (if exists)
-helm uninstall postgresql-dev -n default
+# Clean up old dev instances in default namespace (if exists)
+helm uninstall dagster-dev -n default 2>/dev/null || true
+helm uninstall postgresql-dev -n default 2>/dev/null || true
 ```
 
 **Verification:**
@@ -66,17 +65,13 @@ helm list --all-namespaces
 
 ---
 
-### 3. Delete Custom Namespaces
+### 3. Delete Lakehouse Namespace
 
-Deleting namespaces will cascade-delete all resources within them (pods, services, deployments, PVCs):
+Deleting the namespace will cascade-delete all resources within it (pods, services, deployments, PVCs):
 
 ```bash
-# Delete application namespaces
-kubectl delete namespace airbyte
-kubectl delete namespace dagster
-kubectl delete namespace trino
-kubectl delete namespace garage
-kubectl delete namespace database
+# Delete lakehouse namespace (contains all services)
+kubectl delete namespace lakehouse --wait=true
 ```
 
 **Warning:** This will delete all data stored in persistent volumes. If you want to preserve data, back up PVCs first.
@@ -216,20 +211,18 @@ After completing teardown, you should have:
 If you want to run all commands at once (not recommended for learning):
 
 ```bash
-# Uninstall Helm releases
-helm uninstall dagster -n dagster 2>/dev/null || true
+# Uninstall Helm releases from lakehouse namespace
+helm uninstall dagster -n lakehouse 2>/dev/null || true
+helm uninstall trino -n lakehouse 2>/dev/null || true
+helm uninstall airbyte -n lakehouse 2>/dev/null || true
+helm uninstall garage -n lakehouse 2>/dev/null || true
+
+# Clean up old dev instances
 helm uninstall dagster-dev -n default 2>/dev/null || true
-helm uninstall trino -n trino 2>/dev/null || true
-helm uninstall airbyte -n airbyte 2>/dev/null || true
-helm uninstall garage -n garage 2>/dev/null || true
 helm uninstall postgresql-dev -n default 2>/dev/null || true
 
-# Delete namespaces (wait for each to complete)
-kubectl delete namespace airbyte --wait=true
-kubectl delete namespace dagster --wait=true
-kubectl delete namespace trino --wait=true
-kubectl delete namespace garage --wait=true
-kubectl delete namespace database --wait=true
+# Delete lakehouse namespace (waits for completion)
+kubectl delete namespace lakehouse --wait=true
 
 # Verify cleanup
 kubectl get namespaces

@@ -241,7 +241,7 @@ lakehouse_analytics:
   outputs:
     dev:
       type: trino
-      host: localhost  # Via port-forward: kubectl port-forward -n trino svc/trino 8080:8080
+      host: localhost  # Via port-forward: kubectl port-forward -n lakehouse svc/trino 8080:8080
       port: 8080
       database: lakehouse
       schema: analytics
@@ -250,7 +250,7 @@ lakehouse_analytics:
 
     prod:
       type: trino
-      host: trino.trino.svc.cluster.local  # From within cluster (Dagster)
+      host: trino  # From within cluster (Dagster)
       port: 8080
       database: lakehouse
       schema: analytics
