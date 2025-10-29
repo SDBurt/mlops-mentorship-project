@@ -242,7 +242,7 @@ spec:
 
 **Verify volume mounts** inside pod:
 ```bash
-kubectl exec -n garage garage-0 -- df -h
+kubectl exec -n lakehouse garage-0 -- df -h
 
 # Expected output:
 # Filesystem      Size  Used  Avail  Use%  Mounted on
@@ -462,11 +462,11 @@ kubectl describe pod garage-0 -n garage
 kubectl get pvc -n garage
 
 # Check pod node and PV node match (for RWO volumes)
-kubectl get pod garage-0 -n garage -o wide
+kubectl get pod garage-0 -n lakehouse -o wide
 kubectl get pv <pv-name> -o yaml | grep nodeAffinity
 
 # Check volume mount permissions inside pod
-kubectl exec -n garage garage-0 -- ls -la /data
+kubectl exec -n lakehouse garage-0 -- ls -la /data
 ```
 
 ### Data Lost After Pod Restart
@@ -481,7 +481,7 @@ kubectl exec -n garage garage-0 -- ls -la /data
 **Verify storage is persistent**:
 ```bash
 # Check pod uses PVC (not emptyDir)
-kubectl get pod garage-0 -n garage -o yaml | grep -A 10 volumes
+kubectl get pod garage-0 -n lakehouse -o yaml | grep -A 10 volumes
 
 # Should show:
 # volumes:
@@ -505,7 +505,7 @@ kubectl get pod garage-0 -n garage -o yaml | grep -A 10 volumes
 **Symptom**: Application logs show disk space errors
 
 ```bash
-kubectl exec -n garage garage-0 -- df -h
+kubectl exec -n lakehouse garage-0 -- df -h
 
 # Filesystem      Size  Used  Avail  Use%  Mounted on
 # /dev/sda1       10G   10G   0      100%  /data  # ← Full!
@@ -537,13 +537,13 @@ kubectl describe pvc data-garage-0 -n garage
 **Option 2: Clean up data**:
 ```bash
 # Delete old files inside pod
-kubectl exec -n garage garage-0 -- rm -rf /data/old-data/*
+kubectl exec -n lakehouse garage-0 -- rm -rf /data/old-data/*
 ```
 
 **Option 3: Add new PVC**:
 ```bash
 # Scale StatefulSet to add replica with new PVC
-kubectl scale statefulset garage -n garage --replicas=2
+kubectl scale statefulset garage -n lakehouse --replicas=2
 ```
 
 ## Integration with Other Components
@@ -620,7 +620,7 @@ reclaimPolicy: Delete
 
 ```bash
 # Check PVC usage from inside pods
-kubectl exec -n garage garage-0 -- df -h
+kubectl exec -n lakehouse garage-0 -- df -h
 
 # Check node storage (Docker Desktop)
 kubectl top nodes

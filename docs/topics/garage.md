@@ -67,7 +67,7 @@ aws s3 ls s3://lakehouse/raw/ --endpoint-url http://localhost:3900 --profile gar
 
 **Integration - Trino S3 Configuration**:
 ```properties
-hive.s3.endpoint=http://garage.garage.svc.cluster.local:3900
+hive.s3.endpoint=http://garage:3900
 hive.s3.path-style-access=true  # Required for Garage
 hive.s3.aws-access-key=<from-garage-key-create>
 hive.s3.aws-secret-key=<from-garage-key-create>
@@ -123,10 +123,10 @@ Zone: dc1
 **Step 1: Check cluster status**
 ```bash
 # Get Garage pod name
-GARAGE_POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+GARAGE_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
 
 # View current status
-kubectl exec -n garage $GARAGE_POD -- /garage status
+kubectl exec -n lakehouse $GARAGE_POD -- /garage status
 ```
 
 **Expected output (before initialization)**:
@@ -139,11 +139,11 @@ ID                                Hostname  Address         Tags  Zone  Capacity
 **Step 2: Assign storage role**
 ```bash
 # Get node ID
-NODE_ID=$(kubectl exec -n garage $GARAGE_POD -- /garage status 2>/dev/null | \
+NODE_ID=$(kubectl exec -n lakehouse $GARAGE_POD -- /garage status 2>/dev/null | \
   grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
 
 # Assign role with capacity
-kubectl exec -n garage $GARAGE_POD -- /garage layout assign \
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout assign \
   -z garage-dc \
   -c 10G \
   $NODE_ID
@@ -156,18 +156,18 @@ kubectl exec -n garage $GARAGE_POD -- /garage layout assign \
 
 **Step 3: Review proposed layout**
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage layout show
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout show
 ```
 
 **Step 4: Apply layout**
 ```bash
 # Apply layout version 1 (first-time setup)
-kubectl exec -n garage $GARAGE_POD -- /garage layout apply --version 1
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout apply --version 1
 ```
 
 **Step 5: Verify**
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage status
+kubectl exec -n lakehouse $GARAGE_POD -- /garage status
 
 # Expected output (after initialization):
 # ==== HEALTHY NODES ====
@@ -183,14 +183,14 @@ kubectl exec -n garage $GARAGE_POD -- /garage status
 
 **Create bucket**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage bucket create lakehouse
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket create lakehouse
 ```
 
 **Access keys**: Credentials for S3 API authentication (like AWS access keys)
 
 **Create access key**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage key create lakehouse-access
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key create lakehouse-access
 ```
 
 **Output**:
@@ -203,13 +203,13 @@ Secret Access Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 **Grant bucket permissions**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage bucket allow \
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket allow \
   --read --write lakehouse --key lakehouse-access
 ```
 
 **List buckets**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage bucket list
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket list
 
 # Expected output:
 # BUCKET      VISIBILITY
@@ -218,7 +218,7 @@ kubectl exec -n garage $GARAGE_POD -- /garage bucket list
 
 **List keys**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage key list
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key list
 
 # Expected output:
 # Key ID              Key Name
@@ -243,7 +243,7 @@ Data written to all 3 nodes
 
 **Storage paths** (inside Garage pod):
 ```bash
-kubectl exec -n garage $GARAGE_POD -- ls -lh /data/
+kubectl exec -n lakehouse $GARAGE_POD -- ls -lh /data/
 
 # Output:
 # drwxr-xr-x 2 root root 4.0K data/
@@ -255,7 +255,7 @@ kubectl exec -n garage $GARAGE_POD -- ls -lh /data/
 
 **Check storage usage**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- df -h /data /meta
+kubectl exec -n lakehouse $GARAGE_POD -- df -h /data /meta
 
 # Output:
 # Filesystem      Size  Used  Avail Use% Mounted on
@@ -281,7 +281,7 @@ Garage deployed as [StatefulSet](stateful-applications.md) with:
 ```bash
 helm upgrade --install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage --create-namespace --wait
+  -n lakehouse --create-namespace --wait
 ```
 
 **What gets created**:
@@ -308,22 +308,22 @@ helm upgrade garage infrastructure/helm/garage \
   -n garage
 
 # Or scale StatefulSet directly
-kubectl scale statefulset garage -n garage --replicas=3
+kubectl scale statefulset garage -n lakehouse --replicas=3
 ```
 
 **Initialize new nodes**:
 ```bash
 # Assign roles to new nodes (garage-1, garage-2)
 for i in 1 2; do
-  NODE_ID=$(kubectl exec -n garage garage-$i -- /garage node id)
-  kubectl exec -n garage garage-0 -- /garage layout assign -z garage-dc -c 10G $NODE_ID
+  NODE_ID=$(kubectl exec -n lakehouse garage-$i -- /garage node id)
+  kubectl exec -n lakehouse garage-0 -- /garage layout assign -z garage-dc -c 10G $NODE_ID
 done
 
 # Apply layout version 2
-kubectl exec -n garage garage-0 -- /garage layout apply --version 2
+kubectl exec -n lakehouse garage-0 -- /garage layout apply --version 2
 
 # Verify
-kubectl exec -n garage garage-0 -- /garage status
+kubectl exec -n lakehouse garage-0 -- /garage status
 ```
 
 **Result**: Data automatically rebalanced across 3 nodes.
@@ -338,7 +338,7 @@ global:
   storage:
     type: s3
     s3:
-      endpoint: http://garage.garage.svc.cluster.local:3900
+      endpoint: http://garage:3900
       bucketName: lakehouse
       accessKeyId: GK1234567890abcdefgh
       secretAccessKey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -353,7 +353,7 @@ global:
 **Configuration** (Trino Iceberg catalog):
 ```properties
 iceberg.catalog.type=hive_metastore
-hive.s3.endpoint=http://garage.garage.svc.cluster.local:3900
+hive.s3.endpoint=http://garage:3900
 hive.s3.path-style-access=true
 hive.s3.aws-access-key=GK1234567890abcdefgh
 hive.s3.aws-secret-key=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -375,7 +375,7 @@ hive.s3.aws-secret-key=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ### View Cluster Status
 
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage status
+kubectl exec -n lakehouse $GARAGE_POD -- /garage status
 
 # Shows: Node IDs, addresses, zones, capacity, data usage
 ```
@@ -383,7 +383,7 @@ kubectl exec -n garage $GARAGE_POD -- /garage status
 ### View Cluster Layout
 
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage layout show
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout show
 
 # Shows: Current layout, staged changes, partition distribution
 ```
@@ -392,50 +392,50 @@ kubectl exec -n garage $GARAGE_POD -- /garage layout show
 
 ```bash
 # Create bucket
-kubectl exec -n garage $GARAGE_POD -- /garage bucket create <bucket-name>
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket create <bucket-name>
 
 # List buckets
-kubectl exec -n garage $GARAGE_POD -- /garage bucket list
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket list
 
 # Delete bucket (must be empty)
-kubectl exec -n garage $GARAGE_POD -- /garage bucket delete <bucket-name>
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket delete <bucket-name>
 
 # View bucket info
-kubectl exec -n garage $GARAGE_POD -- /garage bucket info <bucket-name>
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket info <bucket-name>
 ```
 
 ### Key Management
 
 ```bash
 # Create key
-kubectl exec -n garage $GARAGE_POD -- /garage key create <key-name>
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key create <key-name>
 
 # List keys
-kubectl exec -n garage $GARAGE_POD -- /garage key list
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key list
 
 # Grant permissions
-kubectl exec -n garage $GARAGE_POD -- /garage bucket allow \
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket allow \
   --read --write <bucket> --key <key-name>
 
 # Revoke permissions
-kubectl exec -n garage $GARAGE_POD -- /garage bucket deny \
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket deny \
   --read --write <bucket> --key <key-name>
 
 # Delete key
-kubectl exec -n garage $GARAGE_POD -- /garage key delete <key-name>
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key delete <key-name>
 ```
 
 ### Monitoring
 
 ```bash
 # Check storage usage
-kubectl exec -n garage $GARAGE_POD -- df -h /data /meta
+kubectl exec -n lakehouse $GARAGE_POD -- df -h /data /meta
 
 # View Garage logs
-kubectl logs -n garage garage-0 --tail=100 -f
+kubectl logs -n lakehouse garage-0 --tail=100 -f
 
 # Describe pod for events
-kubectl describe pod -n garage garage-0
+kubectl describe pod -n lakehouse garage-0
 ```
 
 ## Troubleshooting
@@ -459,7 +459,7 @@ kubectl describe pod garage-0 -n garage
 
 **Check**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage status
+kubectl exec -n lakehouse $GARAGE_POD -- /garage status
 
 # If shows "NO ROLE ASSIGNED", cluster needs initialization
 ```
@@ -478,19 +478,19 @@ kubectl exec -n garage $GARAGE_POD -- /garage status
 **Debug**:
 ```bash
 # Verify key exists
-kubectl exec -n garage $GARAGE_POD -- /garage key list
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key list
 
 # Verify bucket exists
-kubectl exec -n garage $GARAGE_POD -- /garage bucket list
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket list
 
 # Check bucket permissions
-kubectl exec -n garage $GARAGE_POD -- /garage bucket info lakehouse
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket info lakehouse
 ```
 
 **Fix**:
 ```bash
 # Grant permissions
-kubectl exec -n garage $GARAGE_POD -- /garage bucket allow \
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket allow \
   --read --write lakehouse --key lakehouse-access
 ```
 
@@ -500,7 +500,7 @@ kubectl exec -n garage $GARAGE_POD -- /garage bucket allow \
 
 **Check**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- df -h /data
+kubectl exec -n lakehouse $GARAGE_POD -- df -h /data
 
 # If Use% is 100%, storage is full
 ```
@@ -529,8 +529,8 @@ kubectl edit pvc data-garage-0 -n garage
 
 **Test from client pod**:
 ```bash
-kubectl run -it --rm test --image=curlimages/curl --restart=Never -n airbyte -- \
-  curl -I http://garage.garage.svc.cluster.local:3900
+kubectl run -it --rm test --image=curlimages/curl --restart=Never -n lakehouse -- \
+  curl -I http://garage:3900
 ```
 
 **Expected**: HTTP response (403 if unauthenticated)
@@ -548,9 +548,9 @@ Don't wait - Garage is unusable until initialized:
 ```bash
 # Right after helm install
 helm upgrade --install garage ...
-kubectl wait --for=condition=ready pod/garage-0 -n garage --timeout=300s
+kubectl wait --for=condition=ready pod/garage-0 -n lakehouse --timeout=300s
 # Now initialize
-kubectl exec -n garage garage-0 -- /garage layout assign ...
+kubectl exec -n lakehouse garage-0 -- /garage layout assign ...
 ```
 
 ### 2. Use Meaningful Key Names
@@ -580,7 +580,7 @@ kubectl exec -n garage garage-0 -- /garage layout assign ...
 Set up alerts for >80% disk usage:
 ```bash
 # Check regularly
-kubectl exec -n garage garage-0 -- df -h /data | tail -1 | awk '{print $5}'
+kubectl exec -n lakehouse garage-0 -- df -h /data | tail -1 | awk '{print $5}'
 ```
 
 ### 5. Backup Garage Metadata
@@ -591,9 +591,9 @@ kubectl exec -n garage garage-0 -- df -h /data | tail -1 | awk '{print $5}'
 
 **Export configuration**:
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage layout show > garage-layout-backup.txt
-kubectl exec -n garage $GARAGE_POD -- /garage key list > garage-keys-backup.txt
-kubectl exec -n garage $GARAGE_POD -- /garage bucket list > garage-buckets-backup.txt
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout show > garage-layout-backup.txt
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key list > garage-keys-backup.txt
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket list > garage-buckets-backup.txt
 ```
 
 ## References

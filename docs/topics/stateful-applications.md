@@ -92,7 +92,7 @@ Distributed systems use these stable names for:
 **Example - Garage with Headless Service**:
 ```bash
 # Headless service (ClusterIP: None)
-kubectl get svc -n garage garage-headless
+kubectl get svc -n lakehouse garage-headless
 
 # NAME              TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)
 # garage-headless   ClusterIP   None         <none>        3900/TCP,3902/TCP
@@ -198,7 +198,7 @@ kubectl get pvc -n garage
 
 **Scale up** (1 → 3 replicas):
 ```bash
-kubectl scale statefulset garage -n garage --replicas=3
+kubectl scale statefulset garage -n lakehouse --replicas=3
 
 # Order of operations:
 # 1. Create garage-1
@@ -210,7 +210,7 @@ kubectl scale statefulset garage -n garage --replicas=3
 
 **Watch scaling in progress**:
 ```bash
-kubectl get pods -n garage --watch
+kubectl get pods -n lakehouse --watch
 
 # Output:
 # NAME       READY   STATUS              RESTARTS   AGE
@@ -223,7 +223,7 @@ kubectl get pods -n garage --watch
 
 **Scale down** (3 → 1 replicas):
 ```bash
-kubectl scale statefulset garage -n garage --replicas=1
+kubectl scale statefulset garage -n lakehouse --replicas=1
 
 # Order of operations:
 # 1. Delete garage-2 (highest ordinal first)
@@ -302,7 +302,7 @@ spec:
 
 **Result**:
 ```bash
-kubectl get all -n dagster -l app=postgresql
+kubectl get all -n lakehouse -l app=postgresql
 
 # pod/dagster-postgresql-0
 # service/dagster-postgresql (ClusterIP)
@@ -395,12 +395,12 @@ kubectl get all -n garage
 ```bash
 # Assign storage roles to all 3 nodes
 for i in 0 1 2; do
-  NODE_ID=$(kubectl exec -n garage garage-$i -- /garage status | grep garage-$i | awk '{print $1}')
-  kubectl exec -n garage garage-0 -- /garage layout assign -z dc1 -c 10G $NODE_ID
+  NODE_ID=$(kubectl exec -n lakehouse garage-$i -- /garage status | grep garage-$i | awk '{print $1}')
+  kubectl exec -n lakehouse garage-0 -- /garage layout assign -z dc1 -c 10G $NODE_ID
 done
 
 # Apply layout
-kubectl exec -n garage garage-0 -- /garage layout apply --version 1
+kubectl exec -n lakehouse garage-0 -- /garage layout apply --version 1
 ```
 
 ## Troubleshooting
@@ -453,10 +453,10 @@ kubectl describe node
 **Force delete**:
 ```bash
 # Delete StatefulSet without waiting for pods to terminate
-kubectl delete statefulset garage -n garage --cascade=orphan
+kubectl delete statefulset garage -n lakehouse --cascade=orphan
 
 # Then manually delete pods
-kubectl delete pod garage-0 garage-1 garage-2 -n garage --force --grace-period=0
+kubectl delete pod garage-0 garage-1 garage-2 -n lakehouse --force --grace-period=0
 ```
 
 **Warning**: Force deletion can cause data corruption. Use only when necessary.
@@ -485,7 +485,7 @@ kubectl delete pvc data-garage-2 meta-garage-2 -n garage
 **Reuse PVCs** (if scaling back up):
 ```bash
 # Scale back to 3
-kubectl scale statefulset garage -n garage --replicas=3
+kubectl scale statefulset garage -n lakehouse --replicas=3
 
 # garage-1 and garage-2 recreated and reattach to existing PVCs
 # Data from previous replicas is still there!
@@ -597,11 +597,11 @@ volumeClaimTemplates:
 
 ```bash
 # Test data survives scale-down and scale-up
-kubectl scale statefulset garage -n garage --replicas=3
+kubectl scale statefulset garage -n lakehouse --replicas=3
 # Wait for all pods ready
-kubectl scale statefulset garage -n garage --replicas=1
+kubectl scale statefulset garage -n lakehouse --replicas=1
 # Wait for scale-down
-kubectl scale statefulset garage -n garage --replicas=3
+kubectl scale statefulset garage -n lakehouse --replicas=3
 # Verify data still intact
 ```
 

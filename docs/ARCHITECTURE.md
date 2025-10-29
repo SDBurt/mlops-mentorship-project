@@ -1891,15 +1891,18 @@ training_data = spark.read.format("iceberg") \
 
 **Namespace Organization:**
 
+Following Kubernetes best practices - services that communicate should live together:
+
 ```
-lakehouse               # Core data platform
+lakehouse               # Core data platform (SINGLE namespace)
 ├── garage              # S3 storage
 ├── airbyte             # Data ingestion
 ├── dagster             # Orchestration
 ├── trino               # Query engine
-└── superset            # BI/Analytics
+├── postgres            # PostgreSQL metadata DB
+└── superset            # BI/Analytics (Phase 2+)
 
-ml-platform             # ML workloads
+ml-platform             # ML workloads (separate namespace - Phase 4+)
 ├── feast
 │   ├── feast-jobservice
 │   └── redis-feast (online store)
@@ -1910,6 +1913,18 @@ ml-platform             # ML workloads
 │   └── kserve-controller
 └── mlflow              # Experiment tracking
 ```
+
+**Why single `lakehouse` namespace?**
+- All data platform services communicate frequently
+- Simplified DNS: `garage:3900` instead of `garage.garage.svc.cluster.local:3900`
+- Easier configuration and debugging
+- Follows [Kubernetes namespace best practices](https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces)
+
+**Service Communication within `lakehouse` namespace:**
+- Airbyte → Garage: `http://garage:3900`
+- Trino → Garage: `http://garage:3900`
+- Dagster → Trino: `http://trino:8080`
+- All services → PostgreSQL: `postgres:5432`
 
 **Resource Requirements:**
 
@@ -2383,16 +2398,16 @@ SELECT email FROM analytics.users LIMIT 3;
 
 **Create Bucket:**
 ```bash
-POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
 
 # Create bucket
-kubectl exec -n garage $POD -- garage bucket create lakehouse
+kubectl exec -n lakehouse $POD -- garage bucket create lakehouse
 
 # Generate access key
-kubectl exec -n garage $POD -- garage key new --name lakehouse-access
+kubectl exec -n lakehouse $POD -- garage key new --name lakehouse-access
 
 # Link key to bucket
-kubectl exec -n garage $POD -- garage bucket allow \
+kubectl exec -n lakehouse $POD -- garage bucket allow \
   --read --write lakehouse \
   --key lakehouse-access
 ```

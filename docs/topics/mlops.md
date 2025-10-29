@@ -220,7 +220,7 @@ dvc init
 
 # Configure remote storage (Garage S3)
 dvc remote add -d garage s3://lakehouse/dvc
-dvc remote modify garage endpointurl http://garage.garage.svc.cluster.local:3900
+dvc remote modify garage endpointurl http://garage:3900
 ```
 
 **Track data**:

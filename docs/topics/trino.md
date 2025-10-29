@@ -86,7 +86,7 @@ coordinator:
       connector.name=iceberg
       iceberg.catalog.type=hive_metastore
       hive.metastore.uri=thrift://hive-metastore.database.svc.cluster.local:9083
-      hive.s3.endpoint=http://garage.garage.svc.cluster.local:3900
+      hive.s3.endpoint=http://garage:3900
       hive.s3.path-style-access=true
       hive.s3.aws-access-key=<from-garage-key-create>
       hive.s3.aws-secret-key=<from-garage-key-create>
@@ -136,7 +136,7 @@ JOIN dim_customer c ON o.customer_key = c.customer_key;
 ```bash
 helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
-  -n trino --create-namespace --wait --timeout 10m
+  -n lakehouse --create-namespace --wait --timeout 10m
 ```
 
 **Components**:
@@ -146,13 +146,13 @@ helm upgrade --install trino trino/trino \
 **Accessing Trino**:
 ```bash
 # Port-forward UI
-kubectl port-forward -n trino svc/trino 8081:8080
+kubectl port-forward -n lakehouse svc/trino 8081:8080
 
 # Access UI: http://localhost:8081
 
 # CLI access
-TRINO_POD=$(kubectl get pod -n trino -l app.kubernetes.io/component=coordinator -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it -n trino $TRINO_POD -- trino
+TRINO_POD=$(kubectl get pod -n lakehouse -l app.kubernetes.io/component=coordinator -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it -n lakehouse $TRINO_POD -- trino
 ```
 
 ## Common SQL Operations
@@ -264,7 +264,7 @@ lakehouse:
 
     prod:
       type: trino
-      host: trino.trino.svc.cluster.local  # From within cluster
+      host: trino  # From within cluster
       port: 8080
       database: lakehouse
       schema: analytics
@@ -351,7 +351,7 @@ worker:
 
 **Check**:
 ```bash
-kubectl exec -n trino $TRINO_POD -- curl -I http://garage.garage.svc.cluster.local:3900
+kubectl exec -n lakehouse $TRINO_POD -- curl -I http://garage:3900
 ```
 
 **Verify** catalog configuration has correct endpoint and credentials.
