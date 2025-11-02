@@ -66,10 +66,10 @@ postgresql:
 
 **Result**:
 ```bash
-kubectl get pods -n airbyte | grep postgresql
+kubectl get pods -n lakehouse | grep postgresql
 # airbyte-airbyte-postgresql-0
 
-kubectl get pods -n dagster | grep postgresql
+kubectl get pods -n lakehouse | grep postgresql
 # dagster-postgresql-0
 ```
 
@@ -108,10 +108,10 @@ postgresql://dagster:password@dagster-postgresql.dagster.svc.cluster.local:5432/
 **Via kubectl exec**:
 ```bash
 # Airbyte PostgreSQL
-kubectl exec -it -n airbyte airbyte-airbyte-postgresql-0 -- psql -U airbyte -d airbyte
+kubectl exec -it -n lakehouse airbyte-airbyte-postgresql-0 -- psql -U airbyte -d airbyte
 
 # Dagster PostgreSQL
-kubectl exec -it -n dagster dagster-postgresql-0 -- psql -U dagster -d dagster
+kubectl exec -it -n lakehouse dagster-postgresql-0 -- psql -U dagster -d dagster
 ```
 
 ### Query Metadata
@@ -136,11 +136,11 @@ LIMIT 10;
 
 ```bash
 # Dump Airbyte database
-kubectl exec -n airbyte airbyte-airbyte-postgresql-0 -- \
+kubectl exec -n lakehouse airbyte-airbyte-postgresql-0 -- \
   pg_dump -U airbyte airbyte > airbyte-backup.sql
 
 # Restore
-cat airbyte-backup.sql | kubectl exec -i -n airbyte airbyte-airbyte-postgresql-0 -- \
+cat airbyte-backup.sql | kubectl exec -i -n lakehouse airbyte-airbyte-postgresql-0 -- \
   psql -U airbyte -d airbyte
 ```
 
@@ -164,7 +164,7 @@ postgresql:
 
 Monitor usage:
 ```bash
-kubectl exec -n airbyte airbyte-airbyte-postgresql-0 -- df -h /var/lib/postgresql
+kubectl exec -n lakehouse airbyte-airbyte-postgresql-0 -- df -h /var/lib/postgresql
 ```
 
 Increase if needed:

@@ -7,7 +7,8 @@ This guide walks you through deploying the entire lakehouse platform **manually*
 By completing this guide, you'll understand:
 - Kubernetes core concepts: Pods, Services, Namespaces, PersistentVolumes
 - Helm package management
-- Cross-namespace service communication
+- Same-namespace service communication (simplified DNS)
+- Namespace strategy (grouping communicating services)
 - Stateful application deployment
 - S3-compatible object storage (Garage)
 - Distributed SQL query engines (Trino)
@@ -15,12 +16,14 @@ By completing this guide, you'll understand:
 ## Overview
 
 You'll deploy these components in order:
-1. **Prerequisites**: Helm repos and namespaces
+1. **Prerequisites**: Helm repos and single lakehouse namespace
 2. **Garage**: S3-compatible object storage (stores Parquet files)
 3. **PostgreSQL**: Metadata database (for Airbyte/Dagster)
 4. **Airbyte**: Data ingestion platform
 5. **Dagster**: Workflow orchestration
 6. **Trino**: Distributed SQL query engine
+
+**Note**: All services deploy to a single `lakehouse` namespace, following Kubernetes best practices - services that communicate should live together.
 
 **Estimated time**: 2-3 hours (if reading carefully and understanding each step)
 
@@ -32,7 +35,8 @@ Before starting, here are key Kubernetes concepts you'll encounter:
 
 **Namespace**: A virtual cluster within your Kubernetes cluster. Provides isolation and organization.
 - Think of it like a folder that groups related resources
-- Prevents name conflicts between different applications
+- Best practice: Group services that communicate together in the same namespace
+- This lakehouse uses a single `lakehouse` namespace for all services
 
 **Pod**: The smallest deployable unit. One or more containers running together.
 - Your application runs inside a pod
@@ -40,7 +44,8 @@ Before starting, here are key Kubernetes concepts you'll encounter:
 
 **Service**: A stable network endpoint to access pods.
 - Pods have changing IPs, Services provide consistent DNS names
-- Example: `garage.garage.svc.cluster.local`
+- Same namespace: `garage:3900` (simplified)
+- Full DNS: `garage.lakehouse.svc.cluster.local:3900` (works but verbose)
 
 **PersistentVolumeClaim (PVC)**: Request for storage that survives pod restarts.
 - Data persists even if pod is deleted
@@ -163,17 +168,18 @@ ls -la infrastructure/helm/garage/
 - Production-ready distributed architecture
 - No cloud dependencies
 
-### 1. Create Namespace
+### 1. Create Lakehouse Namespace
 
-**What you're doing**: Creating an isolated "virtual cluster" for Garage resources.
+**What you're doing**: Creating a single namespace for ALL lakehouse services (Garage, Airbyte, Dagster, Trino, PostgreSQL).
 
-**Why namespaces matter**:
-- Keeps Garage separate from other apps
-- Prevents name conflicts (multiple apps can have "postgres" service in different namespaces)
-- Allows different teams to work independently
+**Why a single namespace?**:
+- **Best practice**: Services that communicate should live together ([source](https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces))
+- **Simplified DNS**: Use `service:port` instead of `service.namespace.svc.cluster.local:port`
+- **Easier management**: All lakehouse resources in one place
+- **Reduced complexity**: No cross-namespace networking configuration needed
 
 ```bash
-kubectl apply -f infrastructure/kubernetes/namespaces/garage.yaml
+kubectl apply -f infrastructure/kubernetes/namespace.yaml
 ```
 
 **What `kubectl apply` does**:
@@ -182,16 +188,18 @@ kubectl apply -f infrastructure/kubernetes/namespaces/garage.yaml
 
 **Verification:**
 ```bash
-kubectl get namespace garage
+kubectl get namespace lakehouse
 ```
 
 **Expected output:**
 ```
-NAME     STATUS   AGE
-garage   Active   Xs
+NAME        STATUS   AGE
+lakehouse   Active   Xs
 ```
 
 **What STATUS "Active" means**: Namespace is ready for use.
+
+**Important**: You only need to create this namespace once - all services will use it.
 
 ---
 
@@ -202,7 +210,7 @@ garage   Active   Xs
 ```bash
 helm upgrade --install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage --create-namespace --wait
+  -n lakehouse --wait
 ```
 
 **Breaking down this command:**
@@ -210,8 +218,7 @@ helm upgrade --install garage infrastructure/helm/garage \
 - `garage` - Release name (your installation identifier)
 - `infrastructure/helm/garage` - Path to the chart
 - `-f values.yaml` - Override default settings with your configuration
-- `-n garage` - Deploy into the "garage" namespace
-- `--create-namespace` - Create namespace if it doesn't exist (safety)
+- `-n lakehouse` - Deploy into the "lakehouse" namespace (with all other services)
 - `--wait` - Don't return until all pods are Running (blocks terminal)
 
 **What gets created:**
@@ -226,7 +233,7 @@ helm upgrade --install garage infrastructure/helm/garage \
 **Verification:**
 ```bash
 # Check pod is running
-kubectl get pods -n garage
+kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage
 ```
 
 **Expected output:**
@@ -239,7 +246,7 @@ garage-0   1/1     Running   0          30s
 
 ```bash
 # Check services exist
-kubectl get svc -n garage
+kubectl get svc -n lakehouse | grep garage
 ```
 
 **Expected output:**
@@ -253,7 +260,7 @@ garage-headless   ClusterIP   None            <none>        3900/TCP,3902/TCP   
 
 ```bash
 # Check persistent volumes are bound
-kubectl get pvc -n garage
+kubectl get pvc -n lakehouse | grep garage
 ```
 
 **Expected output:**
@@ -289,16 +296,16 @@ Garage is a **distributed storage system**. Even though you only have 1 pod now,
 
 ```bash
 # Save pod name to variable for convenience
-GARAGE_POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+GARAGE_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
 echo "Garage pod: $GARAGE_POD"
 
 # Run /garage status command inside the pod
-kubectl exec -n garage $GARAGE_POD -- /garage status
+kubectl exec -n lakehouse $GARAGE_POD -- /garage status
 ```
 
 **Breaking down this command:**
 - `kubectl exec` - Run a command inside a running pod
-- `-n garage` - In the garage namespace
+- `-n lakehouse` - In the lakehouse namespace
 - `$GARAGE_POD` - The pod name (garage-0)
 - `--` - Separates kubectl flags from the command to run
 - `/garage status` - Garage CLI command (runs inside container)
@@ -322,11 +329,11 @@ ID                Hostname  Address         Tags  Zone  Capacity          DataAv
 
 ```bash
 # Extract node ID from status output
-NODE_ID=$(kubectl exec -n garage $GARAGE_POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
+NODE_ID=$(kubectl exec -n lakehouse $GARAGE_POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
 echo "Node ID: $NODE_ID"
 
 # Assign storage role with 10GB capacity
-kubectl exec -n garage $GARAGE_POD -- /garage layout assign -z garage-dc -c 10G $NODE_ID
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout assign -z garage-dc -c 10G $NODE_ID
 ```
 
 **Breaking down the layout assign command:**
@@ -351,7 +358,7 @@ and `garage layout apply` to enact staged changes.
 **What you're doing**: Viewing what will change when you apply the layout.
 
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage layout show
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout show
 ```
 
 **Expected output (annotated):**
@@ -406,7 +413,7 @@ garage-dc           Tags  Partitions        Capacity  Usable capacity
 
 ```bash
 # Apply layout version 1
-kubectl exec -n garage $GARAGE_POD -- /garage layout apply --version 1
+kubectl exec -n lakehouse $GARAGE_POD -- /garage layout apply --version 1
 ```
 
 **Why `--version 1`?**
@@ -425,7 +432,7 @@ Version 1 of cluster layout applied.
 **What you're doing**: Confirming the node now has a storage role.
 
 ```bash
-kubectl exec -n garage $GARAGE_POD -- /garage status
+kubectl exec -n lakehouse $GARAGE_POD -- /garage status
 ```
 
 **Expected output:**
@@ -451,7 +458,7 @@ ID                Hostname  Address         Tags  Zone       Capacity  DataAvail
 
 ```bash
 # Create S3 bucket named "lakehouse"
-kubectl exec -n garage $GARAGE_POD -- /garage bucket create lakehouse
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket create lakehouse
 ```
 
 **Expected output:**
@@ -461,7 +468,7 @@ Bucket lakehouse has been created
 
 ```bash
 # Create access key (like AWS Access Key ID / Secret Access Key)
-kubectl exec -n garage $GARAGE_POD -- /garage key create lakehouse-access
+kubectl exec -n lakehouse $GARAGE_POD -- /garage key create lakehouse-access
 ```
 
 **Expected output:**
@@ -478,14 +485,14 @@ Secret Access Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ```bash
 # Grant read/write permissions to the bucket
-kubectl exec -n garage $GARAGE_POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access
 ```
 
 **What this does**: Authorizes the access key to read and write objects in the "lakehouse" bucket.
 
 ```bash
 # Verify bucket exists
-kubectl exec -n garage $GARAGE_POD -- /garage bucket list
+kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket list
 ```
 
 **Expected output:**
@@ -500,7 +507,7 @@ Test Garage S3 API using AWS CLI (requires `aws` command installed):
 
 ```bash
 # Port-forward S3 API to test locally
-kubectl port-forward -n garage svc/garage 3900:3900 &
+kubectl port-forward -n lakehouse svc/garage 3900:3900 &
 PF_PID=$!
 sleep 2
 
@@ -591,7 +598,7 @@ kubectl apply -f infrastructure/kubernetes/airbyte/airbyte-storage-secrets.yaml
 helm upgrade --install airbyte airbyte-v2/airbyte \
   --version 2.0.18 \
   -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n airbyte --create-namespace --wait --timeout 10m
+  -n lakehouse --create-namespace --wait --timeout 10m
 ```
 
 **Why `--timeout 10m`?** Airbyte has many components and can take 5-10 minutes to fully start.
@@ -605,7 +612,7 @@ helm upgrade --install airbyte airbyte-v2/airbyte \
 6. **airbyte-cron** - Scheduled tasks
 7. **airbyte-connector-builder-server** - Build custom connectors
 
-**This takes time**: Watch progress with `kubectl get pods -n airbyte --watch`
+**This takes time**: Watch progress with `kubectl get pods -n lakehouse --watch`
 
 ---
 
@@ -631,12 +638,12 @@ airbyte-connector-builder-server-xxxxx            1/1     Running   0          5
 **If pods are CrashLooping:**
 ```bash
 # Check logs for errors
-kubectl logs -n airbyte <pod-name>
+kubectl logs -n lakehouse <pod-name>
 ```
 
 **Common issues:**
-- Storage secret errors: Verify storage secrets applied (`kubectl get secret airbyte-storage-secrets -n airbyte`)
-- PostgreSQL pod not ready: Check embedded database (`kubectl get pods -n airbyte | grep postgresql`)
+- Storage secret errors: Verify storage secrets applied (`kubectl get secret airbyte-storage-secrets -n lakehouse`)
+- PostgreSQL pod not ready: Check embedded database (`kubectl get pods -n lakehouse | grep postgresql`)
 
 ---
 
@@ -647,7 +654,7 @@ kubectl logs -n airbyte <pod-name>
 ```bash
 # Port-forward Airbyte UI to localhost
 # Note: In Airbyte V2, the UI is served by airbyte-server (not a separate webapp)
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
 ```
 
 **What port-forward does:**
@@ -693,7 +700,7 @@ kubectl apply -f infrastructure/kubernetes/namespaces/dagster.yaml
 ```bash
 helm upgrade --install dagster dagster/dagster \
   -f infrastructure/kubernetes/dagster/values.yaml \
-  -n dagster --create-namespace
+  -n lakehouse --create-namespace
 ```
 
 **Important**: The install may timeout waiting for user-code deployment, but that's expected. The core components will be running.
@@ -702,7 +709,7 @@ helm upgrade --install dagster dagster/dagster \
 
 ```bash
 # Scale down the example user-code deployment to 0 replicas
-kubectl scale deployment -n dagster dagster-dagster-user-deployments-dagster-user-code --replicas=0
+kubectl scale deployment -n lakehouse dagster-dagster-user-deployments-dagster-user-code --replicas=0
 ```
 
 **Verify all pods are running:**
@@ -735,7 +742,7 @@ dagster-postgresql-0                        1/1     Running   0          2m
 
 ```bash
 # Port-forward in separate terminal
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 ```
 
 Open browser to: http://localhost:3000
@@ -758,14 +765,14 @@ Open browser to: http://localhost:3000
 - ANSI SQL interface
 - No data movement (queries in place)
 
-### 1-2. Create Namespace and Deploy
+### 1-2. Deploy Trino
+
+**Note**: No need to create namespace - using existing `lakehouse` namespace.
 
 ```bash
-kubectl apply -f infrastructure/kubernetes/namespaces/trino.yaml
-
 helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
-  -n trino --create-namespace --wait --timeout 10m
+  -n lakehouse --wait --timeout 10m
 ```
 
 **What gets deployed:**
@@ -778,7 +785,7 @@ helm upgrade --install trino trino/trino \
 
 ```bash
 # Port-forward (use 8081 to avoid conflict with Airbyte on 8080)
-kubectl port-forward -n trino svc/trino 8081:8080
+kubectl port-forward -n lakehouse svc/trino 8081:8080
 ```
 
 Open browser to: http://localhost:8081
@@ -789,10 +796,10 @@ Open browser to: http://localhost:8081
 
 ```bash
 # Get coordinator pod name
-TRINO_POD=$(kubectl get pods -n trino -l app.kubernetes.io/component=coordinator -o jsonpath='{.items[0].metadata.name}')
+TRINO_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/component=coordinator -o jsonpath='{.items[0].metadata.name}')
 
 # Connect to Trino CLI
-kubectl exec -it -n trino $TRINO_POD -- trino
+kubectl exec -it -n lakehouse $TRINO_POD -- trino
 
 # Inside Trino CLI:
 SHOW CATALOGS;
@@ -825,21 +832,23 @@ kubectl get svc --all-namespaces | grep -E 'garage|airbyte|dagster|trino|databas
 
 ---
 
-### 2. Test Cross-Namespace Connectivity
+### 2. Test Same-Namespace Service Connectivity
 
-**What you're testing**: Services can reach each other across namespaces using DNS.
+**What you're testing**: Services can reach each other using simplified DNS (all in same namespace).
 
 ```bash
-# Test Garage S3 from Trino namespace
-TRINO_POD=$(kubectl get pods -n trino -l app=trino,component=coordinator -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it -n trino $TRINO_POD -- curl -I http://garage.garage.svc.cluster.local:3900
+# Test Garage S3 from Trino pod (same namespace - use short DNS)
+TRINO_POD=$(kubectl get pods -n lakehouse -l app=trino,component=coordinator -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it -n lakehouse $TRINO_POD -- curl -I http://garage:3900
 
-# Test Garage S3 from Airbyte namespace
-AIRBYTE_POD=$(kubectl get pods -n airbyte -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it -n airbyte $AIRBYTE_POD -- curl -I http://garage.garage.svc.cluster.local:3900
+# Test Garage S3 from Airbyte pod (same namespace - use short DNS)
+AIRBYTE_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it -n lakehouse $AIRBYTE_POD -- curl -I http://garage:3900
 ```
 
 **Expected**: Both commands succeed (HTTP 403 or 200 response from Garage S3 API).
+
+**Note the simplified DNS**: `garage:3900` instead of `garage.garage.svc.cluster.local:3900` - this is because all services are in the same `lakehouse` namespace!
 
 ---
 
@@ -849,13 +858,13 @@ kubectl exec -it -n airbyte $AIRBYTE_POD -- curl -I http://garage.garage.svc.clu
 
 ```bash
 # Terminal 1: Airbyte
-kubectl port-forward -n airbyte svc/airbyte-airbyte-webapp-svc 8080:80
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-webapp-svc 8080:80
 
 # Terminal 2: Dagster
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 
 # Terminal 3: Trino
-kubectl port-forward -n trino svc/trino 8081:8080
+kubectl port-forward -n lakehouse svc/trino 8081:8080
 ```
 
 **Access:**

@@ -41,11 +41,11 @@ Data Sources → Airbyte → Garage/S3 (Parquet)
 - **Silver**: Cleaned dimensions (incremental Iceberg tables)
 - **Gold**: Business facts (star schema for analytics)
 
-**Kubernetes Namespaces:**
-- `garage` - S3-compatible storage
-- `airbyte` - Data ingestion (includes embedded PostgreSQL)
-- `dagster` - Orchestration (includes embedded PostgreSQL)
-- `trino` - Query engine
+**Kubernetes Namespace Strategy:**
+- **Single `lakehouse` namespace** for all data platform services
+- **Why?** Services that communicate together should live together ([K8s best practices](https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces))
+- **Services in namespace:** Garage (S3 storage), Airbyte (ingestion), Dagster (orchestration), Trino (query engine), PostgreSQL (metadata)
+- **Benefits:** Simplified DNS (use `service:port` instead of `service.namespace.svc.cluster.local:port`), easier service discovery, reduced complexity
 
 ## Commands
 
@@ -67,26 +67,29 @@ git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/garage.git /tmp/garage-
 cp -r /tmp/garage-repo/script/helm/garage infrastructure/helm/garage
 rm -rf /tmp/garage-repo
 
-# Deploy services (order matters - see SETUP_GUIDE.md)
+# Create lakehouse namespace
+kubectl apply -f infrastructure/kubernetes/namespace.yaml
+
+# Deploy services to lakehouse namespace (order matters - see SETUP_GUIDE.md)
 # 1. Garage (storage)
 helm upgrade --install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage --create-namespace --wait
+  -n lakehouse --wait
 
 # 2. Airbyte (ingestion - includes embedded PostgreSQL)
 helm upgrade --install airbyte airbyte/airbyte --version 1.8.5 \
   -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n airbyte --create-namespace --wait --timeout 10m
+  -n lakehouse --wait --timeout 10m
 
 # 3. Dagster (orchestration - includes embedded PostgreSQL)
 helm upgrade --install dagster dagster/dagster \
   -f infrastructure/kubernetes/dagster/values.yaml \
-  -n dagster --create-namespace --wait --timeout 10m
+  -n lakehouse --wait --timeout 10m
 
 # 4. Trino (query engine)
 helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
-  -n trino --create-namespace --wait --timeout 10m
+  -n lakehouse --wait --timeout 10m
 ```
 
 ### Teardown
@@ -96,29 +99,29 @@ helm upgrade --install trino trino/trino \
 Quick reference:
 ```bash
 # Uninstall Helm releases
-helm uninstall dagster -n dagster
-helm uninstall trino -n trino
-helm uninstall airbyte -n airbyte
-helm uninstall garage -n garage
+helm uninstall dagster -n lakehouse
+helm uninstall trino -n lakehouse
+helm uninstall airbyte -n lakehouse
+helm uninstall garage -n lakehouse
 
-# Delete namespaces
-kubectl delete namespace airbyte dagster trino garage
+# Delete namespace (deletes all resources)
+kubectl delete namespace lakehouse
 ```
 
 ### Check Status
 
 ```bash
-# All pods across lakehouse namespaces
-kubectl get pods --all-namespaces | grep -E 'garage|airbyte|dagster|trino'
+# All pods in lakehouse namespace
+kubectl get pods -n lakehouse
 
-# All services
-kubectl get svc --all-namespaces | grep -E 'garage|airbyte|dagster|trino'
+# All services in lakehouse namespace
+kubectl get svc -n lakehouse
 
-# Helm releases
-helm list --all-namespaces
+# Helm releases in lakehouse namespace
+helm list -n lakehouse
 
 # Pod logs
-kubectl logs -n <namespace> <pod-name> --tail=100 -f
+kubectl logs -n lakehouse <pod-name> --tail=100 -f
 ```
 
 ### Port-Forward Services
@@ -128,18 +131,18 @@ kubectl logs -n <namespace> <pod-name> --tail=100 -f
 ```bash
 # Airbyte UI (separate terminal)
 # Note: In Airbyte V2, the UI is served by airbyte-server
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
 
 # Dagster UI (separate terminal)
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 
 # Trino UI (separate terminal)
-kubectl port-forward -n trino svc/trino 8080:8080
+kubectl port-forward -n lakehouse svc/trino 8080:8080
 # Note: Conflicts with Airbyte on 8080 - use 8081 instead:
-kubectl port-forward -n trino svc/trino 8081:8080
+kubectl port-forward -n lakehouse svc/trino 8081:8080
 
 # Garage S3 API (separate terminal)
-kubectl port-forward -n garage svc/garage 3900:3900
+kubectl port-forward -n lakehouse svc/garage 3900:3900
 ```
 
 Access:
@@ -153,34 +156,34 @@ Access:
 
 ```bash
 # Get Garage pod name
-POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
 
 # Check cluster status
-kubectl exec -n garage $POD -- /garage status
+kubectl exec -n lakehouse $POD -- /garage status
 
 # Initialize cluster (first-time setup only)
 # 1. Get node ID
-NODE_ID=$(kubectl exec -n garage $POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
+NODE_ID=$(kubectl exec -n lakehouse $POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
 
 # 2. Assign storage role with capacity
-kubectl exec -n garage $POD -- /garage layout assign -z garage-dc -c 10G $NODE_ID
+kubectl exec -n lakehouse $POD -- /garage layout assign -z garage-dc -c 10G $NODE_ID
 
 # 3. Apply layout (version 1 for first setup)
-kubectl exec -n garage $POD -- /garage layout apply --version 1
+kubectl exec -n lakehouse $POD -- /garage layout apply --version 1
 
 # 4. Verify initialization
-kubectl exec -n garage $POD -- /garage status
+kubectl exec -n lakehouse $POD -- /garage status
 
 # Create S3 bucket and access key
-kubectl exec -n garage $POD -- /garage bucket create lakehouse
-kubectl exec -n garage $POD -- /garage key create lakehouse-access
-kubectl exec -n garage $POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access
+kubectl exec -n lakehouse $POD -- /garage bucket create lakehouse
+kubectl exec -n lakehouse $POD -- /garage key create lakehouse-access
+kubectl exec -n lakehouse $POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access
 
 # List buckets
-kubectl exec -n garage $POD -- /garage bucket list
+kubectl exec -n lakehouse $POD -- /garage bucket list
 
 # List keys
-kubectl exec -n garage $POD -- /garage key list
+kubectl exec -n lakehouse $POD -- /garage key list
 ```
 
 ### DBT Transformations
@@ -225,30 +228,35 @@ dbt docs generate && dbt docs serve
 
 **Why?** Reflects the vision - governance (Phase 3 with Apache Polaris) will transform the data lake into a true lakehouse with unified catalog, RBAC, and audit trails.
 
-### Cross-Namespace Service Communication
+### Same-Namespace Service Communication
 
-Services communicate via Kubernetes DNS:
+**All services in same `lakehouse` namespace** - uses simplified Kubernetes DNS:
 
-**Pattern:** `<service-name>.<namespace>.svc.cluster.local:<port>`
+**Pattern:** `<service-name>:<port>` (within same namespace)
 
 **Examples:**
-- Garage S3 API: `garage.garage.svc.cluster.local:3900`
-- Trino: `trino.trino.svc.cluster.local:8080`
-- Airbyte PostgreSQL (embedded): `airbyte-airbyte-postgresql.airbyte.svc.cluster.local:5432`
-- Dagster PostgreSQL (embedded): `dagster-postgresql.dagster.svc.cluster.local:5432`
+- Garage S3 API: `garage:3900`
+- Trino: `trino:8080`
+- PostgreSQL (Airbyte embedded): `airbyte-airbyte-postgresql:5432`
+- PostgreSQL (Dagster embedded): `dagster-postgresql:5432`
 
 **Usage:**
-- Airbyte connects to Garage: `s3.endpoint=http://garage.garage.svc.cluster.local:3900`
-- Trino connects to Garage: `s3.endpoint=http://garage.garage.svc.cluster.local:3900`
-- DBT connects to Trino: `host=trino.trino.svc.cluster.local`
+- Airbyte connects to Garage: `s3.endpoint=http://garage:3900`
+- Trino connects to Garage: `s3.endpoint=http://garage:3900`
+- DBT connects to Trino: `host=trino`
+
+**Note:** You CAN still use full DNS (`service.lakehouse.svc.cluster.local:port`) if needed, but short form is preferred for simplicity.
 
 ### Secret Management
 
 **All secrets externalized** to `secrets.yaml` files (gitignored via `**/*/secrets.yaml` pattern):
 - `infrastructure/kubernetes/garage/secrets.yaml` - Auto-generates RPC secret (handled by Helm)
-- `infrastructure/kubernetes/airbyte/airbyte-storage-secrets.yaml` - Garage S3 credentials for Airbyte storage
+- `infrastructure/kubernetes/airbyte/secrets.yaml` - Garage S3 credentials for Airbyte storage
+- `infrastructure/kubernetes/dagster/secrets.yaml` - PostgreSQL credentials for Dagster
+- `infrastructure/kubernetes/trino/secrets.yaml` - Garage S3 credentials for Trino
+- `infrastructure/kubernetes/database/postgres-secret.yaml` - PostgreSQL credentials
 
-**Note:** PostgreSQL credentials for Airbyte and Dagster are configured in their respective `values.yaml` files (embedded databases).
+**Note:** All secrets must specify `namespace: lakehouse` in metadata.
 
 **Never hardcode secrets** in `values.yaml` files.
 
@@ -270,7 +278,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: <service>-secret
-  namespace: <namespace>
+  namespace: lakehouse
 type: Opaque
 data:
   # Base64 encoded values
@@ -400,7 +408,7 @@ FROM {{ source('raw', 'customers') }}
 ```yaml
 # In Trino catalog properties or DBT profiles
 s3:
-  endpoint: http://garage.garage.svc.cluster.local:3900
+  endpoint: http://garage:3900  # Same namespace - simplified DNS
   path-style-access: true  # Required for Garage
   aws-access-key-id: <from-garage-key-create>
   aws-secret-access-key: <from-garage-key-create>
@@ -421,7 +429,7 @@ s3:
 **Key Configuration**:
 ```yaml
 # Airbyte Iceberg Destination Settings
-S3 Endpoint: http://garage.garage.svc.cluster.local:3900
+S3 Endpoint: http://garage:3900  # Same namespace - simplified DNS
 Bucket: lakehouse
 Warehouse Path: warehouse/
 Catalog Type: HADOOP (or JDBC for more features)
@@ -485,16 +493,18 @@ Catalog Type: HADOOP (or JDBC for more features)
 
 ### Adding a New Service to Infrastructure
 
-1. Create namespace: `infrastructure/kubernetes/namespaces/<service>.yaml`
-2. Create Helm values: `infrastructure/kubernetes/<service>/values.yaml`
-3. Create secrets file: `infrastructure/kubernetes/<service>/secrets.yaml` (gitignored)
+1. Create Helm values: `infrastructure/kubernetes/<service>/values.yaml`
+2. Create secrets file: `infrastructure/kubernetes/<service>/secrets.yaml` (gitignored, must set `namespace: lakehouse`)
+3. Update `infrastructure/kubernetes/<service>/values.yaml` with service endpoints using simplified DNS (`service:port`)
 4. Add deployment section to `infrastructure/README.md`
 5. Add deployment phase to `SETUP_GUIDE.md` with:
    - Prerequisites
-   - Deployment commands
+   - Deployment commands (deploy to `lakehouse` namespace)
    - Initialization steps
    - Verification commands
    - Access instructions
+
+**Note:** No need to create separate namespace file - all services use the single `lakehouse` namespace.
 
 ### Adding DBT Models
 
@@ -520,25 +530,25 @@ Catalog Type: HADOOP (or JDBC for more features)
 
 ```bash
 # Check pod status and events
-kubectl get pods -n <namespace>
-kubectl describe pod <pod-name> -n <namespace>
+kubectl get pods -n lakehouse
+kubectl describe pod <pod-name> -n lakehouse
 
 # View logs
-kubectl logs <pod-name> -n <namespace> --tail=100 -f
+kubectl logs <pod-name> -n lakehouse --tail=100 -f
 
 # Check service endpoints
-kubectl get svc -n <namespace>
-kubectl get endpoints -n <namespace>
+kubectl get svc -n lakehouse
+kubectl get endpoints -n lakehouse
 
 # Check persistent volumes
-kubectl get pvc -n <namespace>
-kubectl describe pvc <pvc-name> -n <namespace>
+kubectl get pvc -n lakehouse
+kubectl describe pvc <pvc-name> -n lakehouse
 
-# Test DNS resolution
-kubectl run -it --rm debug --image=busybox --restart=Never -n <namespace> -- nslookup <service>.<target-namespace>.svc.cluster.local
+# Test DNS resolution (same namespace - use short name)
+kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- nslookup <service>
 
 # Check resource constraints
-kubectl top pods -n <namespace>
+kubectl top pods -n lakehouse
 kubectl top nodes
 ```
 
@@ -561,16 +571,16 @@ kubectl top nodes
 
 **Check:** Persistent volume binding
 ```bash
-kubectl get pvc -n garage
-kubectl describe pvc data-garage-0 -n garage
+kubectl get pvc -n lakehouse
+kubectl describe pvc data-garage-0 -n lakehouse
 ```
 
 ### Airbyte Pods CrashLooping
 
 **Common causes:**
-1. Embedded PostgreSQL not ready: Check `kubectl get pods -n airbyte | grep postgresql`
-2. Storage secret errors: Verify `airbyte-storage-secrets` applied
-3. Resource constraints: Check `kubectl top pods -n airbyte`
+1. Embedded PostgreSQL not ready: Check `kubectl get pods -n lakehouse | grep postgresql`
+2. Storage secret errors: Verify `airbyte-secrets` applied to `lakehouse` namespace
+3. Resource constraints: Check `kubectl top pods -n lakehouse`
 
 ### Airbyte Source Setup Fails with 500 Error
 
@@ -628,15 +638,15 @@ kubectl exec -n airbyte deployment/airbyte-server -- env | grep -E '^AWS_ACCESS_
 ### DBT Cannot Connect to Trino
 
 **Check:**
-1. Port-forward active: `kubectl port-forward -n trino svc/trino 8080:8080`
-2. `profiles.yml` host: Should be `localhost` (if using port-forward) or `trino.trino.svc.cluster.local` (from within cluster)
+1. Port-forward active: `kubectl port-forward -n lakehouse svc/trino 8080:8080`
+2. `profiles.yml` host: Should be `localhost` (if using port-forward) or `trino` (from within cluster)
 3. Trino catalog exists: `SHOW CATALOGS;` in Trino CLI
 
 ### Trino Cannot Access Garage S3
 
 **Check:**
-1. Garage S3 service: `kubectl get svc -n garage garage`
-2. Catalog properties: S3 endpoint should be `http://garage.garage.svc.cluster.local:3900`
+1. Garage S3 service: `kubectl get svc -n lakehouse garage`
+2. Catalog properties: S3 endpoint should be `http://garage:3900` (simplified DNS)
 3. Access keys: Match output from `garage key create lakehouse-access`
 4. Path style access: Must be `true` for Garage
 
