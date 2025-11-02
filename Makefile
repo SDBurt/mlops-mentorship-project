@@ -9,6 +9,8 @@ HELM_TIMEOUT := 10m
 MINIO_VALUES := infrastructure/kubernetes/minio/values.yaml
 DAGSTER_VALUES := infrastructure/kubernetes/dagster/values.yaml
 TRINO_VALUES := infrastructure/kubernetes/trino/values.yaml
+POLARIS_VALUES := infrastructure/kubernetes/polaris/values.yaml
+POLARIS_SECRETS := infrastructure/kubernetes/polaris/secrets.yaml
 
 # Default target - show help
 help:
@@ -60,6 +62,7 @@ setup:
 	@echo "Setting up Helm repositories..."
 	@helm repo add dagster https://dagster-io.github.io/helm
 	@helm repo add trino https://trinodb.github.io/charts
+	@echo "Note: Polaris chart is installed from GitHub repo (no official Helm repo yet)"
 	@helm repo update
 	@echo "✓ Helm repositories configured"
 
@@ -83,11 +86,23 @@ deploy:
 	@kubectl scale deployment -n $(NAMESPACE) dagster-dagster-user-deployments-dagster-user-code --replicas=0 2>/dev/null || true
 	@echo "✓ Dagster deployed"
 	@echo ""
-	@echo "Step 4/4: Deploying Trino (query engine)..."
+	@echo "Step 4/5: Deploying Trino (query engine)..."
 	@helm upgrade --install trino trino/trino \
 		-f $(TRINO_VALUES) \
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
 	@echo "✓ Trino deployed"
+	@echo ""
+	@echo "Step 5/5: Deploying Polaris (REST catalog - optional Phase 3)..."
+	@echo "Note: Polaris requires secrets file. Skipping if not present."
+	@if [ -f $(POLARIS_SECRETS) ]; then \
+		kubectl apply -f $(POLARIS_SECRETS) && \
+		echo "Polaris deployment requires cloning the chart from GitHub:" && \
+		echo "  git clone https://github.com/apache/polaris.git /tmp/polaris-repo" && \
+		echo "  helm upgrade --install polaris /tmp/polaris-repo/helm/polaris -f $(POLARIS_VALUES) -n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)" && \
+		echo "✓ Polaris ready to deploy (run commands above)"; \
+	else \
+		echo "⊘ Polaris secrets not found at $(POLARIS_SECRETS) - skipping (Phase 3)"; \
+	fi
 	@echo ""
 	@echo "Deployment complete! MinIO is ready with default bucket 'lakehouse'."
 
@@ -100,10 +115,12 @@ destroy:
 	@echo "Press Ctrl+C within 5 seconds to cancel..."
 	@sleep 5
 	@echo ""
-	@echo "Uninstalling Dagster..."
-	@helm uninstall dagster -n $(NAMESPACE) 2>/dev/null || echo "Dagster not found"
+	@echo "Uninstalling Polaris (if deployed)..."
+	@helm uninstall polaris -n $(NAMESPACE) 2>/dev/null || echo "Polaris not found (Phase 3)"
 	@echo "Uninstalling Trino..."
 	@helm uninstall trino -n $(NAMESPACE) 2>/dev/null || echo "Trino not found"
+	@echo "Uninstalling Dagster..."
+	@helm uninstall dagster -n $(NAMESPACE) 2>/dev/null || echo "Dagster not found"
 	@echo "Uninstalling MinIO..."
 	@kubectl delete -f infrastructure/kubernetes/minio/minio-standalone.yaml 2>/dev/null || echo "MinIO not found"
 	@echo ""
@@ -139,6 +156,9 @@ port-forward-start:
 	@kubectl port-forward -n $(NAMESPACE) svc/trino 8080:8080 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/minio 9000:9000 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/minio 9001:9001 > /dev/null 2>&1 &
+	@if kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
+		kubectl port-forward -n $(NAMESPACE) svc/polaris 8181:8181 > /dev/null 2>&1 & \
+	fi
 	@sleep 1
 	@echo "Port-forwards started!"
 	@echo ""
@@ -147,6 +167,9 @@ port-forward-start:
 	@echo "  Trino:         http://localhost:8080"
 	@echo "  MinIO API:     http://localhost:9000 (S3 API)"
 	@echo "  MinIO Console: http://localhost:9001 (Web UI)"
+	@if kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
+		echo "  Polaris:       http://localhost:8181 (REST Catalog - Phase 3)"; \
+	fi
 	@echo ""
 	@echo "Run 'make port-forward-status' to check status"
 	@echo "Run 'make port-forward-stop' to stop all port-forwards"

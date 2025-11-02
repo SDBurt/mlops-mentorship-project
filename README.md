@@ -107,6 +107,7 @@ Data Pipeline (above)
 **Data Platform**:
 - **Meltano**: ELT ingestion via Singer ecosystem (600+ connectors)
 - **Apache Iceberg**: Open table format (ACID, time travel, schema evolution)
+- **Apache Polaris**: REST catalog for Iceberg (unified metadata, governance)
 - **DBT**: SQL-based transformations (medallion architecture)
 - **Dagster**: Asset-centric orchestration
 - **Trino**: Distributed SQL query engine
@@ -149,11 +150,11 @@ Data Pipeline (above)
 **Status**: 🔄 In Progress
 
 **Current Focus**:
-- [ ] Deploy and configure Meltano for data ingestion
-- [ ] Add Singer taps for data sources (PostgreSQL, APIs, etc.)
-- [ ] Configure target-parquet for MinIO S3
-- [ ] Ingest raw data as Parquet files
-- [ ] Create Iceberg tables in MinIO S3
+- [x] Set up DLT for data ingestion (Reddit source)
+- [x] Configure Dagster hourly ingestion schedule
+- [x] Configure DLT to write Iceberg tables to MinIO S3
+- [ ] Verify Iceberg table structure and partitioning
+- [ ] Expand DLT sources (additional data sources)
 - [ ] Configure Trino Iceberg catalog
 - [ ] Build DBT project structure
 - [ ] Implement Bronze layer (staging views)
@@ -195,21 +196,28 @@ Data Pipeline (above)
 - Error handling and retry strategies
 
 ### Week 7-8: Data Governance (Phase 3)
-**Status**: ⏳ Planned
+**Status**: 🔄 Ready to Start (Configuration Complete)
+
+**Completed**:
+- [x] Create Polaris Helm configuration
+- [x] Configure secrets for database and storage
+- [x] Document Polaris deployment and setup
+- [x] Update Makefile with Polaris commands
 
 **Planned Tasks**:
 - [ ] Deploy Apache Polaris REST Catalog
 - [ ] Migrate Trino to use Polaris catalog
+- [ ] Create initial catalog and namespaces
 - [ ] Implement RBAC policies for table access
 - [ ] Set up audit logging and monitoring
 - [ ] Document table lineage
-- [ ] Multi-engine catalog sharing
+- [ ] Test multi-engine catalog sharing (Trino, Spark)
 
 **Learning Goals**:
-- Modern REST catalog vs embedded catalogs
+- Modern REST catalog vs embedded catalogs (JDBC, Hive)
 - Fine-grained access control for data lakes
 - Governance and compliance in production systems
-- Centralized metadata management
+- Centralized metadata management across compute engines
 
 ### Week 9-12: MLOps Integration (Phase 4) - PRIMARY GOAL
 **Status**: ⏳ Planned
