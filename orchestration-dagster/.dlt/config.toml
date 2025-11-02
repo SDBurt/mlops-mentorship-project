@@ -1,0 +1,16 @@
+# DLT configuration for Garage S3
+# Credentials are in secrets.toml
+
+[destination.filesystem]
+# S3-compatible storage (Garage) configuration
+# Note: bucket_url is in secrets.toml
+
+# Garage requires path-style access and specific client configuration
+# These are passed to s3fs which uses aiobotocore/boto3 under the hood
+[destination.filesystem.credentials]
+region_name = "us-east-1"  # Must use standard AWS region for SigV4 compatibility (not "garage")
+
+# S3FS client configuration for Garage compatibility
+[destination.filesystem.credentials.client_kwargs]
+use_path_style_endpoint = true  # Path-style URLs (s3.example.com/bucket instead of bucket.s3.example.com)
+use_ssl = false  # Garage typically doesn't use SSL on internal endpoints

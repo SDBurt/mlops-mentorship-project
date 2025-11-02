@@ -145,3 +145,5 @@ logs/
 
 # Downloaded Helm charts (Garage doesn't have a Helm repo)
 infrastructure/helm/
+
+.tmp_*
