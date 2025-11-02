@@ -2,55 +2,21 @@
 # See values-default.yaml for all available options
 
 global:
-  # Base URL for Airbyte server (internal Kubernetes service)
-  # Note: In Airbyte V2, the UI is served by airbyte-server (not webapp)
-  # Services in same namespace use simple DNS (service-name:port)
   airbyteUrl: "http://airbyte-airbyte-server-svc:8001"
 
-  # Garage S3 Storage configuration
   storage:
-    type: s3
-    # Secret containing S3 credentials
-    storageSecretName: airbyte-secrets
-    bucket:
-      log: airbyte-log-storage
-      state: airbyte-state-storage
-      workloadOutput: airbyte-config-storage
-    s3:
-      region: garage
-      authenticationType: credentials
-      # Garage S3 API endpoint (same namespace - simplified DNS)
-      endpoint: http://garage:3900
-      pathStyleAccess: true
+    type: minio
 
-  # TODO (Phase 2): Configure Garage/S3 storage for lakehouse integration
-  # storage:
-  #   type: s3
-  #   bucket:
-  #     log: lakehouse-airbyte-logs
-  #     state: lakehouse-airbyte-state
-  #     workloadOutput: lakehouse-airbyte-output
-  #   s3:
-  #     region: garage
-  #     authenticationType: credentials
-  #     # Endpoint: http://garage:3900 (same namespace)
-
-# Enable internal PostgreSQL (each service manages its own DB)
+# Enable internal PostgreSQL
 postgresql:
   enabled: true
-  auth:
-    username: airbyte
-    password: airbyte123  # TODO: Change for production
-    database: airbyte
+  postgresqlUsername: airbyte
+  postgresqlDatabase: db-airbyte
+  existingSecret: airbyte-postgresql-secret
   primary:
     persistence:
       enabled: true
       size: 10Gi
-
-# Webapp configuration
-# Note: In Airbyte Helm Chart V2, webapp is merged into server component
-webapp:
-  enabled: false
 
 # Server configuration
 server:
@@ -66,7 +32,7 @@ server:
       memory: 1Gi
       cpu: 1000m
 
-# Worker configuration (does the actual sync work)
+# Worker configuration
 worker:
   enabled: true
   resources:
@@ -87,18 +53,7 @@ temporal:
     limits:
       memory: 512Mi
       cpu: 500m
-  extraEnv:
-    - name: DB_PORT
-      value: "5432"
-    - name: POSTGRES_TLS_ENABLED
-      value: "false"
-    - name: SQL_TLS_ENABLED
-      value: "false"
 
-# Bootloader (initializes database)
+# Bootloader
 airbyte-bootloader:
   enabled: true
-
-# MinIO disabled - using Garage for S3-compatible storage
-minio:
-  enabled: false
