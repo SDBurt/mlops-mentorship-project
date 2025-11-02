@@ -6,7 +6,7 @@
 
 Trino (formerly PrestoSQL) is a distributed SQL query engine designed for fast analytics over large datasets. It queries data where it lives (S3, HDFS, databases) without moving it - a federated query model.
 
-In this lakehouse platform, Trino is the query engine: it reads [Apache Iceberg](apache-iceberg.md) tables from [Garage](garage.md) S3, executes [DBT](dbt.md) transformations, and powers analytics across the [Medallion Architecture](medallion-architecture.md).
+In this lakehouse platform, Trino is the query engine: it reads [Apache Iceberg](apache-iceberg.md) tables from [MinIO](minio.md) S3, executes [DBT](dbt.md) transformations, and powers analytics across the [Medallion Architecture](medallion-architecture.md).
 
 ## Why Trino for This Platform?
 
@@ -37,7 +37,7 @@ In this lakehouse platform, Trino is the query engine: it reads [Apache Iceberg]
 - Return results to coordinator
 
 **Connectors**: Plugins for data sources
-- Iceberg connector → [Garage](garage.md) S3
+- Iceberg connector → [MinIO](minio.md) S3
 - Hive connector → [Hive Metastore](hive-metastore.md)
 - Postgres connector → PostgreSQL databases
 
@@ -47,7 +47,7 @@ Client → Coordinator (parse SQL, create plan)
     ↓
 Coordinator → Workers (distribute tasks)
     ↓
-Workers → Garage S3 (read Parquet files)
+Workers → MinIO S3 (read Parquet files)
     ↓
 Workers → Coordinator (partial results)
     ↓
@@ -59,7 +59,7 @@ Coordinator → Client (final aggregated result)
 **Catalog**: Named connection to data source
 
 **In this platform**:
-- `iceberg` catalog → Iceberg tables in Garage S3
+- `iceberg` catalog → Iceberg tables in MinIO S3
 - `lakehouse` database within `iceberg` catalog
 - `analytics` schema within `lakehouse` database
 
@@ -86,18 +86,18 @@ coordinator:
       connector.name=iceberg
       iceberg.catalog.type=hive_metastore
       hive.metastore.uri=thrift://hive-metastore.database.svc.cluster.local:9083
-      hive.s3.endpoint=http://garage:3900
+      hive.s3.endpoint=http://minio:3900
       hive.s3.path-style-access=true
-      hive.s3.aws-access-key=<from-garage-key-create>
-      hive.s3.aws-secret-key=<from-garage-key-create>
-      hive.s3.region=garage
+      hive.s3.aws-access-key=<from-minio-key-create>
+      hive.s3.aws-secret-key=<from-minio-key-create>
+      hive.s3.region=minio
       iceberg.file-format=PARQUET
 ```
 
 **Key properties**:
 - `iceberg.catalog.type`: Metadata store (hive_metastore or rest)
-- `hive.s3.endpoint`: [Garage](garage.md) S3 API endpoint
-- `hive.s3.path-style-access`: Required for Garage (not virtual-hosted style)
+- `hive.s3.endpoint`: [MinIO](minio.md) S3 API endpoint
+- `hive.s3.path-style-access`: Required for MinIO (not virtual-hosted style)
 - `iceberg.file-format`: Default format for new tables (PARQUET recommended)
 
 ### 4. Query Optimization
@@ -293,7 +293,7 @@ FROM {{ ref('stg_customers') }}
 {% endif %}
 ```
 
-**DBT runs SQL via Trino** → Trino creates Iceberg table in Garage
+**DBT runs SQL via Trino** → Trino creates Iceberg table in MinIO
 
 ## Performance Tuning
 
@@ -347,11 +347,11 @@ worker:
 
 ## Troubleshooting
 
-### Cannot Connect to Garage S3
+### Cannot Connect to MinIO S3
 
 **Check**:
 ```bash
-kubectl exec -n lakehouse $TRINO_POD -- curl -I http://garage:3900
+kubectl exec -n lakehouse $TRINO_POD -- curl -I http://minio:3900
 ```
 
 **Verify** catalog configuration has correct endpoint and credentials.
@@ -418,7 +418,7 @@ GROUP BY DATE(order_date);
 ## Integration with Other Components
 
 - **[Apache Iceberg](apache-iceberg.md)**: Trino's primary table format
-- **[Garage](garage.md)**: Storage backend for Iceberg tables
+- **[MinIO](minio.md)**: Storage backend for Iceberg tables
 - **[DBT](dbt.md)**: Executes transformations via Trino
 - **[Hive Metastore](hive-metastore.md)**: Catalogs Iceberg tables
 - **[Dagster](dagster.md)**: Orchestrates Trino/DBT jobs

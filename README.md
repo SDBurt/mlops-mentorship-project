@@ -18,7 +18,7 @@ This project follows a deliberate progression that mirrors real-world platform d
 
 ### Phase 1-2: Data Foundation (Learn First)
 **Build the data pipeline infrastructure**
-- Deploy Kubernetes services (Garage, Dagster, Trino)
+- Deploy Kubernetes services (MinIO, Dagster, Trino)
 - Implement batch data ingestion
 - Create DBT transformations (Bronze → Silver → Gold)
 - Build dimensional models (star schema)
@@ -62,7 +62,7 @@ Data Sources
     ↓
 [Meltano] - ELT Ingestion (Singer Taps/Targets)
     ↓
-[Garage S3] - Object Storage (Parquet files)
+[MinIO S3] - Object Storage (Parquet files)
     ↓
 [Apache Iceberg] - Table Format (ACID, Schema Evolution)
     ↓
@@ -101,7 +101,7 @@ Data Pipeline (above)
 **Infrastructure** (Kubernetes-native):
 - **Kubernetes**: Container orchestration (Docker Desktop / minikube)
 - **Helm**: Package management for services
-- **Garage**: S3-compatible object storage (lightweight alternative to MinIO)
+- **MinIO**: S3-compatible object storage (lightweight alternative to MinIO)
 - **PostgreSQL**: Metadata storage (embedded in Dagster)
 
 **Data Platform**:
@@ -131,12 +131,12 @@ Data Pipeline (above)
 - Namespace best practices (grouping communicating services)
 
 **Tasks Completed**:
-- [x] Garage S3 storage with cluster initialization
+- [x] MinIO S3 storage with cluster initialization
 - [x] Dagster with embedded PostgreSQL
 - [x] Trino query engine
 
 **Key Challenges Solved**:
-- Garage cluster initialization (non-obvious required step)
+- MinIO cluster initialization (non-obvious required step)
 - Namespace strategy (single namespace for communicating services)
 - StatefulSet storage management with PVCs
 
@@ -151,9 +151,9 @@ Data Pipeline (above)
 **Current Focus**:
 - [ ] Deploy and configure Meltano for data ingestion
 - [ ] Add Singer taps for data sources (PostgreSQL, APIs, etc.)
-- [ ] Configure target-parquet for Garage S3
+- [ ] Configure target-parquet for MinIO S3
 - [ ] Ingest raw data as Parquet files
-- [ ] Create Iceberg tables in Garage S3
+- [ ] Create Iceberg tables in MinIO S3
 - [ ] Configure Trino Iceberg catalog
 - [ ] Build DBT project structure
 - [ ] Implement Bronze layer (staging views)
@@ -216,7 +216,7 @@ Data Pipeline (above)
 
 **Planned Tasks**:
 - [ ] Deploy Feast feature store
-  - [ ] Configure offline store (Iceberg/Garage)
+  - [ ] Configure offline store (Iceberg/MinIO)
   - [ ] Configure online store (Redis)
   - [ ] Define feature views from Gold tables
 - [ ] Deploy Kubeflow platform
@@ -224,7 +224,7 @@ Data Pipeline (above)
   - [ ] Create Jupyter notebook environment
   - [ ] Build first training pipeline
 - [ ] Set up DVC for versioning
-  - [ ] Configure Garage as remote storage
+  - [ ] Configure MinIO as remote storage
   - [ ] Version training datasets
   - [ ] Track model artifacts
 - [ ] Build ML pipelines
@@ -280,9 +280,9 @@ cat docs/SETUP_GUIDE.md
 # Create lakehouse namespace
 kubectl apply -f infrastructure/kubernetes/namespace.yaml
 
-# 1. Storage layer (Garage)
-helm upgrade --install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
+# 1. Storage layer (MinIO)
+helm upgrade --install minio infrastructure/helm/minio \
+  -f infrastructure/kubernetes/minio/values.yaml \
   -n lakehouse --wait
 
 # 2. Orchestration (Dagster)
@@ -309,11 +309,11 @@ kubectl port-forward -n trino svc/trino 8080:8080
 ### Check Status
 ```bash
 # View all deployments
-kubectl get pods --all-namespaces | grep -E 'garage|dagster|trino'
+kubectl get pods --all-namespaces | grep -E 'minio|dagster|trino'
 
 # Check specific service
-kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage
-kubectl logs -n lakehouse garage-0 --tail=100
+kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio
+kubectl logs -n lakehouse minio-0 --tail=100
 ```
 
 ## Project Structure
@@ -323,7 +323,7 @@ kubectl logs -n lakehouse garage-0 --tail=100
 ├── docs/                          # Comprehensive documentation
 │   ├── topics/                   # Detailed topic guides
 │   │   ├── kubernetes-fundamentals.md
-│   │   ├── garage.md
+│   │   ├── minio.md
 │   │   ├── dagster.md
 │   │   ├── trino.md
 │   │   ├── dbt.md
@@ -340,13 +340,13 @@ kubectl logs -n lakehouse garage-0 --tail=100
 │
 ├── infrastructure/               # Platform infrastructure
 │   ├── kubernetes/              # K8s manifests and Helm values
-│   │   ├── garage/             # S3 storage
+│   │   ├── minio/             # S3 storage
 │   │   ├── dagster/            # Orchestration
 │   │   ├── trino/              # Query engine
 │   │   ├── polaris/            # Polaris REST Catalog (Phase 3)
 │   │   └── namespace.yaml      # Single lakehouse namespace
 │   └── helm/                   # Local Helm charts
-│       └── garage/             # Garage Helm chart
+│       └── minio/             # MinIO Helm chart
 │
 ├── transformations/             # DBT transformations
 │   └── dbt/
@@ -443,8 +443,8 @@ This project teaches the complete modern data stack:
 
 ### Challenges & Solutions
 
-**Challenge**: Garage cluster initialization was not automatic
-**Solution**: Must explicitly assign storage roles and apply layout after deployment. Documented in [Garage guide](docs/topics/garage.md).
+**Challenge**: MinIO cluster initialization was not automatic
+**Solution**: Must explicitly assign storage roles and apply layout after deployment. Documented in [MinIO guide](docs/topics/minio.md).
 
 **Challenge**: Understanding StatefulSets vs Deployments
 **Solution**: StatefulSets provide stable pod names and dedicated storage - critical for databases. See [Stateful Applications](docs/topics/stateful-applications.md).
@@ -468,10 +468,10 @@ This project teaches the complete modern data stack:
 # Uninstall all services (see docs/TEARDOWN.md for details)
 helm uninstall dagster -n dagster
 helm uninstall trino -n trino
-helm uninstall garage -n garage
+helm uninstall minio -n minio
 
 # Delete namespaces
-kubectl delete namespace dagster trino garage
+kubectl delete namespace dagster trino minio
 ```
 
 ## License

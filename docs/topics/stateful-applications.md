@@ -8,17 +8,17 @@ Stateful applications are programs that maintain persistent data or require stab
 
 [Kubernetes](kubernetes-fundamentals.md) provides **StatefulSets** to manage stateful applications. StatefulSets ensure ordered deployment, stable pod naming, and dedicated [persistent storage](kubernetes-storage.md) per replica.
 
-In this lakehouse platform, stateful applications include: [Garage](garage.md) (distributed S3 storage), and [PostgreSQL](postgresql.md) databases for [Airbyte](airbyte.md) and [Dagster](dagster.md) metadata.
+In this lakehouse platform, stateful applications include: [MinIO](minio.md) (distributed S3 storage), and [PostgreSQL](postgresql.md) databases for [Airbyte](airbyte.md) and [Dagster](dagster.md) metadata.
 
 ## Why StatefulSets Matter for This Platform
 
-**Stable Identity**: [Garage](garage.md) cluster nodes need stable names (`garage-0`, `garage-1`) for peer discovery and data replication.
+**Stable Identity**: [MinIO](minio.md) cluster nodes need stable names (`minio-0`, `minio-1`) for peer discovery and data replication.
 
 **Persistent Storage**: Each [PostgreSQL](postgresql.md) replica needs its own dedicated storage that persists across restarts.
 
 **Ordered Operations**: Database initialization requires sequential startup - replica 0 must start before replica 1.
 
-**Predictable Scaling**: When scaling Garage from 1 to 3 nodes, pods are created in order (0 → 1 → 2) and terminated in reverse (2 → 1 → 0).
+**Predictable Scaling**: When scaling MinIO from 1 to 3 nodes, pods are created in order (0 → 1 → 2) and terminated in reverse (2 → 1 → 0).
 
 ## Key Concepts
 
@@ -52,27 +52,27 @@ In this lakehouse platform, stateful applications include: [Garage](garage.md) (
 
 **What it is**: Each StatefulSet pod gets a deterministic name based on ordinal index: `<statefulset-name>-<ordinal>`
 
-**Example - Garage StatefulSet with 3 replicas**:
+**Example - MinIO StatefulSet with 3 replicas**:
 ```bash
-kubectl get pods -n garage
+kubectl get pods -n minio
 
 # Expected output:
 # NAME       READY   STATUS    RESTARTS   AGE
-# garage-0   1/1     Running   0          5m
-# garage-1   1/1     Running   0          4m
-# garage-2   1/1     Running   0          3m
+# minio-0   1/1     Running   0          5m
+# minio-1   1/1     Running   0          4m
+# minio-2   1/1     Running   0          3m
 ```
 
 **Stable characteristics**:
-- **Name persists**: If `garage-0` is deleted, Kubernetes creates new pod also named `garage-0`
-- **Ordinal preserved**: Pod indices never change (no `garage-3` until you scale beyond 3)
-- **Hostname matches pod name**: Inside pod, `hostname` command returns `garage-0`
+- **Name persists**: If `minio-0` is deleted, Kubernetes creates new pod also named `minio-0`
+- **Ordinal preserved**: Pod indices never change (no `minio-3` until you scale beyond 3)
+- **Hostname matches pod name**: Inside pod, `hostname` command returns `minio-0`
 
 **Why this matters**:
 ```bash
-# Garage configuration references specific nodes by name
-garage-0.garage-headless.garage.svc.cluster.local  # Always refers to replica 0
-garage-1.garage-headless.garage.svc.cluster.local  # Always refers to replica 1
+# MinIO configuration references specific nodes by name
+minio-0.minio-headless.minio.svc.cluster.local  # Always refers to replica 0
+minio-1.minio-headless.minio.svc.cluster.local  # Always refers to replica 1
 ```
 
 Distributed systems use these stable names for:
@@ -89,33 +89,33 @@ Distributed systems use these stable names for:
 <pod-name>.<headless-service-name>.<namespace>.svc.cluster.local
 ```
 
-**Example - Garage with Headless Service**:
+**Example - MinIO with Headless Service**:
 ```bash
 # Headless service (ClusterIP: None)
-kubectl get svc -n lakehouse garage-headless
+kubectl get svc -n lakehouse minio-headless
 
 # NAME              TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)
-# garage-headless   ClusterIP   None         <none>        3900/TCP,3902/TCP
+# minio-headless   ClusterIP   None         <none>        3900/TCP,3902/TCP
 ```
 
 **Pod DNS names**:
 ```bash
-garage-0.garage-headless.garage.svc.cluster.local  # → 10.244.0.5
-garage-1.garage-headless.garage.svc.cluster.local  # → 10.244.0.6
-garage-2.garage-headless.garage.svc.cluster.local  # → 10.244.0.7
+minio-0.minio-headless.minio.svc.cluster.local  # → 10.244.0.5
+minio-1.minio-headless.minio.svc.cluster.local  # → 10.244.0.6
+minio-2.minio-headless.minio.svc.cluster.local  # → 10.244.0.7
 ```
 
 **Test DNS resolution**:
 ```bash
 # From any pod in cluster
-kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup garage-0.garage-headless.garage.svc.cluster.local
+kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup minio-0.minio-headless.minio.svc.cluster.local
 
 # Expected output:
 # Server:    10.96.0.10
 # Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
 #
-# Name:      garage-0.garage-headless.garage.svc.cluster.local
-# Address 1: 10.244.0.5 garage-0.garage.svc.cluster.local
+# Name:      minio-0.minio-headless.minio.svc.cluster.local
+# Address 1: 10.244.0.5 minio-0.minio.svc.cluster.local
 ```
 
 **Why headless service?**
@@ -127,27 +127,27 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup garage-0.
 
 **What it is**: StatefulSets use `volumeClaimTemplates` to create dedicated [PVC](kubernetes-storage.md) for each replica.
 
-**Example - Garage StatefulSet with Storage**:
+**Example - MinIO StatefulSet with Storage**:
 ```yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: garage
-  namespace: garage
+  name: minio
+  namespace: minio
 spec:
-  serviceName: garage-headless
+  serviceName: minio-headless
   replicas: 3
   selector:
     matchLabels:
-      app: garage
+      app: minio
   template:
     metadata:
       labels:
-        app: garage
+        app: minio
     spec:
       containers:
-      - name: garage
-        image: dxflrs/garage:v0.8.0
+      - name: minio
+        image: dxflrs/minio:v0.8.0
         volumeMounts:
         - name: data
           mountPath: /data
@@ -174,21 +174,21 @@ spec:
 
 **Result - 3 replicas create 6 PVCs**:
 ```bash
-kubectl get pvc -n garage
+kubectl get pvc -n minio
 
 # NAME            STATUS   VOLUME          CAPACITY   ACCESS MODES   STORAGECLASS
-# data-garage-0   Bound    pvc-123abc...   10Gi       RWO            hostpath
-# meta-garage-0   Bound    pvc-456def...   1Gi        RWO            hostpath
-# data-garage-1   Bound    pvc-789ghi...   10Gi       RWO            hostpath
-# meta-garage-1   Bound    pvc-012jkl...   1Gi        RWO            hostpath
-# data-garage-2   Bound    pvc-345mno...   10Gi       RWO            hostpath
-# meta-garage-2   Bound    pvc-678pqr...   1Gi        RWO            hostpath
+# data-minio-0   Bound    pvc-123abc...   10Gi       RWO            hostpath
+# meta-minio-0   Bound    pvc-456def...   1Gi        RWO            hostpath
+# data-minio-1   Bound    pvc-789ghi...   10Gi       RWO            hostpath
+# meta-minio-1   Bound    pvc-012jkl...   1Gi        RWO            hostpath
+# data-minio-2   Bound    pvc-345mno...   10Gi       RWO            hostpath
+# meta-minio-2   Bound    pvc-678pqr...   1Gi        RWO            hostpath
 ```
 
 **PVC naming pattern**: `<volume-claim-template-name>-<statefulset-name>-<ordinal>`
 
 **Storage persistence**:
-- Pod `garage-0` always mounts `data-garage-0` and `meta-garage-0`
+- Pod `minio-0` always mounts `data-minio-0` and `meta-minio-0`
 - If pod deleted and recreated, same PVCs are reattached
 - Data survives pod restarts and deletions
 
@@ -198,13 +198,13 @@ kubectl get pvc -n garage
 
 **Scale up** (1 → 3 replicas):
 ```bash
-kubectl scale statefulset garage -n lakehouse --replicas=3
+kubectl scale statefulset minio -n lakehouse --replicas=3
 
 # Order of operations:
-# 1. Create garage-1
-# 2. Wait for garage-1 to be Running and Ready
-# 3. Create garage-2
-# 4. Wait for garage-2 to be Running and Ready
+# 1. Create minio-1
+# 2. Wait for minio-1 to be Running and Ready
+# 3. Create minio-2
+# 4. Wait for minio-2 to be Running and Ready
 # Complete
 ```
 
@@ -214,23 +214,23 @@ kubectl get pods -n lakehouse --watch
 
 # Output:
 # NAME       READY   STATUS              RESTARTS   AGE
-# garage-0   1/1     Running             0          10m
-# garage-1   0/1     ContainerCreating   0          1s   ← Creating
-# garage-1   1/1     Running             0          5s   ← Ready
-# garage-2   0/1     ContainerCreating   0          1s   ← Now creating garage-2
-# garage-2   1/1     Running             0          5s   ← Ready
+# minio-0   1/1     Running             0          10m
+# minio-1   0/1     ContainerCreating   0          1s   ← Creating
+# minio-1   1/1     Running             0          5s   ← Ready
+# minio-2   0/1     ContainerCreating   0          1s   ← Now creating minio-2
+# minio-2   1/1     Running             0          5s   ← Ready
 ```
 
 **Scale down** (3 → 1 replicas):
 ```bash
-kubectl scale statefulset garage -n lakehouse --replicas=1
+kubectl scale statefulset minio -n lakehouse --replicas=1
 
 # Order of operations:
-# 1. Delete garage-2 (highest ordinal first)
-# 2. Wait for garage-2 to fully terminate
-# 3. Delete garage-1
-# 4. Wait for garage-1 to fully terminate
-# Complete (garage-0 remains)
+# 1. Delete minio-2 (highest ordinal first)
+# 2. Wait for minio-2 to fully terminate
+# 3. Delete minio-1
+# 4. Wait for minio-1 to fully terminate
+# Complete (minio-0 remains)
 ```
 
 **Why ordered operations?**
@@ -322,30 +322,30 @@ postgresql://user:pass@dagster-postgresql-0.dagster-postgresql-headless.dagster.
 
 ### Pattern 2: Distributed Storage Cluster
 
-**Used by**: [Garage](garage.md) (distributed S3-compatible storage)
+**Used by**: [MinIO](minio.md) (distributed S3-compatible storage)
 
 **Why**: Horizontal scaling for capacity and throughput
 
-**Example - Garage Cluster**:
+**Example - MinIO Cluster**:
 ```yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: garage
-  namespace: garage
+  name: minio
+  namespace: minio
 spec:
-  serviceName: garage-headless
+  serviceName: minio-headless
   replicas: 3  # 3-node cluster
   template:
     spec:
       containers:
-      - name: garage
-        image: dxflrs/garage:v0.8.0
+      - name: minio
+        image: dxflrs/minio:v0.8.0
         env:
         - name: GARAGE_RPC_SECRET
           valueFrom:
             secretKeyRef:
-              name: garage-rpc-secret
+              name: minio-rpc-secret
               key: secret
         ports:
         - name: s3-api
@@ -378,29 +378,29 @@ spec:
 
 **Result**:
 ```bash
-kubectl get all -n garage
+kubectl get all -n minio
 
-# pod/garage-0
-# pod/garage-1
-# pod/garage-2
-# service/garage (ClusterIP - load-balanced S3 API)
-# service/garage-headless (ClusterIP: None - peer discovery)
-# statefulset.apps/garage (3/3)
-# pvc/data-garage-0, pvc/meta-garage-0
-# pvc/data-garage-1, pvc/meta-garage-1
-# pvc/data-garage-2, pvc/meta-garage-2
+# pod/minio-0
+# pod/minio-1
+# pod/minio-2
+# service/minio (ClusterIP - load-balanced S3 API)
+# service/minio-headless (ClusterIP: None - peer discovery)
+# statefulset.apps/minio (3/3)
+# pvc/data-minio-0, pvc/meta-minio-0
+# pvc/data-minio-1, pvc/meta-minio-1
+# pvc/data-minio-2, pvc/meta-minio-2
 ```
 
 **Initialization** (required after deployment):
 ```bash
 # Assign storage roles to all 3 nodes
 for i in 0 1 2; do
-  NODE_ID=$(kubectl exec -n lakehouse garage-$i -- /garage status | grep garage-$i | awk '{print $1}')
-  kubectl exec -n lakehouse garage-0 -- /garage layout assign -z dc1 -c 10G $NODE_ID
+  NODE_ID=$(kubectl exec -n lakehouse minio-$i -- /minio status | grep minio-$i | awk '{print $1}')
+  kubectl exec -n lakehouse minio-0 -- /minio layout assign -z dc1 -c 10G $NODE_ID
 done
 
 # Apply layout
-kubectl exec -n lakehouse garage-0 -- /garage layout apply --version 1
+kubectl exec -n lakehouse minio-0 -- /minio layout apply --version 1
 ```
 
 ## Troubleshooting
@@ -410,34 +410,34 @@ kubectl exec -n lakehouse garage-0 -- /garage layout apply --version 1
 **Symptom**: New pod never starts when scaling up
 
 ```bash
-kubectl get pods -n garage
+kubectl get pods -n minio
 
 # NAME       READY   STATUS    RESTARTS   AGE
-# garage-0   1/1     Running   0          10m
-# garage-1   0/1     Pending   0          5m   ← Stuck!
+# minio-0   1/1     Running   0          10m
+# minio-1   0/1     Pending   0          5m   ← Stuck!
 ```
 
 **Check**:
 ```bash
-kubectl describe pod garage-1 -n garage
+kubectl describe pod minio-1 -n minio
 
 # Events:
 # Warning  FailedScheduling  ...  0/1 nodes are available: 1 Insufficient storage
 ```
 
 **Common causes**:
-1. **PVC not binding**: Check `kubectl get pvc -n garage`
+1. **PVC not binding**: Check `kubectl get pvc -n minio`
 2. **Insufficient storage**: Node out of disk space
-3. **Previous pod not ready**: StatefulSet waits for `garage-0` to be Ready before creating `garage-1`
+3. **Previous pod not ready**: StatefulSet waits for `minio-0` to be Ready before creating `minio-1`
 4. **Pod disruption budget**: Too many pods disrupted
 
 **Debug**:
 ```bash
 # Check PVC status
-kubectl get pvc -n garage
+kubectl get pvc -n minio
 
 # Check previous pod is Ready
-kubectl get pod garage-0 -n garage
+kubectl get pod minio-0 -n minio
 
 # Check node resources
 kubectl top nodes
@@ -446,17 +446,17 @@ kubectl describe node
 
 ### StatefulSet Stuck During Deletion
 
-**Symptom**: `kubectl delete statefulset garage` hangs forever
+**Symptom**: `kubectl delete statefulset minio` hangs forever
 
 **Common cause**: Pod termination grace period too long or pod refusing to terminate
 
 **Force delete**:
 ```bash
 # Delete StatefulSet without waiting for pods to terminate
-kubectl delete statefulset garage -n lakehouse --cascade=orphan
+kubectl delete statefulset minio -n lakehouse --cascade=orphan
 
 # Then manually delete pods
-kubectl delete pod garage-0 garage-1 garage-2 -n lakehouse --force --grace-period=0
+kubectl delete pod minio-0 minio-1 minio-2 -n lakehouse --force --grace-period=0
 ```
 
 **Warning**: Force deletion can cause data corruption. Use only when necessary.
@@ -466,39 +466,39 @@ kubectl delete pod garage-0 garage-1 garage-2 -n lakehouse --force --grace-perio
 **Symptom**: Scaled from 3 → 1 replicas, but PVCs for replicas 1 and 2 still exist
 
 ```bash
-kubectl get pvc -n garage
+kubectl get pvc -n minio
 
 # NAME            STATUS   VOLUME          CAPACITY
-# data-garage-0   Bound    pvc-123abc...   10Gi   ← In use
-# data-garage-1   Bound    pvc-456def...   10Gi   ← Not deleted!
-# data-garage-2   Bound    pvc-789ghi...   10Gi   ← Not deleted!
+# data-minio-0   Bound    pvc-123abc...   10Gi   ← In use
+# data-minio-1   Bound    pvc-456def...   10Gi   ← Not deleted!
+# data-minio-2   Bound    pvc-789ghi...   10Gi   ← Not deleted!
 ```
 
 **This is expected behavior**: Kubernetes **never** automatically deletes StatefulSet PVCs to prevent accidental data loss.
 
 **Manual cleanup** (if data not needed):
 ```bash
-kubectl delete pvc data-garage-1 meta-garage-1 -n garage
-kubectl delete pvc data-garage-2 meta-garage-2 -n garage
+kubectl delete pvc data-minio-1 meta-minio-1 -n minio
+kubectl delete pvc data-minio-2 meta-minio-2 -n minio
 ```
 
 **Reuse PVCs** (if scaling back up):
 ```bash
 # Scale back to 3
-kubectl scale statefulset garage -n lakehouse --replicas=3
+kubectl scale statefulset minio -n lakehouse --replicas=3
 
-# garage-1 and garage-2 recreated and reattach to existing PVCs
+# minio-1 and minio-2 recreated and reattach to existing PVCs
 # Data from previous replicas is still there!
 ```
 
 ### Pods Created Out of Order
 
-**Symptom**: `garage-2` created before `garage-1` is Ready
+**Symptom**: `minio-2` created before `minio-1` is Ready
 
 **This should never happen** with StatefulSets (ordered guarantee). If it does:
 
 **Possible causes**:
-1. Using Deployment instead of StatefulSet (check `kubectl get deployment -n garage`)
+1. Using Deployment instead of StatefulSet (check `kubectl get deployment -n minio`)
 2. StatefulSet `podManagementPolicy` set to `Parallel` (default is `OrderedReady`)
 
 **Fix**:
@@ -506,7 +506,7 @@ kubectl scale statefulset garage -n lakehouse --replicas=3
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: garage
+  name: minio
 spec:
   podManagementPolicy: OrderedReady  # Ensure sequential creation
 ```
@@ -516,7 +516,7 @@ spec:
 - **[Kubernetes Fundamentals](kubernetes-fundamentals.md)**: StatefulSets are a type of workload controller
 - **[Kubernetes Storage](kubernetes-storage.md)**: StatefulSets use VolumeClaimTemplates to create PVCs
 - **[Kubernetes Networking](kubernetes-networking.md)**: Headless Services provide stable DNS for StatefulSet pods
-- **[Garage](garage.md)**: Deployed as StatefulSet with 1+ replicas
+- **[MinIO](minio.md)**: Deployed as StatefulSet with 1+ replicas
 - **[PostgreSQL](postgresql.md)**: Deployed as StatefulSet with 1 replica (embedded in Airbyte/Dagster)
 - **[Helm Package Management](helm-package-management.md)**: Helm charts define StatefulSet resources
 
@@ -529,20 +529,20 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: garage-headless
+  name: minio-headless
 spec:
   clusterIP: None  # Headless
   selector:
-    app: garage
+    app: minio
   ports:
   - port: 3900
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: garage
+  name: minio
 spec:
-  serviceName: garage-headless  # Reference headless service
+  serviceName: minio-headless  # Reference headless service
 ```
 
 ### 2. Set Resource Requests and Limits
@@ -565,7 +565,7 @@ containers:
 Ensures StatefulSet doesn't proceed to next replica until current one is healthy:
 ```yaml
 containers:
-- name: garage
+- name: minio
   livenessProbe:
     httpGet:
       path: /health
@@ -597,11 +597,11 @@ volumeClaimTemplates:
 
 ```bash
 # Test data survives scale-down and scale-up
-kubectl scale statefulset garage -n lakehouse --replicas=3
+kubectl scale statefulset minio -n lakehouse --replicas=3
 # Wait for all pods ready
-kubectl scale statefulset garage -n lakehouse --replicas=1
+kubectl scale statefulset minio -n lakehouse --replicas=1
 # Wait for scale-down
-kubectl scale statefulset garage -n lakehouse --replicas=3
+kubectl scale statefulset minio -n lakehouse --replicas=3
 # Verify data still intact
 ```
 
