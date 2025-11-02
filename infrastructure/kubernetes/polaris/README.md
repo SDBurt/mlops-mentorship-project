@@ -120,7 +120,9 @@ Access Polaris REST API at: http://localhost:8181
 
 ## Configuring Trino to Use Polaris
 
-Update Trino's Iceberg catalog configuration:
+**✅ Already Configured!** The Trino values.yaml has been updated to use Polaris REST catalog.
+
+Configuration in [trino/values.yaml](../trino/values.yaml):
 
 ```yaml
 # infrastructure/kubernetes/trino/values.yaml
@@ -138,13 +140,20 @@ additionalCatalogs:
     s3.aws-secret-access-key=${ENV:S3_SECRET_KEY}
 ```
 
-Then update Trino:
+Apply the configuration:
 
 ```bash
 helm upgrade trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
   -n lakehouse --wait
+
+# Verify the catalog
+POD=$(kubectl get pods -n lakehouse -l app=trino,component=coordinator -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it -n lakehouse $POD -- trino
+# In Trino: SHOW CATALOGS;
 ```
+
+**Note:** The old JDBC catalog configuration is preserved as a comment for reference. If you need to rollback, uncomment the `lakehouse_jdbc` catalog.
 
 ## Initial Setup
 
@@ -191,12 +200,20 @@ SHOW TABLES IN lakehouse.bronze;
 
 ## Migrating from JDBC Catalog
 
-If you have existing tables in a JDBC catalog:
+**📖 See detailed migration guide:** [MIGRATION.md](MIGRATION.md)
 
-1. Export table metadata from current catalog
-2. Register tables in Polaris using REST API
-3. Update Trino configuration to use Polaris
-4. Verify table access through Polaris
+If you have existing tables in a JDBC catalog (Phase 2), you'll need to register them in Polaris:
+
+**Quick Overview:**
+1. Deploy Polaris and initialize catalog
+2. List existing tables and their S3 locations
+3. Update Trino configuration (already done!)
+4. Register tables in Polaris via REST API or Trino
+5. Verify tables accessible through Polaris catalog
+6. Update DLT and DBT if needed
+7. Remove old JDBC catalog
+
+**Full Step-by-Step Guide:** See [MIGRATION.md](MIGRATION.md) for complete instructions, rollback plan, and troubleshooting.
 
 ## Configuration Details
 
@@ -328,9 +345,25 @@ kubectl logs -n lakehouse -l app.kubernetes.io/name=polaris | grep -i error
 
 ## Next Steps
 
-1. Deploy Polaris following the steps above
-2. Configure Trino to use Polaris catalog
-3. Migrate existing tables (if any)
-4. Set up RBAC and access control
-5. Configure audit logging
-6. Integrate with multiple query engines (Spark, Flink)
+### For New Deployments (No Existing Tables)
+1. ✅ Deploy Polaris following the steps above
+2. ✅ Configure Trino to use Polaris catalog (already done!)
+3. Initialize Polaris catalog via REST API
+4. Create namespaces (schemas) in Polaris: bronze, silver, gold
+5. Start ingesting data with DLT (tables auto-registered in Polaris)
+6. Query tables via Trino
+
+### For Existing Deployments (Migrating from JDBC)
+1. ✅ Deploy Polaris
+2. ✅ Update Trino configuration (already done!)
+3. **Follow [MIGRATION.md](MIGRATION.md)** for complete migration steps
+4. Register existing tables in Polaris
+5. Verify tables accessible via Trino
+6. Remove old JDBC catalog
+
+### Phase 3 Governance Features (After Migration)
+1. Set up RBAC and access control policies
+2. Configure audit logging and monitoring
+3. Document table lineage and data flow
+4. Integrate with multiple query engines (Spark, Flink)
+5. Enable data discovery and cataloging
