@@ -1,0 +1,9 @@
+# Dagster component definitions
+# This file configures Dagster components including dlt data loads
+
+# Reddit dlt load collection
+type: dagster_dlt.DltLoadCollectionComponent
+attributes:
+  loads:
+    - source: .loads.reddit.reddit
+      pipeline: .loads.reddit.reddit_pipeline

@@ -1,0 +1,61 @@
+# Dagster Instance Configuration
+# This file configures the Dagster instance for the orchestration project
+
+# Storage configuration
+# Uses local SQLite for development (in production, use Postgres)
+storage:
+  sqlite:
+    base_dir: .
+
+# Run launcher configuration
+# Uses DefaultRunLauncher for local development
+run_launcher:
+  module: dagster.core.launcher
+  class: DefaultRunLauncher
+
+# Run coordinator configuration
+# QueuedRunCoordinator enables concurrency control and queueing
+# Note: max_concurrent_runs is not set here as it conflicts with concurrency.pools
+# Concurrency is controlled by the pools defined below
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+
+# Concurrency pool limits
+# Global pool configuration - individual pool limits set via CLI/UI
+# Usage: dagster instance concurrency set <pool_name> <limit>
+#
+# IMPORTANT: reddit_posts_comments pool MUST be set to 1 to avoid:
+# - Reddit API rate limiting (too many concurrent requests)
+# - DLT file system race conditions (normalize step conflicts)
+# - PyIceberg duplicate row errors (pagination overlap under load)
+#
+# Required CLI commands after starting Dagster:
+#   dagster instance concurrency set reddit_posts_comments 1
+#   dagster instance concurrency set reddit_subreddit_metadata 5
+concurrency:
+  pools:
+    # Granularity: 'run' limits total runs per pool (not just active ops)
+    granularity: 'run'
+    # Default limit: 1 for conservative concurrency control
+    default_limit: 1
+
+# Compute log storage
+# Stores stdout/stderr from runs
+compute_logs:
+  module: dagster.core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: compute_logs
+
+# Local artifact storage
+# Stores pickled outputs and other artifacts
+local_artifact_storage:
+  module: dagster.core.storage.root
+  class: LocalArtifactStorage
+  config:
+    base_dir: local_artifact_storage
+
+# Telemetry (optional - disable if desired)
+telemetry:
+  enabled: false
