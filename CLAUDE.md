@@ -20,20 +20,20 @@ This is a **mentorship learning project** focused on building an end-to-end MLOp
 **Core Stack:**
 - **Storage**: Garage (S3-compatible) stores Parquet files
 - **Table Format**: Apache Iceberg (ACID, schema evolution, time travel)
-- **Ingestion**: Airbyte writes raw data as Iceberg tables
+- **Ingestion**: Meltano (Singer taps/targets) for ELT pipelines
 - **Transformations**: DBT Core (SQL models) orchestrated by Dagster
 - **Query Engine**: Trino (distributed SQL over Iceberg)
 - **BI**: Apache Superset (Phase 2+)
 
 **Data Flow:**
 ```
-Data Sources → Airbyte → Garage/S3 (Parquet)
-                              ↓
-                      Iceberg Tables
-                              ↓
-                    Trino ← DBT (Dagster)
-                              ↓
-                    Bronze → Silver → Gold
+Data Sources → Meltano (Singer Taps) → Garage/S3 (Parquet)
+                                              ↓
+                                      Iceberg Tables
+                                              ↓
+                                    Trino ← DBT (Dagster)
+                                              ↓
+                                    Bronze → Silver → Gold
 ```
 
 **Medallion Layers:**
@@ -41,11 +41,10 @@ Data Sources → Airbyte → Garage/S3 (Parquet)
 - **Silver**: Cleaned dimensions (incremental Iceberg tables)
 - **Gold**: Business facts (star schema for analytics)
 
-**Kubernetes Namespace Strategy:**
-- **Single `lakehouse` namespace** for all data platform services
-- **Why?** Services that communicate together should live together ([K8s best practices](https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces))
-- **Services in namespace:** Garage (S3 storage), Airbyte (ingestion), Dagster (orchestration), Trino (query engine), PostgreSQL (metadata)
-- **Benefits:** Simplified DNS (use `service:port` instead of `service.namespace.svc.cluster.local:port`), easier service discovery, reduced complexity
+**Kubernetes Namespaces:**
+- `garage` - S3-compatible storage
+- `dagster` - Orchestration (includes embedded PostgreSQL)
+- `trino` - Query engine
 
 ## Commands
 
@@ -57,7 +56,6 @@ Quick reference (see SETUP_GUIDE.md for full context):
 
 ```bash
 # Prerequisites
-helm repo add airbyte https://airbytehq.github.io/helm-charts
 helm repo add dagster https://dagster-io.github.io/helm
 helm repo add trino https://trinodb.github.io/charts
 helm repo update
@@ -76,17 +74,12 @@ helm upgrade --install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
   -n lakehouse --wait
 
-# 2. Airbyte (ingestion - includes embedded PostgreSQL)
-helm upgrade --install airbyte airbyte/airbyte --version 1.8.5 \
-  -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n lakehouse --wait --timeout 10m
-
-# 3. Dagster (orchestration - includes embedded PostgreSQL)
+# 2. Dagster (orchestration - includes embedded PostgreSQL)
 helm upgrade --install dagster dagster/dagster \
   -f infrastructure/kubernetes/dagster/values.yaml \
   -n lakehouse --wait --timeout 10m
 
-# 4. Trino (query engine)
+# 3. Trino (query engine)
 helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
   -n lakehouse --wait --timeout 10m
@@ -99,23 +92,22 @@ helm upgrade --install trino trino/trino \
 Quick reference:
 ```bash
 # Uninstall Helm releases
-helm uninstall dagster -n lakehouse
-helm uninstall trino -n lakehouse
-helm uninstall airbyte -n lakehouse
-helm uninstall garage -n lakehouse
+helm uninstall dagster -n dagster
+helm uninstall trino -n trino
+helm uninstall garage -n garage
 
-# Delete namespace (deletes all resources)
-kubectl delete namespace lakehouse
+# Delete namespaces
+kubectl delete namespace dagster trino garage
 ```
 
 ### Check Status
 
 ```bash
-# All pods in lakehouse namespace
-kubectl get pods -n lakehouse
+# All pods across lakehouse namespaces
+kubectl get pods --all-namespaces | grep -E 'garage|dagster|trino'
 
-# All services in lakehouse namespace
-kubectl get svc -n lakehouse
+# All services
+kubectl get svc --all-namespaces | grep -E 'garage|dagster|trino'
 
 # Helm releases in lakehouse namespace
 helm list -n lakehouse
@@ -129,26 +121,19 @@ kubectl logs -n lakehouse <pod-name> --tail=100 -f
 **Note:** Port-forward blocks the terminal. Open separate terminals for each service.
 
 ```bash
-# Airbyte UI (separate terminal)
-# Note: In Airbyte V2, the UI is served by airbyte-server
-kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
-
 # Dagster UI (separate terminal)
 kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 
 # Trino UI (separate terminal)
-kubectl port-forward -n lakehouse svc/trino 8080:8080
-# Note: Conflicts with Airbyte on 8080 - use 8081 instead:
-kubectl port-forward -n lakehouse svc/trino 8081:8080
+kubectl port-forward -n trino svc/trino 8080:8080
 
 # Garage S3 API (separate terminal)
 kubectl port-forward -n lakehouse svc/garage 3900:3900
 ```
 
 Access:
-- Airbyte: http://localhost:8080
 - Dagster: http://localhost:3000
-- Trino: http://localhost:8081
+- Trino: http://localhost:8080
 
 ### Garage S3 Operations
 
@@ -213,9 +198,52 @@ dbt docs generate && dbt docs serve
 ```
 
 **Important:** DBT models in `transformations/dbt/models/` are example templates. Do not run until:
-1. Airbyte data sources configured
+1. Data sources configured and ingested
 2. Raw Iceberg tables created in Garage S3
 3. `sources.yml` updated with actual table names
+
+### Meltano ELT Pipelines
+
+```bash
+# From ingestion/meltano/ directory
+
+# Initialize Meltano project
+meltano init lakehouse-ingestion
+
+# Add extractors (taps)
+meltano add extractor tap-postgres
+meltano add extractor tap-github
+meltano add extractor tap-stripe
+
+# Add loaders (targets)
+meltano add loader target-parquet
+
+# Configure plugins
+meltano config tap-postgres set --interactive
+meltano config target-parquet set filepath s3://lakehouse/raw/
+
+# Test extraction
+meltano invoke tap-postgres
+
+# Run ELT job (tap | target)
+meltano run tap-postgres target-parquet
+
+# View installed plugins
+meltano list plugins
+
+# Check plugin configuration
+meltano config tap-postgres list
+
+# Manage state
+meltano state list
+meltano state get tap-postgres target-parquet
+meltano state set tap-postgres target-parquet '{"bookmarks":{}}'
+
+# Run with Dagster orchestration
+dagster dev -f dagster_defs.py
+```
+
+**Important:** Meltano configuration is stored in `meltano.yml`. Use environment variables for secrets, never hardcode in config files.
 
 ## Key Architectural Decisions
 
@@ -235,28 +263,20 @@ dbt docs generate && dbt docs serve
 **Pattern:** `<service-name>:<port>` (within same namespace)
 
 **Examples:**
-- Garage S3 API: `garage:3900`
-- Trino: `trino:8080`
-- PostgreSQL (Airbyte embedded): `airbyte-airbyte-postgresql:5432`
-- PostgreSQL (Dagster embedded): `dagster-postgresql:5432`
+- Garage S3 API: `garage.garage.svc.cluster.local:3900`
+- Trino: `trino.trino.svc.cluster.local:8080`
+- Dagster PostgreSQL (embedded): `dagster-postgresql.dagster.svc.cluster.local:5432`
 
 **Usage:**
-- Airbyte connects to Garage: `s3.endpoint=http://garage:3900`
-- Trino connects to Garage: `s3.endpoint=http://garage:3900`
-- DBT connects to Trino: `host=trino`
-
-**Note:** You CAN still use full DNS (`service.lakehouse.svc.cluster.local:port`) if needed, but short form is preferred for simplicity.
+- Trino connects to Garage: `s3.endpoint=http://garage.garage.svc.cluster.local:3900`
+- DBT connects to Trino: `host=trino.trino.svc.cluster.local`
 
 ### Secret Management
 
 **All secrets externalized** to `secrets.yaml` files (gitignored via `**/*/secrets.yaml` pattern):
 - `infrastructure/kubernetes/garage/secrets.yaml` - Auto-generates RPC secret (handled by Helm)
-- `infrastructure/kubernetes/airbyte/secrets.yaml` - Garage S3 credentials for Airbyte storage
-- `infrastructure/kubernetes/dagster/secrets.yaml` - PostgreSQL credentials for Dagster
-- `infrastructure/kubernetes/trino/secrets.yaml` - Garage S3 credentials for Trino
-- `infrastructure/kubernetes/database/postgres-secret.yaml` - PostgreSQL credentials
 
-**Note:** All secrets must specify `namespace: lakehouse` in metadata.
+**Note:** PostgreSQL credentials for Dagster are configured in `values.yaml` (embedded database).
 
 **Never hardcode secrets** in `values.yaml` files.
 
@@ -297,7 +317,7 @@ All DBT models in `transformations/dbt/models/` are **example templates**:
 - Include SCD Type 2 patterns
 
 **Do not run** until:
-1. Airbyte data sources configured
+1. Data sources configured and ingested
 2. Raw Iceberg tables created
 3. `sources.yml` updated with actual table names
 
@@ -419,20 +439,21 @@ s3:
 
 **Iceberg is configured in phases:**
 
-### Phase 2: Airbyte Native Iceberg Destination
-- **Approach**: Use Airbyte's built-in Iceberg S3 destination
-- **Catalog**: Airbyte manages catalog internally (Hadoop or JDBC catalog)
-- **Setup**: Configure Iceberg destination in Airbyte UI pointing to Garage S3
-- **Output**: Raw Iceberg tables written to `s3://lakehouse/warehouse/`
-- **Access**: Trino will connect to same catalog to query tables
+### Phase 2: Direct Iceberg Table Creation
+- **Approach**: Create Iceberg tables directly via Trino SQL or programmatically
+- **Catalog**: Hadoop catalog (filesystem-based) or REST catalog (Apache Polaris)
+- **Setup**: Configure Trino Iceberg connector pointing to Garage S3
+- **Output**: Iceberg tables written to `s3://lakehouse/warehouse/`
+- **Access**: Trino reads/writes Iceberg tables using the configured catalog
 
 **Key Configuration**:
 ```yaml
-# Airbyte Iceberg Destination Settings
-S3 Endpoint: http://garage:3900  # Same namespace - simplified DNS
-Bucket: lakehouse
-Warehouse Path: warehouse/
-Catalog Type: HADOOP (or JDBC for more features)
+# Trino Iceberg Catalog Settings
+connector.name: iceberg
+iceberg.catalog.type: hadoop
+hive.metastore.uri: thrift://localhost:9083  # Or use REST catalog
+s3.endpoint: http://garage.garage.svc.cluster.local:3900
+s3.path-style-access: true
 ```
 
 ### Phase 3: Apache Polaris Catalog (Upgrade)
@@ -442,7 +463,7 @@ Catalog Type: HADOOP (or JDBC for more features)
   - Multi-engine support (Trino, Spark, Flink)
   - RBAC and access control
   - Better metadata management
-- **Migration**: Update Airbyte and Trino to use Polaris REST catalog
+- **Migration**: Update Trino to use Polaris REST catalog
 - **Trino Config**: Switch from Hadoop to REST catalog type
 
 **Why Not Hive Metastore?**
@@ -455,7 +476,6 @@ Catalog Type: HADOOP (or JDBC for more features)
 **Phase 1 (Foundation):** Complete
 - ✅ Kubernetes infrastructure
 - ✅ Garage S3 storage
-- ✅ Airbyte deployment
 - ✅ Dagster deployment
 - ✅ Trino deployment
 - ✅ Secret externalization
@@ -465,16 +485,17 @@ Catalog Type: HADOOP (or JDBC for more features)
 - ✅ DBT project structure (templates)
 - ✅ Star schema examples
 - ✅ Trino deployed and accessible
-- ⏳ Airbyte data source configuration
-- ⏳ Configure Airbyte Iceberg destination (S3 + Garage)
-- ⏳ Raw data ingestion to Garage as Iceberg tables
-- ⏳ Configure Trino to read Airbyte's Iceberg catalog
+- ⏳ Deploy Meltano for data ingestion
+- ⏳ Configure Singer taps (data sources)
+- ⏳ Ingest data to Garage S3 as Parquet
+- ⏳ Create Iceberg tables in Garage S3
+- ⏳ Configure Trino Iceberg catalog
 - ⏳ DBT model implementation
 - ⏳ Superset deployment (optional)
 
 **Phase 3 (Governance):** Planned
 - Deploy Apache Polaris REST catalog
-- Migrate Airbyte + Trino to Polaris catalog
+- Migrate Trino to Polaris catalog
 - RBAC and access control
 - Data lineage tracking
 - Multi-engine catalog sharing
@@ -557,11 +578,11 @@ kubectl top nodes
 **Recommended order for new developers:**
 
 1. **Week 1**: Deploy infrastructure following SETUP_GUIDE.md, understand Garage S3 initialization
-2. **Week 2**: Configure Airbyte sources, understand Iceberg table format
+2. **Week 2**: Create Iceberg tables via Trino, understand table format and catalog
 3. **Week 3**: Learn DBT, create Bronze layer models
 4. **Week 4**: Build Silver layer dimensions (star schema, SCD Type 2)
 5. **Week 5**: Build Gold layer facts (dimensional joins, metrics)
-6. **Week 6**: Deploy Trino, query Iceberg tables, understand query optimization
+6. **Week 6**: Query optimization and Trino performance tuning
 7. **Week 7**: Create Superset dashboards (Phase 2)
 8. **Week 8+**: Explore governance (Phase 3) or MLOps (Phase 4)
 
@@ -574,66 +595,6 @@ kubectl top nodes
 kubectl get pvc -n lakehouse
 kubectl describe pvc data-garage-0 -n lakehouse
 ```
-
-### Airbyte Pods CrashLooping
-
-**Common causes:**
-1. Embedded PostgreSQL not ready: Check `kubectl get pods -n lakehouse | grep postgresql`
-2. Storage secret errors: Verify `airbyte-secrets` applied to `lakehouse` namespace
-3. Resource constraints: Check `kubectl top pods -n lakehouse`
-
-### Airbyte Source Setup Fails with 500 Error
-
-**Root Cause:** Airbyte server cannot access S3 storage for logs due to missing AWS credentials in `airbyte-airbyte-secrets`.
-
-**Symptoms:**
-- Source connection check fails with 500 Internal Server Error
-- Server logs show: `Unable to load credentials from any of the providers in the chain`
-- Connector check pods go into Error state
-
-**Solution:**
-
-1. Verify Garage S3 buckets exist:
-```bash
-POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n garage $POD -- /garage bucket list
-
-# Should show: airbyte-log-storage, airbyte-state-storage, airbyte-config-storage
-```
-
-2. If buckets are missing, create them:
-```bash
-kubectl exec -n garage $POD -- /garage bucket create airbyte-log-storage
-kubectl exec -n garage $POD -- /garage bucket create airbyte-state-storage
-kubectl exec -n garage $POD -- /garage bucket create airbyte-config-storage
-
-# Grant permissions to lakehouse-access key
-kubectl exec -n garage $POD -- /garage bucket allow --read --write airbyte-log-storage --key lakehouse-access
-kubectl exec -n garage $POD -- /garage bucket allow --read --write airbyte-state-storage --key lakehouse-access
-kubectl exec -n garage $POD -- /garage bucket allow --read --write airbyte-config-storage --key lakehouse-access
-```
-
-3. Patch the Helm-generated secret with AWS credentials:
-```bash
-# Get credentials from your secrets.yaml file (base64 encoded)
-ACCESS_KEY_ID=$(kubectl get secret airbyte-secrets -n airbyte -o jsonpath='{.data.aws-secret-access-key-id}')
-SECRET_ACCESS_KEY=$(kubectl get secret airbyte-secrets -n airbyte -o jsonpath='{.data.aws-secret-access-key-secret}')
-
-# Patch the Helm-generated secret
-kubectl patch secret airbyte-airbyte-secrets -n airbyte --type merge -p "{\"data\":{\"AWS_ACCESS_KEY_ID\":\"$ACCESS_KEY_ID\",\"AWS_SECRET_ACCESS_KEY\":\"$SECRET_ACCESS_KEY\"}}"
-
-# Restart server to pick up credentials
-kubectl rollout restart deployment/airbyte-server -n airbyte
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=server -n airbyte --timeout=120s
-```
-
-4. Verify credentials are loaded:
-```bash
-kubectl exec -n airbyte deployment/airbyte-server -- env | grep -E '^AWS_ACCESS_KEY_ID=|^AWS_SECRET_ACCESS_KEY='
-# Should show the Garage S3 credentials (GK9fe811be5e47db3e8a8cf785)
-```
-
-**Important:** This patch is required after each Airbyte Helm install/upgrade because the Helm chart does not properly map credentials from `airbyte-secrets` to `airbyte-airbyte-secrets`.
 
 ### DBT Cannot Connect to Trino
 

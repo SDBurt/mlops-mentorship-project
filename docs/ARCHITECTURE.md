@@ -30,7 +30,7 @@ This document provides detailed technical architecture and design decisions for 
 
 **Storage**
 - Garage: S3-compatible object storage for data lake
-- PostgreSQL: Metadata stores for Airbyte, Dagster, and Trino catalogs
+- PostgreSQL: Metadata store for Dagster (embedded)
 - Persistent Volumes: For stateful services
 
 ### Data Ingestion Layer

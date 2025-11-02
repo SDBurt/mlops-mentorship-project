@@ -29,7 +29,7 @@ helm list --all-namespaces
 kubectl get pvc --all-namespaces
 ```
 
-Expected output should show: `lakehouse` namespace and various Helm releases (garage, airbyte, dagster, trino).
+Expected output should show: `lakehouse` namespace and various Helm releases (garage, dagster, trino).
 
 ---
 
@@ -45,9 +45,6 @@ helm uninstall dagster -n lakehouse
 
 # Uninstall Trino (query engine - depends on storage)
 helm uninstall trino -n lakehouse
-
-# Uninstall Airbyte (ingestion - depends on storage)
-helm uninstall airbyte -n lakehouse
 
 # Uninstall Garage (S3 storage - base layer)
 helm uninstall garage -n lakehouse
@@ -214,7 +211,6 @@ If you want to run all commands at once (not recommended for learning):
 # Uninstall Helm releases from lakehouse namespace
 helm uninstall dagster -n lakehouse 2>/dev/null || true
 helm uninstall trino -n lakehouse 2>/dev/null || true
-helm uninstall airbyte -n lakehouse 2>/dev/null || true
 helm uninstall garage -n lakehouse 2>/dev/null || true
 
 # Clean up old dev instances

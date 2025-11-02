@@ -18,8 +18,8 @@ This project follows a deliberate progression that mirrors real-world platform d
 
 ### Phase 1-2: Data Foundation (Learn First)
 **Build the data pipeline infrastructure**
-- Deploy Kubernetes services (Garage, Airbyte, Dagster, Trino)
-- Implement batch data ingestion with Airbyte
+- Deploy Kubernetes services (Garage, Dagster, Trino)
+- Implement batch data ingestion
 - Create DBT transformations (Bronze → Silver → Gold)
 - Build dimensional models (star schema)
 - Master SQL, data modeling, and pipeline orchestration
@@ -60,7 +60,7 @@ This project follows a deliberate progression that mirrors real-world platform d
 ```
 Data Sources
     ↓
-[Airbyte] - Ingestion
+[Meltano] - ELT Ingestion (Singer Taps/Targets)
     ↓
 [Garage S3] - Object Storage (Parquet files)
     ↓
@@ -102,10 +102,10 @@ Data Pipeline (above)
 - **Kubernetes**: Container orchestration (Docker Desktop / minikube)
 - **Helm**: Package management for services
 - **Garage**: S3-compatible object storage (lightweight alternative to MinIO)
-- **PostgreSQL**: Metadata storage (embedded in Airbyte/Dagster)
+- **PostgreSQL**: Metadata storage (embedded in Dagster)
 
 **Data Platform**:
-- **Airbyte**: Data ingestion with 300+ connectors
+- **Meltano**: ELT ingestion via Singer ecosystem (600+ connectors)
 - **Apache Iceberg**: Open table format (ACID, time travel, schema evolution)
 - **DBT**: SQL-based transformations (medallion architecture)
 - **Dagster**: Asset-centric orchestration
@@ -132,7 +132,6 @@ Data Pipeline (above)
 
 **Tasks Completed**:
 - [x] Garage S3 storage with cluster initialization
-- [x] Airbyte V2 with embedded PostgreSQL
 - [x] Dagster with embedded PostgreSQL
 - [x] Trino query engine
 
@@ -150,10 +149,12 @@ Data Pipeline (above)
 **Status**: 🔄 In Progress
 
 **Current Focus**:
-- [ ] Configure Airbyte data sources
-- [ ] Configure Airbyte Iceberg destination (S3 + Garage)
-- [ ] Ingest raw data as Iceberg tables to Garage S3
-- [ ] Configure Trino to read Airbyte's Iceberg catalog
+- [ ] Deploy and configure Meltano for data ingestion
+- [ ] Add Singer taps for data sources (PostgreSQL, APIs, etc.)
+- [ ] Configure target-parquet for Garage S3
+- [ ] Ingest raw data as Parquet files
+- [ ] Create Iceberg tables in Garage S3
+- [ ] Configure Trino Iceberg catalog
 - [ ] Build DBT project structure
 - [ ] Implement Bronze layer (staging views)
 - [ ] Implement Silver layer (cleaned dimensions)
@@ -183,7 +184,7 @@ Data Pipeline (above)
 - [ ] Create Dagster assets for DBT models
 - [ ] Set up daily refresh schedules
 - [ ] Implement data quality tests in DBT
-- [ ] Build Dagster sensors for Airbyte syncs
+- [ ] Build Dagster sensors for data refreshes
 - [ ] Create monitoring dashboards
 - [ ] Set up alerting for pipeline failures
 
@@ -198,7 +199,7 @@ Data Pipeline (above)
 
 **Planned Tasks**:
 - [ ] Deploy Apache Polaris REST Catalog
-- [ ] Migrate Airbyte + Trino to use Polaris catalog
+- [ ] Migrate Trino to use Polaris catalog
 - [ ] Implement RBAC policies for table access
 - [ ] Set up audit logging and monitoring
 - [ ] Document table lineage
@@ -284,17 +285,12 @@ helm upgrade --install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
   -n lakehouse --wait
 
-# 2. Ingestion (Airbyte)
-helm upgrade --install airbyte airbyte-v2/airbyte --version 2.0.18 \
-  -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n lakehouse --wait --timeout 10m
-
-# 3. Orchestration (Dagster)
+# 2. Orchestration (Dagster)
 helm upgrade --install dagster dagster/dagster \
   -f infrastructure/kubernetes/dagster/values.yaml \
   -n lakehouse
 
-# 4. Query engine (Trino)
+# 3. Query engine (Trino)
 helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
   -n lakehouse --wait --timeout 10m
@@ -303,19 +299,17 @@ helm upgrade --install trino trino/trino \
 **Step 3: Access Services**
 ```bash
 # Port-forward UIs (each in separate terminal)
-kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
-kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
-kubectl port-forward -n lakehouse svc/trino 8081:8080
+kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n trino svc/trino 8080:8080
 ```
 
-- Airbyte: http://localhost:8080
 - Dagster: http://localhost:3000
-- Trino: http://localhost:8081
+- Trino: http://localhost:8080
 
 ### Check Status
 ```bash
-# View all deployments in lakehouse namespace
-kubectl get pods -n lakehouse
+# View all deployments
+kubectl get pods --all-namespaces | grep -E 'garage|dagster|trino'
 
 # Check specific service
 kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage
@@ -327,10 +321,9 @@ kubectl logs -n lakehouse garage-0 --tail=100
 ```
 .
 ├── docs/                          # Comprehensive documentation
-│   ├── topics/                   # 18 detailed topic guides
+│   ├── topics/                   # Detailed topic guides
 │   │   ├── kubernetes-fundamentals.md
 │   │   ├── garage.md
-│   │   ├── airbyte.md
 │   │   ├── dagster.md
 │   │   ├── trino.md
 │   │   ├── dbt.md
@@ -348,7 +341,6 @@ kubectl logs -n lakehouse garage-0 --tail=100
 ├── infrastructure/               # Platform infrastructure
 │   ├── kubernetes/              # K8s manifests and Helm values
 │   │   ├── garage/             # S3 storage
-│   │   ├── airbyte/            # Data ingestion
 │   │   ├── dagster/            # Orchestration
 │   │   ├── trino/              # Query engine
 │   │   ├── polaris/            # Polaris REST Catalog (Phase 3)
@@ -371,7 +363,7 @@ kubectl logs -n lakehouse garage-0 --tail=100
 │       ├── assets/             # DBT assets, custom assets
 │       ├── jobs/               # Job definitions
 │       ├── schedules/          # Schedules
-│       └── sensors/            # Sensors (Airbyte triggers)
+│       └── sensors/            # Sensors (data triggers)
 │
 ├── lakehouse/                   # Iceberg schemas & conventions
 │   ├── schemas/
@@ -474,13 +466,12 @@ This project teaches the complete modern data stack:
 
 ```bash
 # Uninstall all services (see docs/TEARDOWN.md for details)
-helm uninstall dagster -n lakehouse
-helm uninstall trino -n lakehouse
-helm uninstall airbyte -n lakehouse
-helm uninstall garage -n lakehouse
+helm uninstall dagster -n dagster
+helm uninstall trino -n trino
+helm uninstall garage -n garage
 
-# Delete namespace (deletes all resources)
-kubectl delete namespace lakehouse
+# Delete namespaces
+kubectl delete namespace dagster trino garage
 ```
 
 ## License
