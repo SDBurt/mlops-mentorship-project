@@ -35,7 +35,7 @@ In this lakehouse platform (Phase 4, planned), MLOps extends the data pipeline w
 **Architecture**:
 ```
 [DBT Gold Tables] → [Feast Feature Repository] → Online Store (Redis)
-                                                → Offline Store (Garage S3)
+                                                → Offline Store (MinIO S3)
 ```
 
 **Example feature definition** (`features/customer_features.py`):
@@ -114,7 +114,7 @@ prediction = model.predict(features)
    ↓
 [Feast] materializes features from Gold tables
    ↓
-[Offline Store] S3/Garage (historical features for training)
+[Offline Store] S3/MinIO (historical features for training)
 [Online Store] Redis/DynamoDB (low-latency features for inference)
 ```
 
@@ -218,9 +218,9 @@ curl -X POST http://churn-predictor.ml.svc.cluster.local/v1/models/churn-predict
 cd ml/
 dvc init
 
-# Configure remote storage (Garage S3)
-dvc remote add -d garage s3://lakehouse/dvc
-dvc remote modify garage endpointurl http://garage:3900
+# Configure remote storage (MinIO S3)
+dvc remote add -d minio s3://lakehouse/dvc
+dvc remote modify minio endpointurl http://minio:3900
 ```
 
 **Track data**:
@@ -232,7 +232,7 @@ dvc add data/train.parquet
 git add data/train.parquet.dvc data/.gitignore
 git commit -m "Add training dataset v1"
 
-# Push data to Garage
+# Push data to MinIO
 dvc push
 ```
 
@@ -358,7 +358,7 @@ def model_performance_metrics(context):
 
 4. Model Registry
    ↓
-   Store model in S3 (Garage)
+   Store model in S3 (MinIO)
    Track metadata (accuracy, F1, training date)
 
 5. Model Deployment (KServe)

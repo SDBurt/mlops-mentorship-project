@@ -29,7 +29,7 @@ This document provides detailed technical architecture and design decisions for 
 - Handles scaling and self-healing
 
 **Storage**
-- Garage: S3-compatible object storage for data lake
+- MinIO: S3-compatible object storage for data lake
 - PostgreSQL: Metadata store for Dagster (embedded)
 - Persistent Volumes: For stateful services
 
@@ -39,7 +39,7 @@ This document provides detailed technical architecture and design decisions for 
 - ELT (Extract, Load, Transform) framework
 - Custom source connectors for proprietary data sources
 - Configurable sync schedules (batch and CDC)
-- Writes raw data as Parquet files to Garage/S3
+- Writes raw data as Parquet files to MinIO/S3
 - Metadata tracking for incremental syncs
 
 **Custom Connectors Architecture**
@@ -59,12 +59,12 @@ This document provides detailed technical architecture and design decisions for 
 │                   │                         │
 └───────────────────┼─────────────────────────┘
                     ▼
-          Garage S3 Bucket
+          MinIO S3 Bucket
 ```
 
 ### Storage Layer
 
-**Garage (S3-Compatible Object Storage)**
+**MinIO (S3-Compatible Object Storage)**
 - Distributed, geo-replicated object storage
 - S3 API compatibility for universal tooling support
 - Local deployment for development
@@ -131,7 +131,7 @@ Iceberg Table
 
 3. Storage
    │
-   ├─▶ Write Parquet files to Garage/S3
+   ├─▶ Write Parquet files to MinIO/S3
    │
    └─▶ Register as Iceberg table
 
@@ -157,7 +157,7 @@ Iceberg Table
        │
        └─▶ Distribute to Trino Workers
            │
-           ├─▶ Read Parquet files from Garage/S3
+           ├─▶ Read Parquet files from MinIO/S3
            │
            ├─▶ Execute query fragments
            │
@@ -202,7 +202,7 @@ catalog:
   uri: http://iceberg-rest-catalog:8181
   warehouse: s3://datalake/
   s3:
-    endpoint: http://garage-s3-api:3900
+    endpoint: http://minio-s3-api:3900
     access-key-id: ${S3_ACCESS_KEY}
     secret-access-key: ${S3_SECRET_KEY}
 ```
@@ -288,7 +288,7 @@ SELECT * FROM processed.users.snapshots;
 
 **Workers**
 - Parallel data processing
-- Direct S3 reads from Garage
+- Direct S3 reads from MinIO
 - Columnar processing (Parquet)
 - Vectorized execution
 
@@ -298,7 +298,7 @@ SELECT * FROM processed.users.snapshots;
 connector.name=iceberg
 hive.metastore.uri=thrift://hive-metastore:9083
 iceberg.catalog.type=hive
-hive.s3.endpoint=http://garage-s3-api:3900
+hive.s3.endpoint=http://minio-s3-api:3900
 hive.s3.aws-access-key=${S3_ACCESS_KEY}
 hive.s3.aws-secret-key=${S3_SECRET_KEY}
 hive.s3.path-style-access=true
@@ -945,7 +945,7 @@ Real-time ingestion enables the lakehouse to process streaming data with low lat
                                    │
                                    ▼
                         ┌──────────────────────┐
-                        │   Garage S3 Bucket   │
+                        │   MinIO S3 Bucket   │
                         │  (Bronze Layer)      │
                         └──────────────────────┘
 ```
@@ -1335,7 +1335,7 @@ This section describes the planned ML integration architecture with Kubeflow, Fe
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                 Data Lakehouse (Iceberg + Garage)                 │
+│                 Data Lakehouse (Iceberg + MinIO)                 │
 │                   Bronze → Silver → Gold Layers                   │
 └────────────────────────┬──────────────────────────────────────────┘
                          │
@@ -1366,7 +1366,7 @@ This section describes the planned ML integration architecture with Kubeflow, Fe
            ▼
 ┌───────────────────────────────────────────────────────────────────┐
 │           DVC (Data Version Control)                              │
-│  - Dataset versioning (Garage S3 backend)                        │
+│  - Dataset versioning (MinIO S3 backend)                        │
 │  - Model registry                                                 │
 │  - Experiment tracking                                            │
 └───────────────────────────────────────────────────────────────────┘
@@ -1378,7 +1378,7 @@ This section describes the planned ML integration architecture with Kubeflow, Fe
 
 Feast provides a dual-store architecture for ML feature management, bridging the gap between batch feature engineering and low-latency model serving.
 
-**Offline Store (Iceberg on Garage):**
+**Offline Store (Iceberg on MinIO):**
 - Historical feature data for training
 - Point-in-time correct feature retrieval
 - Backfills and batch feature computation
@@ -1472,7 +1472,7 @@ def feast_user_features(gold_users):
         col("lifetime_value")
     )
 
-    # Write to offline store (Parquet in Garage)
+    # Write to offline store (Parquet in MinIO)
     feast_features.write \
         .mode("overwrite") \
         .parquet("s3://datalake/feast/user_features.parquet")
@@ -1539,7 +1539,7 @@ ml-platform
 │   ├── ml-pipeline (API server)
 │   ├── ml-pipeline-ui
 │   ├── metadata-store (PostgreSQL)
-│   └── minio (artifact storage - can use Garage)
+│   └── minio (artifact storage - can use MinIO)
 ├── jupyter
 │   ├── jupyterhub
 │   └── notebook-controller
@@ -1634,16 +1634,16 @@ def train_model(
     packages_to_install=["boto3"],
     base_image="python:3.9"
 )
-def upload_to_garage(
+def upload_to_minio(
     model: Model,
     s3_path: str
 ):
-    """Upload model to Garage S3."""
+    """Upload model to MinIO S3."""
     import boto3
 
     s3 = boto3.client(
         's3',
-        endpoint_url='http://garage-s3-api.garage.svc.cluster.local:3900',
+        endpoint_url='http://minio-s3-api.minio.svc.cluster.local:3900',
         aws_access_key_id='ACCESS_KEY',
         aws_secret_access_key='SECRET_KEY'
     )
@@ -1670,8 +1670,8 @@ def training_pipeline(
         max_depth=max_depth
     )
 
-    # Upload to Garage
-    upload_to_garage(
+    # Upload to MinIO
+    upload_to_minio(
         model=train_task.outputs["output_model"],
         s3_path="ml/models/churn_model_v1.pkl"
     )
@@ -1682,15 +1682,15 @@ compiler.Compiler().compile(training_pipeline, 'pipeline.yaml')
 
 **Integration with Lakehouse:**
 - Read training data from Iceberg tables (versioned snapshots)
-- Store models in Garage S3 with metadata
-- Track experiments with MLflow (logs stored in Garage)
+- Store models in MinIO S3 with metadata
+- Track experiments with MLflow (logs stored in MinIO)
 - Deploy models via KServe for low-latency serving
 
 ### DVC (Data Version Control) Integration
 
 **Purpose:**
 
-DVC provides git-like versioning for ML datasets and models, using Garage S3 as the remote storage backend.
+DVC provides git-like versioning for ML datasets and models, using MinIO S3 as the remote storage backend.
 
 **Benefits:**
 - Version control for large datasets without storing in git
@@ -1703,14 +1703,14 @@ DVC provides git-like versioning for ML datasets and models, using Garage S3 as 
 ```yaml
 # .dvc/config
 [core]
-    remote = garage
+    remote = minio
 
-[remote "garage"]
+[remote "minio"]
     url = s3://datalake/dvc
-    endpointurl = http://garage-s3-api.garage.svc.cluster.local:3900
+    endpointurl = http://minio-s3-api.minio.svc.cluster.local:3900
     access_key_id = ${S3_ACCESS_KEY}
     secret_access_key = ${S3_SECRET_KEY}
-    region = garage
+    region = minio
 ```
 
 **Workflow Example:**
@@ -1724,7 +1724,7 @@ dvc add data/training_set.parquet
 git add data/training_set.parquet.dvc .gitignore
 git commit -m "Add training dataset v1"
 
-# Push data to Garage
+# Push data to MinIO
 dvc push
 
 # Track trained model
@@ -1739,7 +1739,7 @@ git push --tags
 
 # Later, reproduce experiment from any commit
 git checkout exp-v1.0
-dvc pull  # Downloads exact dataset and model from Garage
+dvc pull  # Downloads exact dataset and model from MinIO
 python evaluate.py  # Reproduce results
 ```
 
@@ -1823,7 +1823,7 @@ model_metadata = {
     "iceberg_table": "ml.training_data"
 }
 
-# Save to Garage with metadata
+# Save to MinIO with metadata
 import joblib
 import json
 
@@ -1858,7 +1858,7 @@ training_data = spark.read.format("iceberg") \
        ▼
 2. Feature Store (Feast)
    │
-   ├─▶ Materialize to offline store (Iceberg/Parquet in Garage)
+   ├─▶ Materialize to offline store (Iceberg/Parquet in MinIO)
    ├─▶ Materialize to online store (Redis) for serving
    └─▶ Feature registry updated with schemas
        │
@@ -1868,7 +1868,7 @@ training_data = spark.read.format("iceberg") \
    ├─▶ Fetch historical features from Feast (point-in-time correct)
    ├─▶ Train model on Kubernetes (GPU optional)
    ├─▶ Log metrics and artifacts to MLflow
-   └─▶ Save model to Garage S3
+   └─▶ Save model to MinIO S3
        │
        ▼
 4. Version Control (DVC)
@@ -1881,7 +1881,7 @@ training_data = spark.read.format("iceberg") \
        ▼
 5. Model Serving (KServe)
    │
-   ├─▶ Load model from Garage S3
+   ├─▶ Load model from MinIO S3
    ├─▶ Fetch online features from Feast/Redis (<10ms)
    ├─▶ Serve predictions via REST/gRPC API
    └─▶ Monitor model performance and drift
@@ -1895,7 +1895,7 @@ Following Kubernetes best practices - services that communicate should live toge
 
 ```
 lakehouse               # Core data platform (SINGLE namespace)
-├── garage              # S3 storage
+├── minio              # S3 storage
 ├── airbyte             # Data ingestion
 ├── dagster             # Orchestration
 ├── trino               # Query engine
@@ -1916,13 +1916,13 @@ ml-platform             # ML workloads (separate namespace - Phase 4+)
 
 **Why single `lakehouse` namespace?**
 - All data platform services communicate frequently
-- Simplified DNS: `garage:3900` instead of `garage.garage.svc.cluster.local:3900`
+- Simplified DNS: `minio:3900` instead of `minio.minio.svc.cluster.local:3900`
 - Easier configuration and debugging
 - Follows [Kubernetes namespace best practices](https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces)
 
 **Service Communication within `lakehouse` namespace:**
-- Airbyte → Garage: `http://garage:3900`
-- Trino → Garage: `http://garage:3900`
+- Airbyte → MinIO: `http://minio:3900`
+- Trino → MinIO: `http://minio:3900`
 - Dagster → Trino: `http://trino:8080`
 - All services → PostgreSQL: `postgres:5432`
 
@@ -1940,7 +1940,7 @@ ml-platform             # ML workloads (separate namespace - Phase 4+)
 **Storage Architecture:**
 
 ```
-Garage S3 (s3://datalake/)
+MinIO S3 (s3://datalake/)
 ├── feast/
 │   ├── registry.db                    # Feature registry
 │   ├── offline/                       # Parquet files
@@ -1991,7 +1991,7 @@ A **lakehouse** combines the best aspects of data lakes and data warehouses:
 
 ```
 ┌────────────────────────────────────────────────┐
-│           S3 / Garage (Raw Files)              │
+│           S3 / MinIO (Raw Files)              │
 │  - users/2024/01/data.parquet                  │
 │  - orders/2024/01/data.parquet                 │
 │  - No schema enforcement                       │
@@ -2036,7 +2036,7 @@ Problems:
 └────────────────┬───────────────────────────────┘
                  │
 ┌────────────────┴───────────────────────────────┐
-│           S3 / Garage (Parquet Files)          │
+│           S3 / MinIO (Parquet Files)          │
 │  - Immutable data files                        │
 │  - Columnar format                             │
 │  - Compressed and efficient                    │
@@ -2057,7 +2057,7 @@ Benefits:
 
 ### Governance Stack (Phase 3)
 
-**Layer 1: Storage (Garage/S3)**
+**Layer 1: Storage (MinIO/S3)**
 - Object storage for data files
 - Encryption at rest
 - Bucket policies
@@ -2096,7 +2096,7 @@ catalog:
   uri: http://polaris-catalog:8181/api/catalog
   warehouse: s3://datalake/
   s3:
-    endpoint: http://garage-s3-api:3900
+    endpoint: http://minio-s3-api:3900
 
 # RBAC Configuration
 principals:
@@ -2339,7 +2339,7 @@ SELECT email FROM analytics.users LIMIT 3;
 ### Migration Path: Adding Governance to Existing Lake
 
 **Phase 1 (Current):** Raw data lake
-- Files in S3/Garage
+- Files in S3/MinIO
 - Manual schema tracking
 - No access control
 
@@ -2394,29 +2394,29 @@ SELECT email FROM analytics.users LIMIT 3;
 
 ## Configuration Details
 
-### Garage S3 Configuration
+### MinIO S3 Configuration
 
 **Create Bucket:**
 ```bash
-POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
 
 # Create bucket
-kubectl exec -n lakehouse $POD -- garage bucket create lakehouse
+kubectl exec -n lakehouse $POD -- minio bucket create lakehouse
 
 # Generate access key
-kubectl exec -n lakehouse $POD -- garage key new --name lakehouse-access
+kubectl exec -n lakehouse $POD -- minio key new --name lakehouse-access
 
 # Link key to bucket
-kubectl exec -n lakehouse $POD -- garage bucket allow \
+kubectl exec -n lakehouse $POD -- minio bucket allow \
   --read --write lakehouse \
   --key lakehouse-access
 ```
 
 **S3 Endpoint Configuration:**
 ```
-Endpoint: http://garage-s3-api:3900 (internal)
+Endpoint: http://minio-s3-api:3900 (internal)
           http://localhost:3900 (port-forward)
-Region: garage
+Region: minio
 Path Style: true
 ```
 
@@ -2526,7 +2526,7 @@ task.max-worker-threads=64
 
 **Authentication & Authorization:**
 - Kubernetes RBAC for service access
-- S3 IAM-style policies for Garage buckets
+- S3 IAM-style policies for MinIO buckets
 - Trino LDAP/OAuth integration
 - Row-level security in Iceberg
 
@@ -2536,7 +2536,7 @@ task.max-worker-threads=64
 - Internal service mesh (Istio/Linkerd)
 
 **Data Security:**
-- Encryption at rest (Garage)
+- Encryption at rest (MinIO)
 - Encryption in transit (TLS)
 - Column-level encryption (future)
 - Audit logging

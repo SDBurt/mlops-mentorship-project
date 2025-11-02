@@ -6,7 +6,7 @@
 
 Hive Metastore is a centralized metadata repository originally designed for Apache Hive. It stores table schemas, partition information, and file locations for data lake tables. Today it's used by many engines ([Trino](trino.md), Spark, Presto) as a catalog for [Apache Iceberg](apache-iceberg.md) tables.
 
-In this lakehouse platform (Phase 2), Hive Metastore catalogs Iceberg tables stored in [Garage](garage.md) S3, allowing [Trino](trino.md) and [DBT](dbt.md) to discover and query tables.
+In this lakehouse platform (Phase 2), Hive Metastore catalogs Iceberg tables stored in [MinIO](minio.md) S3, allowing [Trino](trino.md) and [DBT](dbt.md) to discover and query tables.
 
 ## Why Hive Metastore?
 
@@ -28,7 +28,7 @@ In this lakehouse platform (Phase 2), Hive Metastore catalogs Iceberg tables sto
 - **Partitions**: Directory structure for partitioned tables
 - **Iceberg metadata**: Pointers to Iceberg metadata files in S3
 
-**What it doesn't store**: Actual data (stored in [Garage](garage.md) S3 as Parquet files)
+**What it doesn't store**: Actual data (stored in [MinIO](minio.md) S3 as Parquet files)
 
 ### 2. Architecture
 
@@ -295,7 +295,7 @@ kubectl exec -n lakehouse hive-metastore-postgresql-0 -- df -h /var/lib/postgres
 - **[Trino](trino.md)**: Queries Iceberg tables via Hive Metastore
 - **[Apache Iceberg](apache-iceberg.md)**: Metastore stores pointers to Iceberg metadata
 - **[Polaris REST Catalog](polaris-rest-catalog.md)**: Modern replacement (Phase 3)
-- **[Garage](garage.md)**: Stores actual data files referenced in metastore
+- **[MinIO](minio.md)**: Stores actual data files referenced in metastore
 
 ## References
 

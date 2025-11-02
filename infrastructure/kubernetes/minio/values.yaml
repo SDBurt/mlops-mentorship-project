@@ -1,0 +1,74 @@
+# MinIO S3-Compatible Storage Configuration
+# Official Bitnami Helm chart for MinIO
+
+# Allow using official MinIO image
+global:
+  security:
+    allowInsecureImages: true
+
+# Image configuration - use official MinIO image
+image:
+  registry: docker.io
+  repository: minio/minio
+  tag: latest  # Use latest stable MinIO official image
+
+# MinIO mode - standalone for single-node, distributed for multi-node
+mode: standalone
+
+# Authentication
+auth:
+  rootUser: "admin"
+  rootPassword: "minio123"  # TODO: Change for production (use secrets in real deployment)
+
+# Number of replicas (standalone mode uses 1)
+replicas: 1
+
+# Persistent storage
+persistence:
+  enabled: true
+  storageClass: ""  # Use default storage class
+  size: 10Gi
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    api: 9000
+    console: 9001
+
+# Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Default buckets to create on startup
+defaultBuckets: "lakehouse"
+
+# MinIO Console (Web UI)
+consoleService:
+  type: ClusterIP
+  port: 9001
+
+# Ingress - Disabled (using port-forward for local dev)
+ingress:
+  enabled: false
+  console:
+    enabled: false
+
+# Disable metrics for simplicity
+metrics:
+  serviceMonitor:
+    enabled: false
+
+# Security context (defaults are fine)
+# podSecurityContext:
+#   enabled: true
+#   fsGroup: 1001
+# containerSecurityContext:
+#   enabled: true
+#   runAsUser: 1001
+#   runAsNonRoot: true

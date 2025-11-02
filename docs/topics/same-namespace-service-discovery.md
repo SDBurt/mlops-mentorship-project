@@ -4,7 +4,7 @@ This document explains how Kubernetes services communicate within the same names
 
 ## Overview
 
-All lakehouse services (Garage, Airbyte, Dagster, Trino, PostgreSQL) are deployed to a single `lakehouse` namespace. This simplifies service discovery and configuration.
+All lakehouse services (MinIO, Airbyte, Dagster, Trino, PostgreSQL) are deployed to a single `lakehouse` namespace. This simplifies service discovery and configuration.
 
 ## Why Single Namespace?
 
@@ -28,7 +28,7 @@ service-name:port
 ```
 
 Examples:
-- `garage:3900` (Garage S3 API)
+- `minio:3900` (MinIO S3 API)
 - `trino:8080` (Trino query engine)
 - `postgres:5432` (PostgreSQL database)
 
@@ -38,7 +38,7 @@ service-name.namespace.svc.cluster.local:port
 ```
 
 Examples:
-- `garage.lakehouse.svc.cluster.local:3900`
+- `minio.lakehouse.svc.cluster.local:3900`
 - `trino.lakehouse.svc.cluster.local:8080`
 - `postgres.lakehouse.svc.cluster.local:5432`
 
@@ -46,24 +46,24 @@ Examples:
 
 ## Service Communication Examples
 
-### Airbyte → Garage S3
+### Airbyte → MinIO S3
 
 **Configuration** ([infrastructure/kubernetes/airbyte/values.yaml](../../infrastructure/kubernetes/airbyte/values.yaml)):
 ```yaml
 global:
   storage:
     s3:
-      endpoint: http://garage:3900  # Short DNS - same namespace
+      endpoint: http://minio:3900  # Short DNS - same namespace
       pathStyleAccess: true
 ```
 
-### Trino → Garage S3
+### Trino → MinIO S3
 
 **Configuration** ([infrastructure/kubernetes/trino/values.yaml](../../infrastructure/kubernetes/trino/values.yaml)):
 ```yaml
 additionalCatalogs:
   iceberg: |
-    s3.endpoint=http://garage:3900  # Short DNS - same namespace
+    s3.endpoint=http://minio:3900  # Short DNS - same namespace
     s3.path-style-access=true
 ```
 
@@ -86,10 +86,10 @@ From within a pod in the `lakehouse` namespace:
 
 ```bash
 # Get a pod name
-POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
 
 # Test connectivity using short DNS
-kubectl exec -n lakehouse $POD -- curl -I http://garage:3900
+kubectl exec -n lakehouse $POD -- curl -I http://minio:3900
 kubectl exec -n lakehouse $POD -- curl -I http://trino:8080
 kubectl exec -n lakehouse $POD -- nc -zv postgres 5432
 ```
@@ -105,7 +105,7 @@ kubectl get svc -n lakehouse
 
 **Test DNS resolution:**
 ```bash
-kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- nslookup garage
+kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- nslookup minio
 ```
 
 **Expected output:**
@@ -113,8 +113,8 @@ kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- nsloo
 Server:    10.96.0.10
 Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
 
-Name:      garage
-Address 1: 10.x.x.x garage.lakehouse.svc.cluster.local
+Name:      minio
+Address 1: 10.x.x.x minio.lakehouse.svc.cluster.local
 ```
 
 ### Connection Refused
@@ -126,12 +126,12 @@ kubectl get pods -n lakehouse
 
 **Check service endpoints:**
 ```bash
-kubectl get endpoints -n lakehouse garage
+kubectl get endpoints -n lakehouse minio
 ```
 
 **Check service ports:**
 ```bash
-kubectl describe svc -n lakehouse garage
+kubectl describe svc -n lakehouse minio
 ```
 
 ## When to Use Multiple Namespaces

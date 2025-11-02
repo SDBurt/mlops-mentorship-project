@@ -4,7 +4,7 @@
 
 ## Overview
 
-Apache Iceberg is an open table format for huge analytic datasets. It brings database-like features (ACID transactions, schema evolution, time travel) to data lake storage systems like [Garage](garage.md) S3.
+Apache Iceberg is an open table format for huge analytic datasets. It brings database-like features (ACID transactions, schema evolution, time travel) to data lake storage systems like [MinIO](minio.md) S3.
 
 Instead of managing raw Parquet files directly, Iceberg provides a metadata layer that tracks files, schemas, partitions, and versions. This enables reliable, scalable analytics over petabyte-scale datasets.
 
@@ -284,7 +284,7 @@ FROM {{ source('raw', 'customers') }}
 
 ### Table Storage Location
 
-All Iceberg tables stored in [Garage](garage.md) S3:
+All Iceberg tables stored in [MinIO](minio.md) S3:
 
 ```
 s3://lakehouse/warehouse/
@@ -503,7 +503,7 @@ CREATE TABLE events (...) WITH (
 
 ## Integration with Other Components
 
-- **[Garage](garage.md)**: Stores Iceberg data and metadata files
+- **[MinIO](minio.md)**: Stores Iceberg data and metadata files
 - **[Trino](trino.md)**: Queries Iceberg tables, manages snapshots
 - **[DBT](dbt.md)**: Materializes models as Iceberg tables
 - **[Hive Metastore](hive-metastore.md)**: Catalogs Iceberg tables (Phase 2)

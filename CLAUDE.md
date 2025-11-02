@@ -18,7 +18,7 @@ This is a **mentorship learning project** focused on building an end-to-end MLOp
 ## Architecture
 
 **Core Stack:**
-- **Storage**: Garage (S3-compatible) stores Parquet files
+- **Storage**: MinIO (S3-compatible) stores Parquet files
 - **Table Format**: Apache Iceberg (ACID, schema evolution, time travel)
 - **Ingestion**: Meltano (Singer taps/targets) for ELT pipelines
 - **Transformations**: DBT Core (SQL models) orchestrated by Dagster
@@ -27,7 +27,7 @@ This is a **mentorship learning project** focused on building an end-to-end MLOp
 
 **Data Flow:**
 ```
-Data Sources → Meltano (Singer Taps) → Garage/S3 (Parquet)
+Data Sources → Meltano (Singer Taps) → MinIO/S3 (Parquet)
                                               ↓
                                       Iceberg Tables
                                               ↓
@@ -41,10 +41,8 @@ Data Sources → Meltano (Singer Taps) → Garage/S3 (Parquet)
 - **Silver**: Cleaned dimensions (incremental Iceberg tables)
 - **Gold**: Business facts (star schema for analytics)
 
-**Kubernetes Namespaces:**
-- `garage` - S3-compatible storage
-- `dagster` - Orchestration (includes embedded PostgreSQL)
-- `trino` - Query engine
+**Kubernetes Namespace:**
+- `lakehouse` - All services (MinIO, Dagster, Trino)
 
 ## Commands
 
@@ -58,20 +56,16 @@ Quick reference (see SETUP_GUIDE.md for full context):
 # Prerequisites
 helm repo add dagster https://dagster-io.github.io/helm
 helm repo add trino https://trinodb.github.io/charts
+helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
-
-# Fetch Garage chart (no Helm repo available)
-git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/garage.git /tmp/garage-repo
-cp -r /tmp/garage-repo/script/helm/garage infrastructure/helm/garage
-rm -rf /tmp/garage-repo
 
 # Create lakehouse namespace
 kubectl apply -f infrastructure/kubernetes/namespace.yaml
 
 # Deploy services to lakehouse namespace (order matters - see SETUP_GUIDE.md)
-# 1. Garage (storage)
-helm upgrade --install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
+# 1. MinIO (storage)
+kubectl apply -f infrastructure/kubernetes/minio/minio-standalone.yaml \
+  -f infrastructure/kubernetes/minio/values.yaml \
   -n lakehouse --wait
 
 # 2. Dagster (orchestration - includes embedded PostgreSQL)
@@ -92,22 +86,22 @@ helm upgrade --install trino trino/trino \
 Quick reference:
 ```bash
 # Uninstall Helm releases
-helm uninstall dagster -n dagster
-helm uninstall trino -n trino
-helm uninstall garage -n garage
+helm uninstall dagster -n lakehouse
+helm uninstall trino -n lakehouse
+kubectl delete -f infrastructure/kubernetes/minio/minio-standalone.yaml
 
-# Delete namespaces
-kubectl delete namespace dagster trino garage
+# Delete namespace
+kubectl delete namespace lakehouse
 ```
 
 ### Check Status
 
 ```bash
-# All pods across lakehouse namespaces
-kubectl get pods --all-namespaces | grep -E 'garage|dagster|trino'
+# All pods in lakehouse namespace
+kubectl get pods -n lakehouse
 
 # All services
-kubectl get svc --all-namespaces | grep -E 'garage|dagster|trino'
+kubectl get svc -n lakehouse
 
 # Helm releases in lakehouse namespace
 helm list -n lakehouse
@@ -125,50 +119,49 @@ kubectl logs -n lakehouse <pod-name> --tail=100 -f
 kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 
 # Trino UI (separate terminal)
-kubectl port-forward -n trino svc/trino 8080:8080
+kubectl port-forward -n lakehouse svc/trino 8080:8080
 
-# Garage S3 API (separate terminal)
-kubectl port-forward -n lakehouse svc/garage 3900:3900
+# MinIO S3 API (separate terminal)
+kubectl port-forward -n lakehouse svc/minio 9000:9000
+
+# MinIO Console (separate terminal)
+kubectl port-forward -n lakehouse svc/minio 9001:9001
 ```
 
 Access:
 - Dagster: http://localhost:3000
 - Trino: http://localhost:8080
+- MinIO API: http://localhost:9000
+- MinIO Console: http://localhost:9001
 
-### Garage S3 Operations
+### MinIO S3 Operations
 
-**Critical:** Garage requires cluster initialization after deployment (not automatic).
+**Note:** MinIO automatically creates the default bucket specified in values.yaml.
 
 ```bash
-# Get Garage pod name
-POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
+# Get MinIO credentials (from values.yaml or secrets)
+# Default: admin / minio123
 
-# Check cluster status
-kubectl exec -n lakehouse $POD -- /garage status
+# Access MinIO Console at http://localhost:9001
+# Or use MinIO Client (mc)
 
-# Initialize cluster (first-time setup only)
-# 1. Get node ID
-NODE_ID=$(kubectl exec -n lakehouse $POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
+# Install mc (MinIO Client)
+# https://min.io/docs/minio/linux/reference/minio-mc.html
 
-# 2. Assign storage role with capacity
-kubectl exec -n lakehouse $POD -- /garage layout assign -z garage-dc -c 10G $NODE_ID
-
-# 3. Apply layout (version 1 for first setup)
-kubectl exec -n lakehouse $POD -- /garage layout apply --version 1
-
-# 4. Verify initialization
-kubectl exec -n lakehouse $POD -- /garage status
-
-# Create S3 bucket and access key
-kubectl exec -n lakehouse $POD -- /garage bucket create lakehouse
-kubectl exec -n lakehouse $POD -- /garage key create lakehouse-access
-kubectl exec -n lakehouse $POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access
+# Configure mc alias
+mc alias set myminio http://localhost:9000 admin minio123
 
 # List buckets
-kubectl exec -n lakehouse $POD -- /garage bucket list
+mc ls myminio
 
-# List keys
-kubectl exec -n lakehouse $POD -- /garage key list
+# Create bucket (if not using defaultBuckets in values.yaml)
+mc mb myminio/lakehouse
+
+# Upload file
+mc cp myfile.parquet myminio/lakehouse/
+
+# List objects in bucket
+mc ls myminio/lakehouse
 ```
 
 ### DBT Transformations
@@ -199,7 +192,7 @@ dbt docs generate && dbt docs serve
 
 **Important:** DBT models in `transformations/dbt/models/` are example templates. Do not run until:
 1. Data sources configured and ingested
-2. Raw Iceberg tables created in Garage S3
+2. Raw Iceberg tables created in MinIO S3
 3. `sources.yml` updated with actual table names
 
 ### Meltano ELT Pipelines
@@ -263,20 +256,21 @@ dagster dev -f dagster_defs.py
 **Pattern:** `<service-name>:<port>` (within same namespace)
 
 **Examples:**
-- Garage S3 API: `garage.garage.svc.cluster.local:3900`
+- MinIO S3 API: `minio:9000`
 - Trino: `trino.trino.svc.cluster.local:8080`
 - Dagster PostgreSQL (embedded): `dagster-postgresql.dagster.svc.cluster.local:5432`
 
 **Usage:**
-- Trino connects to Garage: `s3.endpoint=http://garage.garage.svc.cluster.local:3900`
+- Trino connects to Garage: `s3.endpoint=http://minio:9000`
 - DBT connects to Trino: `host=trino.trino.svc.cluster.local`
 
 ### Secret Management
 
-**All secrets externalized** to `secrets.yaml` files (gitignored via `**/*/secrets.yaml` pattern):
-- `infrastructure/kubernetes/garage/secrets.yaml` - Auto-generates RPC secret (handled by Helm)
+**All secrets externalized** to `secrets.yaml` files (gitignored via `**/*/secrets.yaml` pattern).
 
-**Note:** PostgreSQL credentials for Dagster are configured in `values.yaml` (embedded database).
+**Note:**
+- MinIO credentials are configured in `values.yaml` (change for production)
+- PostgreSQL credentials for Dagster are configured in `values.yaml` (embedded database)
 
 **Never hardcode secrets** in `values.yaml` files.
 
@@ -423,16 +417,16 @@ FROM {{ source('raw', 'customers') }}
 {% endif %}
 ```
 
-### Garage S3 Configuration (for Trino/DBT)
+### MinIO S3 Configuration (for Trino/DBT)
 
 ```yaml
 # In Trino catalog properties or DBT profiles
 s3:
-  endpoint: http://garage:3900  # Same namespace - simplified DNS
-  path-style-access: true  # Required for Garage
-  aws-access-key-id: <from-garage-key-create>
-  aws-secret-access-key: <from-garage-key-create>
-  region: garage  # Can be any value for Garage
+  endpoint: http://minio:9000  # Same namespace - simplified DNS
+  path-style-access: true  # Required for MinIO
+  aws-access-key-id: admin  # From MinIO values.yaml
+  aws-secret-access-key: minio123  # From MinIO values.yaml
+  region: us-east-1  # Default region for MinIO
 ```
 
 ## Iceberg Table Format Strategy
@@ -442,7 +436,7 @@ s3:
 ### Phase 2: Direct Iceberg Table Creation
 - **Approach**: Create Iceberg tables directly via Trino SQL or programmatically
 - **Catalog**: Hadoop catalog (filesystem-based) or REST catalog (Apache Polaris)
-- **Setup**: Configure Trino Iceberg connector pointing to Garage S3
+- **Setup**: Configure Trino Iceberg connector pointing to MinIO S3
 - **Output**: Iceberg tables written to `s3://lakehouse/warehouse/`
 - **Access**: Trino reads/writes Iceberg tables using the configured catalog
 
@@ -452,7 +446,7 @@ s3:
 connector.name: iceberg
 iceberg.catalog.type: hadoop
 hive.metastore.uri: thrift://localhost:9083  # Or use REST catalog
-s3.endpoint: http://garage.garage.svc.cluster.local:3900
+s3.endpoint: http://minio:9000
 s3.path-style-access: true
 ```
 
@@ -475,7 +469,7 @@ s3.path-style-access: true
 
 **Phase 1 (Foundation):** Complete
 - ✅ Kubernetes infrastructure
-- ✅ Garage S3 storage
+- ✅ MinIO S3 storage
 - ✅ Dagster deployment
 - ✅ Trino deployment
 - ✅ Secret externalization
@@ -487,8 +481,8 @@ s3.path-style-access: true
 - ✅ Trino deployed and accessible
 - ⏳ Deploy Meltano for data ingestion
 - ⏳ Configure Singer taps (data sources)
-- ⏳ Ingest data to Garage S3 as Parquet
-- ⏳ Create Iceberg tables in Garage S3
+- ⏳ Ingest data to MinIO S3 as Parquet
+- ⏳ Create Iceberg tables in MinIO S3
 - ⏳ Configure Trino Iceberg catalog
 - ⏳ DBT model implementation
 - ⏳ Superset deployment (optional)
@@ -577,7 +571,7 @@ kubectl top nodes
 
 **Recommended order for new developers:**
 
-1. **Week 1**: Deploy infrastructure following SETUP_GUIDE.md, understand Garage S3 initialization
+1. **Week 1**: Deploy infrastructure following SETUP_GUIDE.md, understand MinIO S3 initialization
 2. **Week 2**: Create Iceberg tables via Trino, understand table format and catalog
 3. **Week 3**: Learn DBT, create Bronze layer models
 4. **Week 4**: Build Silver layer dimensions (star schema, SCD Type 2)
@@ -588,12 +582,12 @@ kubectl top nodes
 
 ## Troubleshooting
 
-### Garage Pod Not Starting
+### MinIO Pod Not Starting
 
 **Check:** Persistent volume binding
 ```bash
 kubectl get pvc -n lakehouse
-kubectl describe pvc data-garage-0 -n lakehouse
+kubectl describe pvc -n lakehouse
 ```
 
 ### DBT Cannot Connect to Trino
@@ -603,13 +597,13 @@ kubectl describe pvc data-garage-0 -n lakehouse
 2. `profiles.yml` host: Should be `localhost` (if using port-forward) or `trino` (from within cluster)
 3. Trino catalog exists: `SHOW CATALOGS;` in Trino CLI
 
-### Trino Cannot Access Garage S3
+### Trino Cannot Access MinIO S3
 
 **Check:**
-1. Garage S3 service: `kubectl get svc -n lakehouse garage`
-2. Catalog properties: S3 endpoint should be `http://garage:3900` (simplified DNS)
-3. Access keys: Match output from `garage key create lakehouse-access`
-4. Path style access: Must be `true` for Garage
+1. MinIO S3 service: `kubectl get svc -n lakehouse minio`
+2. Catalog properties: S3 endpoint should be `http://minio:9000` (simplified DNS)
+3. Access keys: Match credentials in MinIO values.yaml (default: admin/minio123)
+4. Path style access: Must be `true` for MinIO
 
 ## References
 

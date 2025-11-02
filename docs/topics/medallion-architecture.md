@@ -6,7 +6,7 @@
 
 Medallion Architecture is a data design pattern that organizes data into three progressive quality layers: Bronze (raw), Silver (cleaned), and Gold (business-ready). Each layer incrementally improves data quality, transforming raw ingested data into trusted analytics assets.
 
-In this lakehouse platform, [Airbyte](airbyte.md) populates Bronze, [DBT](dbt.md) transforms Bronze → Silver → Gold, and [Trino](trino.md) queries all layers via [Apache Iceberg](apache-iceberg.md) tables in [Garage](garage.md) S3.
+In this lakehouse platform, [Airbyte](airbyte.md) populates Bronze, [DBT](dbt.md) transforms Bronze → Silver → Gold, and [Trino](trino.md) queries all layers via [Apache Iceberg](apache-iceberg.md) tables in [MinIO](minio.md) S3.
 
 ## Why Medallion Architecture?
 

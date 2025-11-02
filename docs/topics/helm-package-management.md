@@ -46,12 +46,12 @@ chart-name/
 - **Airbyte chart**: Deploys 7+ components (server, worker, webapp, temporal, postgres, etc.)
 - **Dagster chart**: Deploys webserver, daemon, postgres, user code deployments
 - **Trino chart**: Deploys coordinator and worker pods with catalog configurations
-- **Garage chart**: Deploys StatefulSet for distributed S3-compatible storage
+- **MinIO chart**: Deploys StatefulSet for distributed S3-compatible storage
 
 **Example - View Chart Structure**:
 ```bash
-# List files in Garage chart
-ls -la infrastructure/helm/garage/
+# List files in MinIO chart
+ls -la infrastructure/helm/minio/
 
 # Output:
 # Chart.yaml       - Chart metadata
@@ -62,7 +62,7 @@ ls -la infrastructure/helm/garage/
 **Chart.yaml example**:
 ```yaml
 apiVersion: v2
-name: garage
+name: minio
 description: S3-compatible distributed object storage
 version: 0.4.0
 appVersion: v0.8.0
@@ -74,11 +74,11 @@ appVersion: v0.8.0
 
 **Example**:
 ```bash
-# Install Garage chart as "garage" release
-helm install garage infrastructure/helm/garage -n garage
+# Install MinIO chart as "minio" release
+helm install minio infrastructure/helm/minio -n minio
 
-# Install same chart again as "garage-dev" release
-helm install garage-dev infrastructure/helm/garage -n garage-dev
+# Install same chart again as "minio-dev" release
+helm install minio-dev infrastructure/helm/minio -n minio-dev
 ```
 
 **Release lifecycle**:
@@ -94,7 +94,7 @@ helm list --all-namespaces
 
 # Expected output:
 # NAME     NAMESPACE   REVISION   STATUS     CHART           APP VERSION
-# garage   garage      1          deployed   garage-0.4.0    v0.8.0
+# minio   minio      1          deployed   minio-0.4.0    v0.8.0
 # airbyte  airbyte     1          deployed   airbyte-2.0.18  0.50.0
 # dagster  dagster     1          deployed   dagster-1.5.0   1.5.0
 # trino    trino       1          deployed   trino-0.18.0    430
@@ -148,16 +148,16 @@ helm search repo airbyte-v2
 # airbyte-v2/airbyte      2.0.18          0.50.0        Airbyte data integration platform
 ```
 
-**Note about Garage**: Garage doesn't have a public Helm repository, so we fetch the chart directly from their Git repository:
+**Note about MinIO**: MinIO doesn't have a public Helm repository, so we fetch the chart directly from their Git repository:
 ```bash
-# Clone Garage repo (shallow clone)
-git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/garage.git /tmp/garage-repo
+# Clone MinIO repo (shallow clone)
+git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/minio.git /tmp/minio-repo
 
 # Copy chart locally
-cp -r /tmp/garage-repo/script/helm/garage infrastructure/helm/garage
+cp -r /tmp/minio-repo/script/helm/minio infrastructure/helm/minio
 
 # Install from local path
-helm install garage infrastructure/helm/garage -n garage
+helm install minio infrastructure/helm/minio -n minio
 ```
 
 ### 4. Values File
@@ -171,7 +171,7 @@ infrastructure/kubernetes/<service>/
 └── values-default.yaml # Complete upstream defaults (reference only, never edit)
 ```
 
-**Example - Garage Values Override**:
+**Example - MinIO Values Override**:
 
 **Default values** (in chart's `values.yaml`):
 ```yaml
@@ -183,7 +183,7 @@ persistence:
     size: 1Gi
 ```
 
-**Custom override** (`infrastructure/kubernetes/garage/values.yaml`):
+**Custom override** (`infrastructure/kubernetes/minio/values.yaml`):
 ```yaml
 # Override only what you need to change
 replicaCount: 3  # Scale to 3 nodes
@@ -194,25 +194,25 @@ persistence:
 
 **Applying values**:
 ```bash
-helm install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage
+helm install minio infrastructure/helm/minio \
+  -f infrastructure/kubernetes/minio/values.yaml \
+  -n minio
 ```
 
 **Multiple values files** (last file wins):
 ```bash
-helm install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
-  -f infrastructure/kubernetes/garage/values-prod.yaml \
-  -n garage
+helm install minio infrastructure/helm/minio \
+  -f infrastructure/kubernetes/minio/values.yaml \
+  -f infrastructure/kubernetes/minio/values-prod.yaml \
+  -n minio
 ```
 
 **Override single value via CLI**:
 ```bash
-helm install garage infrastructure/helm/garage \
+helm install minio infrastructure/helm/minio \
   --set replicaCount=3 \
   --set persistence.data.size=100Gi \
-  -n garage
+  -n minio
 ```
 
 **Best practice**: Use values files for permanent configuration, `--set` for temporary overrides.
@@ -239,7 +239,7 @@ spec:
 ```
 
 **Template variables**:
-- `{{ .Release.Name }}` - Release name (e.g., "garage")
+- `{{ .Release.Name }}` - Release name (e.g., "minio")
 - `{{ .Release.Namespace }}` - Target namespace
 - `{{ .Values.replicaCount }}` - Value from values.yaml
 - `{{ .Chart.Name }}` - Chart name
@@ -248,8 +248,8 @@ spec:
 **Testing templates** (dry run):
 ```bash
 # Render templates without installing
-helm template garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml
+helm template minio infrastructure/helm/minio \
+  -f infrastructure/kubernetes/minio/values.yaml
 
 # Output: Final rendered Kubernetes YAML
 ```
@@ -257,8 +257,8 @@ helm template garage infrastructure/helm/garage \
 **Debug template rendering**:
 ```bash
 # Install with debug output
-helm install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
+helm install minio infrastructure/helm/minio \
+  -f infrastructure/kubernetes/minio/values.yaml \
   -n lakehouse --dry-run --debug
 ```
 
@@ -378,7 +378,7 @@ global:
   storage:
     type: s3
     s3:
-      endpoint: http://garage:3900
+      endpoint: http://minio:3900
 ```
 
 3. Deploy with custom values:
@@ -396,19 +396,19 @@ helm upgrade --install airbyte airbyte-v2/airbyte \
 
 ### Pattern 2: Local Chart (No Repository)
 
-**Used for**: [Garage](garage.md) (no public Helm repository available)
+**Used for**: [MinIO](minio.md) (no public Helm repository available)
 
 **Steps**:
 1. Fetch chart from Git:
 ```bash
-git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/garage.git /tmp/garage-repo
-cp -r /tmp/garage-repo/script/helm/garage infrastructure/helm/garage
-rm -rf /tmp/garage-repo
+git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/minio.git /tmp/minio-repo
+cp -r /tmp/minio-repo/script/helm/minio infrastructure/helm/minio
+rm -rf /tmp/minio-repo
 ```
 
 2. Create custom values file:
 ```bash
-# infrastructure/kubernetes/garage/values.yaml
+# infrastructure/kubernetes/minio/values.yaml
 replicaCount: 1
 persistence:
   data:
@@ -417,8 +417,8 @@ persistence:
 
 3. Deploy from local path:
 ```bash
-helm upgrade --install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
+helm upgrade --install minio infrastructure/helm/minio \
+  -f infrastructure/kubernetes/minio/values.yaml \
   -n lakehouse --create-namespace --wait
 ```
 
@@ -594,7 +594,7 @@ helm upgrade airbyte airbyte-v2/airbyte \
 
 - **[Kubernetes Fundamentals](kubernetes-fundamentals.md)**: Helm creates Namespaces, Pods, Services, Deployments, StatefulSets
 - **[Stateful Applications](stateful-applications.md)**: Helm charts deploy StatefulSets with PVCs for databases
-- **[Garage](garage.md)**, **[Airbyte](airbyte.md)**, **[Dagster](dagster.md)**, **[Trino](trino.md)**: All deployed using Helm charts
+- **[MinIO](minio.md)**, **[Airbyte](airbyte.md)**, **[Dagster](dagster.md)**, **[Trino](trino.md)**: All deployed using Helm charts
 - **[Kubernetes Storage](kubernetes-storage.md)**: Helm creates PVCs defined in chart templates
 
 ## Best Practices
@@ -640,8 +640,8 @@ resources:
 
 **Why**: Multiple releases don't conflict
 ```bash
-helm install garage-prod ./garage -n garage-prod
-helm install garage-dev ./garage -n garage-dev
+helm install minio-prod ./minio -n minio-prod
+helm install minio-dev ./minio -n minio-dev
 ```
 
 ### 5. Use `--wait` for Deployments

@@ -1,0 +1,28 @@
+---
+# Job to create default bucket in MinIO
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+  namespace: lakehouse
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mc
+        image: minio/mc:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Wait for MinIO to be ready
+          until mc alias set myminio http://minio:9000 admin minio123; do
+            echo "Waiting for MinIO to be ready..."
+            sleep 2
+          done
+
+          # Create bucket if it doesn't exist
+          mc mb myminio/lakehouse --ignore-existing
+
+          echo "Bucket 'lakehouse' created successfully"

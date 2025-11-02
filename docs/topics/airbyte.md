@@ -6,7 +6,7 @@
 
 Airbyte is an open-source data ingestion platform that extracts data from sources (databases, APIs, SaaS tools) and loads it into destinations (data warehouses, data lakes). It provides 300+ pre-built connectors and handles incremental syncs, schema changes, and error recovery automatically.
 
-In this lakehouse platform, Airbyte is the primary ingestion tool: it extracts data from various sources and writes it to [Garage](garage.md) S3 as Parquet files, ready for transformation by [DBT](dbt.md) and querying by [Trino](trino.md).
+In this lakehouse platform, Airbyte is the primary ingestion tool: it extracts data from various sources and writes it to [MinIO](minio.md) S3 as Parquet files, ready for transformation by [DBT](dbt.md) and querying by [Trino](trino.md).
 
 ## Why Airbyte for This Platform?
 
@@ -38,9 +38,9 @@ In this lakehouse platform, Airbyte is the primary ingestion tool: it extracts d
 
 **In this platform**:
 ```
-Sources → Airbyte → Destination (Garage S3 as Parquet)
+Sources → Airbyte → Destination (MinIO S3 as Parquet)
           ↓
-    [Garage](garage.md)
+    [MinIO](minio.md)
           ↓
     [Trino](trino.md) queries Parquet files
           ↓
@@ -150,8 +150,8 @@ Airbyte deployed as multiple components:
 - **airbyte-postgresql**: Metadata database
 
 **Storage**:
-- **Internal storage** ([Garage](garage.md) S3): Airbyte logs, state, configs
-- **Destination storage** ([Garage](garage.md) S3): User data (synced Parquet files)
+- **Internal storage** ([MinIO](minio.md) S3): Airbyte logs, state, configs
+- **Destination storage** ([MinIO](minio.md) S3): User data (synced Parquet files)
 
 ### Helm Deployment
 
@@ -171,10 +171,10 @@ global:
   storage:
     type: s3
     s3:
-      endpoint: http://garage:3900
+      endpoint: http://minio:3900
       bucketName: lakehouse
-      accessKeyId: <from-garage-key-create>
-      secretAccessKey: <from-garage-key-create>
+      accessKeyId: <from-minio-key-create>
+      secretAccessKey: <from-minio-key-create>
 
 postgresql:
   enabled: true  # Embedded PostgreSQL
@@ -228,15 +228,15 @@ curl -X POST http://localhost:8080/api/v1/sources \
   }'
 ```
 
-### Create Destination (Garage S3)
+### Create Destination (MinIO S3)
 
 **Via UI**:
 1. Destinations → New Destination
 2. Select "S3"
 3. Configure:
    - S3 Bucket Name: `lakehouse`
-   - S3 Endpoint: `http://garage:3900`
-   - Access Key ID: `<from-garage-key-create>`
+   - S3 Endpoint: `http://minio:3900`
+   - Access Key ID: `<from-minio-key-create>`
    - Secret Access Key: `<secret>`
    - Format: Parquet
    - Path: `raw/{schema}/{table}/`
@@ -248,7 +248,7 @@ curl -X POST http://localhost:8080/api/v1/sources \
 **Via UI**:
 1. Connections → New Connection
 2. Select source: "Production Postgres"
-3. Select destination: "Garage S3"
+3. Select destination: "MinIO S3"
 4. Configure tables:
    - Select tables: customers, orders, products
    - Sync mode: Incremental - Deduped History
@@ -293,14 +293,14 @@ kubectl logs -n lakehouse -l app.kubernetes.io/name=server --tail=100 -f
 
 ```
 1. Airbyte extracts from source (e.g., Postgres)
-2. Airbyte writes Parquet to Garage S3:
+2. Airbyte writes Parquet to MinIO S3:
    s3://lakehouse/raw/customers/2025/01/20/data-001.parquet
 3. [DBT](dbt.md) Bronze layer creates view over raw Parquet
 4. [DBT](dbt.md) Silver layer transforms into clean dimensions
 5. [Trino](trino.md) queries transformed tables
 ```
 
-### File Layout in Garage
+### File Layout in MinIO
 
 **Airbyte writes**:
 ```
@@ -330,14 +330,14 @@ FROM iceberg.raw.postgres_customers;
 
 **Check**:
 ```bash
-# Test Garage S3 connectivity
-kubectl exec -n lakehouse <worker-pod> -- curl -I http://garage:3900
+# Test MinIO S3 connectivity
+kubectl exec -n lakehouse <worker-pod> -- curl -I http://minio:3900
 ```
 
 **Verify**:
-- Garage service running: `kubectl get svc -n garage`
-- Access keys correct: `kubectl exec -n lakehouse garage-0 -- /garage key list`
-- Bucket exists: `kubectl exec -n lakehouse garage-0 -- /garage bucket list`
+- MinIO service running: `kubectl get svc -n minio`
+- Access keys correct: `kubectl exec -n lakehouse minio-0 -- /minio key list`
+- Bucket exists: `kubectl exec -n lakehouse minio-0 -- /minio bucket list`
 
 ### PostgreSQL Connection Refused
 
@@ -354,8 +354,8 @@ kubectl logs -n lakehouse airbyte-airbyte-postgresql-0
 
 **Check destination**:
 ```bash
-# List objects in Garage bucket
-kubectl exec -n lakehouse garage-0 -- aws s3 ls s3://lakehouse/raw/ --endpoint-url http://localhost:3900 --profile garage
+# List objects in MinIO bucket
+kubectl exec -n lakehouse minio-0 -- aws s3 ls s3://lakehouse/raw/ --endpoint-url http://localhost:3900 --profile minio
 ```
 
 **Verify**:
@@ -411,7 +411,7 @@ curl http://localhost:8080/api/v1/connections/<id> > connection-config.json
 
 ## Integration with Other Components
 
-- **[Garage](garage.md)**: Airbyte writes data to Garage S3
+- **[MinIO](minio.md)**: Airbyte writes data to MinIO S3
 - **[DBT](dbt.md)**: Transforms raw Airbyte data
 - **[Trino](trino.md)**: Queries Airbyte-synced Parquet files
 - **[Medallion Architecture](medallion-architecture.md)**: Airbyte populates Bronze layer
