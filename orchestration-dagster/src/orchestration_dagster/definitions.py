@@ -9,7 +9,11 @@ from dagster import (
     MaterializeResult,
     RunRequest,
     schedule,
+    MetadataValue,
 )
+import subprocess
+import os
+from pathlib import Path
 
 from .defs.loads.reddit import create_reddit_source, create_reddit_pipeline
 from .partitions import subreddit_partitions, SUBREDDITS
@@ -88,6 +92,61 @@ def reddit_posts_comments_assets(context: AssetExecutionContext) -> MaterializeR
     )
 
 
+# DBT transformation asset (depends on all Reddit ingestion assets)
+@asset(
+    name="reddit_dbt_marts",
+    group_name="reddit",
+    compute_kind="dbt",
+    deps=[reddit_posts_comments_assets],  # Depends on ingestion completing
+)
+def reddit_dbt_marts_asset(context: AssetExecutionContext) -> MaterializeResult:
+    """
+    DBT transformations for Reddit data.
+
+    Runs `dbt build` which executes models and tests in dependency order:
+    1. Staging models (views)
+    2. Intermediate models (ephemeral)
+    3. Marts models (dimensions and facts with incremental Iceberg tables)
+
+    Runs after all Reddit posts/comments ingestion is complete.
+    """
+    # Get DBT project path (assuming it's in the repository)
+    # Adjust path based on your actual directory structure
+    dbt_project_path = Path(__file__).parent.parent.parent.parent / "transformations" / "dbt"
+
+    context.log.info(f"Running DBT from: {dbt_project_path}")
+
+    # Run dbt build (runs models + tests in dependency order)
+    try:
+        result = subprocess.run(
+            ["dbt", "build", "--profiles-dir", str(dbt_project_path), "--target", "prod"],
+            cwd=dbt_project_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        context.log.info(f"DBT stdout:\n{result.stdout}")
+
+        # Parse DBT output for statistics (simplified)
+        # In production, you'd want to parse the JSON output or use dagster-dbt
+        models_built = result.stdout.count(" OK created")
+        tests_passed = result.stdout.count(" PASS ")
+
+        return MaterializeResult(
+            metadata={
+                "dbt_project_path": MetadataValue.text(str(dbt_project_path)),
+                "models_built": MetadataValue.int(models_built),
+                "tests_passed": MetadataValue.int(tests_passed),
+                "stdout": MetadataValue.text(result.stdout[:1000]),  # First 1000 chars
+            }
+        )
+
+    except subprocess.CalledProcessError as e:
+        context.log.error(f"DBT build failed:\n{e.stderr}")
+        raise RuntimeError(f"DBT build failed: {e.stderr}")
+
+
 # Job for posts and comments (runs hourly)
 # Each partition writes to its own tables, enabling full parallelism
 reddit_posts_comments_job = define_asset_job(
@@ -135,6 +194,7 @@ defs = Definitions(
     assets=[
         reddit_subreddit_assets,
         reddit_posts_comments_assets,
+        reddit_dbt_marts_asset,
     ],
     jobs=[
         reddit_posts_comments_job,
