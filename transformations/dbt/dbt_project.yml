@@ -26,31 +26,66 @@ clean-targets:         # directories to be removed by `dbt clean`
 
 models:
   lakehouse_analytics:
-    # Bronze layer: Raw data staging models
-    # Materialized as views for efficient querying of latest data
+    # ========================================================================
+    # Staging Layer: Source-conformed atomic building blocks
+    # ========================================================================
+    # Materialized as views (no storage overhead)
+    # Basic type casting, cleaning, unions
+    staging:
+      +materialized: view
+      +schema: staging
+      +tags: ["staging"]
+      reddit:
+        +tags: ["staging", "reddit"]
+
+    # ========================================================================
+    # Intermediate Layer: Purpose-built transformations
+    # ========================================================================
+    # Materialized as ephemeral (not persisted, used as CTEs)
+    # Aggregations, calculations, enrichments
+    intermediate:
+      +materialized: ephemeral
+      +schema: intermediate
+      +tags: ["intermediate"]
+      reddit:
+        +tags: ["intermediate", "reddit"]
+
+    # ========================================================================
+    # Marts Layer: Business-conformed entities
+    # ========================================================================
+    # Dimensions and facts with surrogate keys
+    # Incremental Iceberg tables for efficient updates
+    marts:
+      +schema: marts
+      +tags: ["marts"]
+      reddit:
+        +materialized: incremental
+        +file_format: iceberg
+        +incremental_strategy: merge
+        +tags: ["marts", "reddit"]
+
+    # ========================================================================
+    # DEPRECATED: Old bronze/silver/gold structure
+    # ========================================================================
+    # Kept for reference, to be removed after migration
     bronze:
       +materialized: view
       +schema: bronze
-      +tags: ["bronze", "staging"]
+      +tags: ["bronze", "staging", "deprecated"]
 
-    # Silver layer: Cleaned and conformed dimension tables
-    # Materialized as incremental tables for efficient updates
-    # Uses Iceberg format for ACID transactions and time travel
     silver:
       +materialized: incremental
       +schema: silver
       +file_format: iceberg
       +incremental_strategy: merge
-      +tags: ["silver", "dimensions"]
+      +tags: ["silver", "dimensions", "deprecated"]
 
-    # Gold layer: Business-ready fact tables and aggregates
-    # Materialized as incremental tables optimized for analytics
     gold:
       +materialized: incremental
       +schema: gold
       +file_format: iceberg
       +incremental_strategy: merge
-      +tags: ["gold", "facts", "analytics"]
+      +tags: ["gold", "facts", "analytics", "deprecated"]
 
 # Seeds configuration (CSV files loaded as tables)
 seeds:
