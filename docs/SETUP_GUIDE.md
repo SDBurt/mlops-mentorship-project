@@ -18,10 +18,8 @@ By completing this guide, you'll understand:
 You'll deploy these components in order:
 1. **Prerequisites**: Helm repos and single lakehouse namespace
 2. **Garage**: S3-compatible object storage (stores Parquet files)
-3. **PostgreSQL**: Metadata database (for Airbyte/Dagster)
-4. **Airbyte**: Data ingestion platform
-5. **Dagster**: Workflow orchestration
-6. **Trino**: Distributed SQL query engine
+3. **Dagster**: Workflow orchestration
+4. **Trino**: Distributed SQL query engine
 
 **Note**: All services deploy to a single `lakehouse` namespace, following Kubernetes best practices - services that communicate should live together.
 
@@ -95,12 +93,6 @@ kubectl get nodes
 **Why this matters**: Instead of writing hundreds of lines of Kubernetes YAML, Helm charts provide pre-configured application templates. Think of Helm repos like adding PPAs in Ubuntu or taps in Homebrew.
 
 ```bash
-# Remove old Airbyte repo if it exists
-helm repo remove airbyte 2>/dev/null || true
-
-# Add Airbyte v2 repo (latest version)
-helm repo add airbyte-v2 https://airbytehq.github.io/charts
-
 # Add Dagster repo
 helm repo add dagster https://dagster-io.github.io/helm
 
@@ -120,7 +112,7 @@ helm repo update
 helm repo list
 ```
 
-**Expected output**: Should show dagster, airbyte-v2, trino
+**Expected output**: Should show dagster, trino
 
 ---
 
@@ -170,7 +162,7 @@ ls -la infrastructure/helm/garage/
 
 ### 1. Create Lakehouse Namespace
 
-**What you're doing**: Creating a single namespace for ALL lakehouse services (Garage, Airbyte, Dagster, Trino, PostgreSQL).
+**What you're doing**: Creating a single namespace for ALL lakehouse services (Garage, Dagster, Trino).
 
 **Why a single namespace?**:
 - **Best practice**: Services that communicate should live together ([source](https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces))
@@ -452,7 +444,7 @@ ID                Hostname  Address         Tags  Zone       Capacity  DataAvail
 **What you're doing**: Creating an S3 bucket and credentials to access it.
 
 **Why this matters**:
-- Airbyte will write data to this bucket
+- Ingested data will be written to this bucket
 - Trino will read data from this bucket
 - You need access keys (like AWS credentials) to authenticate
 
@@ -479,7 +471,7 @@ Access Key ID: GKxxxxxxxxxxxxxxxxxxxx
 Secret Access Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-**🚨 IMPORTANT**: Copy these credentials! You'll need them to configure Airbyte and Trino.
+**🚨 IMPORTANT**: Copy these credentials! You'll need them to configure Trino.
 
 **What these credentials do**: Authenticate API requests to Garage (same as AWS credentials authenticate to S3).
 
@@ -541,141 +533,7 @@ kill $PF_PID
 
 ---
 
-## Phase 2: Ingestion Layer (Airbyte)
-
-**Goal**: Deploy Airbyte to extract data from sources and load into Garage S3.
-
-**What Airbyte does:**
-- Connects to data sources (databases, APIs, files)
-- Extracts data incrementally
-- Writes to destinations (Garage S3 in Parquet format)
-- Tracks sync state in its own embedded PostgreSQL database
-
-### 1. Create Namespace
-
-```bash
-kubectl apply -f infrastructure/kubernetes/namespaces/airbyte.yaml
-```
-
----
-
-### 2. Create Airbyte Storage Secrets
-
-**What you're doing**: Configuring Garage S3 credentials for Airbyte's internal storage (logs, state, configuration).
-
-Create `infrastructure/kubernetes/airbyte/airbyte-storage-secrets.yaml`:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: airbyte-storage-secrets
-  namespace: airbyte
-type: Opaque
-stringData:  # stringData = plain text (Kubernetes auto-encodes to base64)
-  # Garage S3 credentials (from Phase 1: garage key create lakehouse-access)
-  aws-secret-access-key-id: GKxxxxxxxxxxxxxxxxxxxx  # Your access key ID
-  aws-secret-access-key-secret: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # Your secret key
-```
-
-**What this is for**: Airbyte stores logs, sync state, and configuration in S3-compatible storage (Garage).
-
-**Note**: Airbyte uses its own embedded PostgreSQL database (deployed automatically by the Helm chart). No separate database setup required.
-
-Apply the secret:
-
-```bash
-kubectl apply -f infrastructure/kubernetes/airbyte/airbyte-storage-secrets.yaml
-```
-
----
-
-### 3. Deploy Airbyte
-
-**What you're doing**: Installing Airbyte with all its components.
-
-```bash
-helm upgrade --install airbyte airbyte-v2/airbyte \
-  --version 2.0.18 \
-  -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n lakehouse --create-namespace --wait --timeout 10m
-```
-
-**Why `--timeout 10m`?** Airbyte has many components and can take 5-10 minutes to fully start.
-
-**What gets deployed:**
-1. **airbyte-server** - Backend API
-2. **airbyte-webapp** - UI frontend
-3. **airbyte-worker** - Runs connector jobs
-4. **airbyte-temporal** - Workflow orchestration (manages job state)
-5. **airbyte-postgresql** - Embedded PostgreSQL database for metadata
-6. **airbyte-cron** - Scheduled tasks
-7. **airbyte-connector-builder-server** - Build custom connectors
-
-**This takes time**: Watch progress with `kubectl get pods -n lakehouse --watch`
-
----
-
-### 4. Verify Deployment
-
-```bash
-# Check all pods
-kubectl get pods -n airbyte
-```
-
-**Expected output (all Running):**
-```
-NAME                                              READY   STATUS    RESTARTS   AGE
-airbyte-server-xxxxx                              1/1     Running   0          5m
-airbyte-webapp-xxxxx                              1/1     Running   0          5m
-airbyte-worker-xxxxx                              1/1     Running   0          5m
-airbyte-temporal-xxxxx                            1/1     Running   0          5m
-airbyte-minio-0                                   1/1     Running   0          5m
-airbyte-cron-xxxxx                                1/1     Running   0          5m
-airbyte-connector-builder-server-xxxxx            1/1     Running   0          5m
-```
-
-**If pods are CrashLooping:**
-```bash
-# Check logs for errors
-kubectl logs -n lakehouse <pod-name>
-```
-
-**Common issues:**
-- Storage secret errors: Verify storage secrets applied (`kubectl get secret airbyte-storage-secrets -n lakehouse`)
-- PostgreSQL pod not ready: Check embedded database (`kubectl get pods -n lakehouse | grep postgresql`)
-
----
-
-### 5. Access Airbyte UI
-
-**What you're doing**: Forwarding the service port to your local machine.
-
-```bash
-# Port-forward Airbyte UI to localhost
-# Note: In Airbyte V2, the UI is served by airbyte-server (not a separate webapp)
-kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
-```
-
-**What port-forward does:**
-- Maps pod port 8001 → your localhost:8080
-- Runs in foreground (blocks terminal)
-- Press Ctrl+C to stop
-
-**Why port-forward?**
-- Services are only accessible inside cluster by default
-- Port-forward creates a tunnel for local access
-- In production, you'd use Ingress controller instead
-
-Open browser to: http://localhost:8080
-
-**Initial credentials:**
-- Email: admin@example.com
-- Password: password
-
----
-
-## Phase 3: Orchestration Layer (Dagster)
+## Phase 2: Orchestration Layer (Dagster)
 
 **Goal**: Deploy Dagster to orchestrate DBT transformations and pipelines.
 
@@ -755,7 +613,7 @@ Open browser to: http://localhost:3000
 
 ---
 
-## Phase 4: Query Layer (Trino)
+## Phase 3: Query Layer (Trino)
 
 **Goal**: Deploy Trino for distributed SQL queries over Iceberg tables in Garage S3.
 
@@ -784,7 +642,7 @@ helm upgrade --install trino trino/trino \
 ### 3. Access Trino UI
 
 ```bash
-# Port-forward (use 8081 to avoid conflict with Airbyte on 8080)
+# Port-forward Trino UI
 kubectl port-forward -n lakehouse svc/trino 8081:8080
 ```
 
@@ -816,13 +674,13 @@ SHOW SCHEMAS FROM iceberg;
 
 ```bash
 # All namespaces
-kubectl get namespaces | grep -E 'garage|airbyte|dagster|trino|database'
+kubectl get namespaces | grep -E 'garage|dagster|trino|database'
 
 # All pods
-kubectl get pods --all-namespaces | grep -E 'garage|airbyte|dagster|trino|database'
+kubectl get pods --all-namespaces | grep -E 'garage|dagster|trino'
 
 # All services
-kubectl get svc --all-namespaces | grep -E 'garage|airbyte|dagster|trino|database'
+kubectl get svc --all-namespaces | grep -E 'garage|dagster|trino'
 ```
 
 **Success criteria:**
@@ -840,13 +698,9 @@ kubectl get svc --all-namespaces | grep -E 'garage|airbyte|dagster|trino|databas
 # Test Garage S3 from Trino pod (same namespace - use short DNS)
 TRINO_POD=$(kubectl get pods -n lakehouse -l app=trino,component=coordinator -o jsonpath='{.items[0].metadata.name}')
 kubectl exec -it -n lakehouse $TRINO_POD -- curl -I http://garage:3900
-
-# Test Garage S3 from Airbyte pod (same namespace - use short DNS)
-AIRBYTE_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it -n lakehouse $AIRBYTE_POD -- curl -I http://garage:3900
 ```
 
-**Expected**: Both commands succeed (HTTP 403 or 200 response from Garage S3 API).
+**Expected**: Command succeeds (HTTP 403 or 200 response from Garage S3 API).
 
 **Note the simplified DNS**: `garage:3900` instead of `garage.garage.svc.cluster.local:3900` - this is because all services are in the same `lakehouse` namespace!
 
@@ -854,23 +708,19 @@ kubectl exec -it -n lakehouse $AIRBYTE_POD -- curl -I http://garage:3900
 
 ### 3. Port-Forward All UIs
 
-**Important**: Each port-forward blocks a terminal. Open 3 separate terminals:
+**Important**: Each port-forward blocks a terminal. Open 2 separate terminals:
 
 ```bash
-# Terminal 1: Airbyte
-kubectl port-forward -n lakehouse svc/airbyte-airbyte-webapp-svc 8080:80
-
-# Terminal 2: Dagster
+# Terminal 1: Dagster
 kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 
-# Terminal 3: Trino
-kubectl port-forward -n lakehouse svc/trino 8081:8080
+# Terminal 2: Trino
+kubectl port-forward -n lakehouse svc/trino 8080:8080
 ```
 
 **Access:**
-- Airbyte: http://localhost:8080
 - Dagster: http://localhost:3000
-- Trino: http://localhost:8081
+- Trino: http://localhost:8080
 
 ---
 
@@ -878,24 +728,33 @@ kubectl port-forward -n lakehouse svc/trino 8081:8080
 
 Now that your infrastructure is deployed, you can:
 
-1. **Configure Airbyte Data Sources**
-   - Add source connectors (Postgres, MySQL, APIs)
-   - Configure Garage S3 as destination
-   - Set up sync schedules
+1. **Deploy Meltano for Data Ingestion** (Next Phase)
+   - Initialize Meltano project: `meltano init lakehouse-ingestion`
+   - Add Singer taps for your data sources
+   - Configure target-parquet for Garage S3
+   - Run ELT jobs: `meltano run tap-postgres target-parquet`
+   - Integrate with Dagster for orchestration
+   - See [Meltano guide](topics/meltano.md) for detailed setup
 
-2. **Create DBT Models**
+2. **Create Iceberg Tables**
+   - Define table schemas via Trino
+   - Ingest data from Meltano output
+   - Configure Iceberg catalog
+
+3. **Create DBT Models**
    - Define Bronze layer (staging views)
    - Build Silver layer (cleaned dimensions)
    - Build Gold layer (star schema facts)
 
-3. **Orchestrate with Dagster**
+4. **Orchestrate with Dagster**
+   - Load Meltano jobs as Dagster assets
    - Create assets for DBT models
    - Schedule transformations
    - Monitor data lineage
 
-4. **Query with Trino**
-   - Create Iceberg tables in Garage
-   - Run analytical queries
+5. **Query with Trino**
+   - Run analytical queries over Iceberg tables
+   - Optimize query performance
    - Build reports
 
 ---
@@ -955,8 +814,6 @@ kubectl get pv
 
 **You've deployed:**
 - ✅ Garage S3-compatible object storage
-- ✅ PostgreSQL metadata database
-- ✅ Airbyte data ingestion
 - ✅ Dagster orchestration
 - ✅ Trino distributed SQL
 
@@ -973,4 +830,4 @@ kubectl get pv
 - Distributed query engine (Trino) = Analytics at scale
 - Orchestration (Dagster) + Transformations (DBT) = Data pipelines
 
-**Start experimenting**: Configure your first data source in Airbyte and ingest data to Garage!
+**Start experimenting**: Create your first Iceberg table in Trino and begin building data pipelines!

@@ -1,15 +1,13 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup fetch-garage-chart deploy init setup-airbyte-storage destroy clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-airbyte restart-dagster restart-trino restart-all status
+.PHONY: help check setup fetch-garage-chart deploy init destroy clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-all status
 
 # Variables
 NAMESPACE := lakehouse
 HELM_TIMEOUT := 10m
 GARAGE_CHART_PATH := infrastructure/helm/garage
 GARAGE_VALUES := infrastructure/kubernetes/garage/values.yaml
-AIRBYTE_VERSION := 2.0.18
-AIRBYTE_VALUES := infrastructure/kubernetes/airbyte/values.yaml
 DAGSTER_VALUES := infrastructure/kubernetes/dagster/values.yaml
 TRINO_VALUES := infrastructure/kubernetes/trino/values.yaml
 
@@ -24,8 +22,7 @@ help:
 	@echo ""
 	@echo "Deployment:"
 	@echo "  make deploy                 - Deploy all services to lakehouse namespace"
-	@echo "  make init                   - Initialize Garage cluster and Airbyte storage (run after deploy)"
-	@echo "  make setup-airbyte-storage  - Create Airbyte S3 buckets in Garage (auto-run by init)"
+	@echo "  make init                   - Initialize Garage cluster (run after deploy)"
 	@echo ""
 	@echo "Management:"
 	@echo "  make destroy                - Tear down lakehouse cluster"
@@ -39,7 +36,6 @@ help:
 	@echo "  make port-forward           - Alias for port-forward-start"
 	@echo ""
 	@echo "Service Restarts:"
-	@echo "  make restart-airbyte        - Restart Airbyte deployments"
 	@echo "  make restart-dagster        - Restart Dagster deployments"
 	@echo "  make restart-trino          - Restart Trino deployments"
 	@echo "  make restart-all            - Restart all service deployments"
@@ -66,8 +62,6 @@ check:
 # Setup Helm repositories
 setup:
 	@echo "Setting up Helm repositories..."
-	@helm repo remove airbyte 2>/dev/null || true
-	@helm repo add airbyte-v2 https://airbytehq.github.io/charts
 	@helm repo add dagster https://dagster-io.github.io/helm
 	@helm repo add trino https://trinodb.github.io/charts
 	@helm repo update
@@ -91,30 +85,23 @@ fetch-garage-chart:
 deploy:
 	@echo "Deploying lakehouse platform..."
 	@echo ""
-	@echo "Step 1/5: Creating lakehouse namespace..."
+	@echo "Step 1/4: Creating lakehouse namespace..."
 	@kubectl apply -f infrastructure/kubernetes/namespace.yaml
 	@echo ""
-	@echo "Step 2/5: Deploying Garage (S3 storage)..."
+	@echo "Step 2/4: Deploying Garage (S3 storage)..."
 	@helm upgrade --install garage $(GARAGE_CHART_PATH) \
 		-f $(GARAGE_VALUES) \
 		-n $(NAMESPACE) --wait
 	@echo "✓ Garage deployed"
 	@echo ""
-	@echo "Step 3/5: Deploying Airbyte (data ingestion)..."
-	@helm upgrade --install airbyte airbyte-v2/airbyte \
-		--version $(AIRBYTE_VERSION) \
-		-f $(AIRBYTE_VALUES) \
-		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
-	@echo "✓ Airbyte deployed"
-	@echo ""
-	@echo "Step 4/5: Deploying Dagster (orchestration)..."
+	@echo "Step 3/4: Deploying Dagster (orchestration)..."
 	@helm upgrade --install dagster dagster/dagster \
 		-f $(DAGSTER_VALUES) \
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT) || true
 	@kubectl scale deployment -n $(NAMESPACE) dagster-dagster-user-deployments-dagster-user-code --replicas=0 2>/dev/null || true
 	@echo "✓ Dagster deployed"
 	@echo ""
-	@echo "Step 5/5: Deploying Trino (query engine)..."
+	@echo "Step 4/4: Deploying Trino (query engine)..."
 	@helm upgrade --install trino trino/trino \
 		-f $(TRINO_VALUES) \
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
@@ -155,49 +142,11 @@ init:
 	echo "To view your access credentials:"; \
 	echo "  kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage key info lakehouse-access"
 	@echo ""
-	@echo "Setting up Airbyte storage..."
-	@$(MAKE) setup-airbyte-storage
-	@echo ""
 	@echo "Initialization complete!"
-
-# Setup Airbyte storage buckets in Garage
-setup-airbyte-storage:
-	@echo "Creating Airbyte S3 buckets in Garage..."
-	@GARAGE_POD=$$(kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}'); \
-	echo "Using Garage pod: $$GARAGE_POD"; \
-	echo ""; \
-	echo "Creating buckets..."; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket create airbyte-log-storage 2>/dev/null || echo "✓ airbyte-log-storage already exists"; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket create airbyte-state-storage 2>/dev/null || echo "✓ airbyte-state-storage already exists"; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket create airbyte-config-storage 2>/dev/null || echo "✓ airbyte-config-storage already exists"; \
-	echo ""; \
-	echo "Granting permissions to lakehouse-access key..."; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket allow --read --write airbyte-log-storage --key lakehouse-access; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket allow --read --write airbyte-state-storage --key lakehouse-access; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket allow --read --write airbyte-config-storage --key lakehouse-access; \
-	echo ""; \
-	echo "✓ Airbyte storage buckets created!"
 	@echo ""
-	@echo "Applying Airbyte secret with Garage S3 credentials..."
-	@GARAGE_POD=$$(kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}'); \
-	ACCESS_KEY=$$(kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage key info lakehouse-access 2>/dev/null | grep "Key ID:" | awk '{print $$3}'); \
-	SECRET_KEY=$$(kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage key info lakehouse-access 2>/dev/null | grep "Secret key:" | awk '{print $$3}'); \
-	echo "Extracted credentials from Garage"; \
-	echo "  Access Key: $$ACCESS_KEY"; \
-	echo "  Secret Key: $$SECRET_KEY"; \
-	cat infrastructure/kubernetes/airbyte/secrets.yaml | \
-	sed "s|AWS_ACCESS_KEY_ID:.*|AWS_ACCESS_KEY_ID: \"$$ACCESS_KEY\"|" | \
-	sed "s|AWS_SECRET_ACCESS_KEY:.*|AWS_SECRET_ACCESS_KEY: \"$$SECRET_KEY\"|" | \
-	kubectl apply -f -; \
-	echo "✓ Airbyte secret applied with credentials!"
-	@echo ""
-	@echo "Restarting Airbyte to apply changes..."
-	@$(MAKE) restart-airbyte
-	@echo ""
-	@echo "✓ Airbyte storage setup complete!"
-	@echo ""
-	@echo "Buckets created:"
-	@kubectl exec -n $(NAMESPACE) $$(kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}') -- /garage bucket list
+	@echo "Next steps:"
+	@echo "  1. Configure Meltano for data ingestion"
+	@echo "  2. Run 'make port-forward-start' to access UIs"
 
 # Teardown lakehouse cluster
 destroy:
@@ -211,8 +160,6 @@ destroy:
 	@helm uninstall dagster -n $(NAMESPACE) 2>/dev/null || echo "Dagster not found"
 	@echo "Uninstalling Trino..."
 	@helm uninstall trino -n $(NAMESPACE) 2>/dev/null || echo "Trino not found"
-	@echo "Uninstalling Airbyte..."
-	@helm uninstall airbyte -n $(NAMESPACE) 2>/dev/null || echo "Airbyte not found"
 	@echo "Uninstalling Garage..."
 	@helm uninstall garage -n $(NAMESPACE) 2>/dev/null || echo "Garage not found"
 	@echo ""
@@ -231,13 +178,11 @@ clean-old:
 	@echo "Uninstalling from old namespaces..."
 	@helm uninstall dagster -n dagster 2>/dev/null || echo "dagster namespace not found"
 	@helm uninstall trino -n trino 2>/dev/null || echo "trino namespace not found"
-	@helm uninstall airbyte -n airbyte 2>/dev/null || echo "airbyte namespace not found"
 	@helm uninstall garage -n garage 2>/dev/null || echo "garage namespace not found"
 	@echo ""
 	@echo "Deleting old namespaces..."
 	@kubectl delete namespace dagster --wait=false 2>/dev/null || echo "dagster namespace already deleted"
 	@kubectl delete namespace trino --wait=false 2>/dev/null || echo "trino namespace already deleted"
-	@kubectl delete namespace airbyte --wait=false 2>/dev/null || echo "airbyte namespace already deleted"
 	@kubectl delete namespace garage --wait=false 2>/dev/null || echo "garage namespace already deleted"
 	@echo ""
 	@echo "Old namespace cleanup complete!"
@@ -246,17 +191,15 @@ clean-old:
 port-forward-start:
 	@echo "Starting port-forwards in background..."
 	@echo ""
-	@kubectl port-forward -n $(NAMESPACE) svc/airbyte-airbyte-server-svc 8080:8001 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/dagster-dagster-webserver 3000:80 > /dev/null 2>&1 &
-	@kubectl port-forward -n $(NAMESPACE) svc/trino 8081:8080 > /dev/null 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/trino 8080:8080 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/garage 3900:3900 > /dev/null 2>&1 &
 	@sleep 1
 	@echo "Port-forwards started!"
 	@echo ""
 	@echo "Access URLs:"
-	@echo "  Airbyte: http://localhost:8080"
 	@echo "  Dagster: http://localhost:3000"
-	@echo "  Trino:   http://localhost:8081"
+	@echo "  Trino:   http://localhost:8080"
 	@echo "  Garage:  http://localhost:3900 (S3 API)"
 	@echo ""
 	@echo "Run 'make port-forward-status' to check status"
@@ -277,16 +220,6 @@ port-forward-status:
 # Alias for backward compatibility
 port-forward: port-forward-start
 
-# Restart Airbyte deployments
-restart-airbyte:
-	@echo "Restarting Airbyte deployments..."
-	@kubectl rollout restart deployment -n $(NAMESPACE) -l app.kubernetes.io/name=server
-	@kubectl rollout restart deployment -n $(NAMESPACE) -l app.kubernetes.io/name=workload-api-server
-	@kubectl rollout restart deployment -n $(NAMESPACE) -l app.kubernetes.io/name=worker
-	@echo "Waiting for Airbyte server to be ready..."
-	@kubectl rollout status deployment -n $(NAMESPACE) airbyte-server --timeout=120s
-	@echo "✓ Airbyte restarted successfully!"
-
 # Restart Dagster deployments
 restart-dagster:
 	@echo "Restarting Dagster deployments..."
@@ -306,8 +239,6 @@ restart-trino:
 # Restart all services
 restart-all:
 	@echo "Restarting all services..."
-	@echo ""
-	@$(MAKE) restart-airbyte
 	@echo ""
 	@$(MAKE) restart-dagster
 	@echo ""
