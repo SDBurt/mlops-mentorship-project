@@ -6,5 +6,5 @@ metadata:
     name: lakehouse
     environment: development
   annotations:
-    description: "Unified namespace for all lakehouse platform services (Garage, Airbyte, Dagster, Trino, PostgreSQL)"
+    description: "Unified namespace for all lakehouse platform services (MinIO, Dagster, Trino, PostgreSQL)"
     best-practice: "Services that communicate together should live in the same namespace - https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces"

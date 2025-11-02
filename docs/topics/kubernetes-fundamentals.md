@@ -6,13 +6,13 @@
 
 Kubernetes is an open-source container orchestration platform that automates the deployment, scaling, and management of containerized applications. It provides a declarative framework for managing distributed systems resiliently.
 
-In this lakehouse platform, Kubernetes orchestrates all core services: storage ([Garage](garage.md)), ingestion ([Airbyte](airbyte.md)), orchestration ([Dagster](dagster.md)), and query engines ([Trino](trino.md)). Understanding Kubernetes fundamentals is essential for deploying, debugging, and operating the entire platform.
+In this lakehouse platform, Kubernetes orchestrates all core services: storage ([MinIO](minio.md)), ingestion ([Airbyte](airbyte.md)), orchestration ([Dagster](dagster.md)), and query engines ([Trino](trino.md)). Understanding Kubernetes fundamentals is essential for deploying, debugging, and operating the entire platform.
 
 ## Why Kubernetes Matters for This Platform
 
 **Infrastructure Portability**: Deploy the same lakehouse stack on local development (Docker Desktop), cloud providers (EKS, GKE, AKS), or on-premises clusters without changing application code.
 
-**Service Isolation**: Each data platform component (Garage, Airbyte, Dagster, Trino) runs in its own namespace, preventing resource conflicts and enabling independent scaling.
+**Service Isolation**: Each data platform component (MinIO, Airbyte, Dagster, Trino) runs in its own namespace, preventing resource conflicts and enabling independent scaling.
 
 **Self-Healing**: Kubernetes automatically restarts failed containers, replaces pods on node failures, and maintains desired replica counts.
 
@@ -24,29 +24,29 @@ In this lakehouse platform, Kubernetes orchestrates all core services: storage (
 
 **What it is**: A virtual cluster within your physical Kubernetes cluster. Provides logical isolation and resource organization.
 
-**Why it matters**: In this project, each service has its own namespace (`garage`, `airbyte`, `dagster`, `trino`) to:
+**Why it matters**: In this project, each service has its own namespace (`minio`, `airbyte`, `dagster`, `trino`) to:
 - Prevent name conflicts (multiple services can have a `postgres` pod in different namespaces)
-- Enable team autonomy (analytics team works in `dagster` without affecting infrastructure team's `garage` namespace)
+- Enable team autonomy (analytics team works in `dagster` without affecting infrastructure team's `minio` namespace)
 - Apply resource quotas per namespace
 - Simplify access control (RBAC policies per namespace)
 
 **Example**:
 ```bash
 # Create namespace
-kubectl apply -f infrastructure/kubernetes/namespaces/garage.yaml
+kubectl apply -f infrastructure/kubernetes/namespaces/minio.yaml
 
 # List all namespaces
 kubectl get namespaces
 
 # View resources in specific namespace
-kubectl get all -n garage
+kubectl get all -n minio
 ```
 
 **Key commands**:
 ```bash
 kubectl get namespaces                    # List all namespaces
 kubectl describe namespace <name>         # Details and resource quotas
-kubectl config set-context --current --namespace=garage  # Set default namespace
+kubectl config set-context --current --namespace=minio  # Set default namespace
 ```
 
 ### 2. Pod
@@ -59,18 +59,18 @@ kubectl config set-context --current --namespace=garage  # Set default namespace
 - **Shared context**: Containers share localhost network and can share volumes
 
 **In this platform**:
-- `garage-0`: Single-container pod running Garage storage
+- `minio-0`: Single-container pod running MinIO storage
 - `airbyte-server`: Single-container pod running Airbyte API
 - `dagster-postgresql-0`: Single-container pod running PostgreSQL
 
 **Example**:
 ```bash
 # List pods in namespace
-kubectl get pods -n garage
+kubectl get pods -n minio
 
 # Expected output:
 # NAME       READY   STATUS    RESTARTS   AGE
-# garage-0   1/1     Running   0          5m
+# minio-0   1/1     Running   0          5m
 ```
 
 **Understanding pod status**:
@@ -101,19 +101,19 @@ kubectl exec -it <pod-name> -n <namespace> -- /bin/bash  # Shell into container
 - **LoadBalancer**: Provisions cloud load balancer (AWS ELB, GCP LB)
 
 **In this platform** (all ClusterIP):
-- `garage:3900` - Garage S3 API
+- `minio:3900` - MinIO S3 API
 - `trino:8080` - Trino coordinator
 - `dagster-postgresql.dagster.svc.cluster.local:5432` - Dagster database
 
 **Example**:
 ```bash
 # List services
-kubectl get svc -n garage
+kubectl get svc -n minio
 
 # Expected output:
 # NAME              TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE
-# garage            ClusterIP   10.96.100.50    <none>        3900/TCP,3902/TCP   5m
-# garage-headless   ClusterIP   None            <none>        3900/TCP,3902/TCP   5m
+# minio            ClusterIP   10.96.100.50    <none>        3900/TCP,3902/TCP   5m
+# minio-headless   ClusterIP   None            <none>        3900/TCP,3902/TCP   5m
 ```
 
 **Understanding service output**:
@@ -121,7 +121,7 @@ kubectl get svc -n garage
 - **EXTERNAL-IP "none"**: Not exposed outside cluster
 - **PORT(S)**: Format is `<container-port>/TCP`
 
-**Headless service** (`garage-headless`):
+**Headless service** (`minio-headless`):
 - ClusterIP: None
 - Returns pod IPs directly instead of load-balancing
 - Used by [StatefulSets](stateful-applications.md) for pod discovery
@@ -178,12 +178,12 @@ kubectl rollout restart deployment/<name> -n <namespace>  # Restart pods
 **What it is**: Manages stateful applications that require stable network identities, persistent storage, and ordered deployment.
 
 **Why it matters**: Databases and distributed storage systems need StatefulSets because they require:
-- **Stable pod names**: `garage-0`, `postgres-0` (not random names like `postgres-abc123`)
+- **Stable pod names**: `minio-0`, `postgres-0` (not random names like `postgres-abc123`)
 - **Stable storage**: Each pod gets its own PersistentVolumeClaim that persists across restarts
 - **Ordered operations**: Pods start in sequence (0, 1, 2) and terminate in reverse (2, 1, 0)
 
 **In this platform**:
-- `garage-0`: StatefulSet for Garage storage node
+- `minio-0`: StatefulSet for MinIO storage node
 - `dagster-postgresql-0`: StatefulSet for Dagster metadata database
 - `airbyte-postgresql-0`: StatefulSet for Airbyte metadata database
 
@@ -198,19 +198,19 @@ kubectl rollout restart deployment/<name> -n <namespace>  # Restart pods
 **Example**:
 ```bash
 # List StatefulSets
-kubectl get statefulset -n garage
+kubectl get statefulset -n minio
 
 # Expected output:
 # NAME     READY   AGE
-# garage   1/1     5m
+# minio   1/1     5m
 ```
 
 **Scaling StatefulSets**:
 ```bash
-# Scale to 3 replicas (creates garage-1, garage-2 in order)
-kubectl scale statefulset garage -n lakehouse --replicas=3
+# Scale to 3 replicas (creates minio-1, minio-2 in order)
+kubectl scale statefulset minio -n lakehouse --replicas=3
 
-# Pods created sequentially: garage-0 → garage-1 → garage-2
+# Pods created sequentially: minio-0 → minio-1 → minio-2
 ```
 
 See [Stateful Applications](stateful-applications.md) for detailed coverage.
@@ -229,8 +229,8 @@ kubectl scale statefulset <name> --replicas=3 -n <namespace>  # Scale
 **Why it matters**: Without PVCs, data stored in containers is lost when pods restart. PVCs enable stateful applications like databases and object storage.
 
 **In this platform**:
-- `data-garage-0`: 10Gi storage for Garage S3 objects
-- `meta-garage-0`: 1Gi storage for Garage metadata
+- `data-minio-0`: 10Gi storage for MinIO S3 objects
+- `meta-minio-0`: 1Gi storage for MinIO metadata
 - `data-dagster-postgresql-0`: Storage for Dagster database
 
 **Lifecycle**:
@@ -242,12 +242,12 @@ kubectl scale statefulset <name> --replicas=3 -n <namespace>  # Scale
 **Example**:
 ```bash
 # List PVCs
-kubectl get pvc -n garage
+kubectl get pvc -n minio
 
 # Expected output:
 # NAME            STATUS   VOLUME                 CAPACITY   ACCESS MODES   STORAGECLASS   AGE
-# data-garage-0   Bound    pvc-xxxxx              10Gi       RWO            hostpath       5m
-# meta-garage-0   Bound    pvc-yyyyy              1Gi        RWO            hostpath       5m
+# data-minio-0   Bound    pvc-xxxxx              10Gi       RWO            hostpath       5m
+# meta-minio-0   Bound    pvc-yyyyy              1Gi        RWO            hostpath       5m
 ```
 
 **Understanding PVC output**:
@@ -270,14 +270,14 @@ kubectl get pv                                 # List PersistentVolumes (cluster
 
 ## How These Concepts Work Together
 
-**Example: Deploying Garage Storage**
+**Example: Deploying MinIO Storage**
 
-1. **Create Namespace**: `kubectl apply -f namespaces/garage.yaml`
-   - Logical isolation for Garage resources
+1. **Create Namespace**: `kubectl apply -f namespaces/minio.yaml`
+   - Logical isolation for MinIO resources
 
-2. **Deploy StatefulSet**: `helm install garage ...`
-   - Creates `garage-0` pod with stable name
-   - Automatically creates PVCs: `data-garage-0`, `meta-garage-0`
+2. **Deploy StatefulSet**: `helm install minio ...`
+   - Creates `minio-0` pod with stable name
+   - Automatically creates PVCs: `data-minio-0`, `meta-minio-0`
 
 3. **Kubernetes binds PVCs**:
    - Finds available PersistentVolumes
@@ -286,14 +286,14 @@ kubectl get pv                                 # List PersistentVolumes (cluster
 4. **Pod starts**:
    - Kubernetes schedules pod on a node
    - Mounts PVCs to pod filesystem
-   - Starts Garage container
+   - Starts MinIO container
 
 5. **Service created**:
-   - `garage` service provides stable DNS: `garage`
-   - Routes traffic to `garage-0` pod
+   - `minio` service provides stable DNS: `minio`
+   - Routes traffic to `minio-0` pod
 
 6. **Other services connect**:
-   - [Airbyte](airbyte.md) uses `http://garage:3900` to write data
+   - [Airbyte](airbyte.md) uses `http://minio:3900` to write data
    - [Trino](trino.md) uses same endpoint to query data
 
 ## Common Patterns in This Platform
@@ -307,9 +307,9 @@ Used for databases and distributed systems that need pod identity:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: garage
+  name: minio
 spec:
-  serviceName: garage-headless  # Points to headless service
+  serviceName: minio-headless  # Points to headless service
   replicas: 1
   # ...
 
@@ -317,14 +317,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: garage-headless
+  name: minio-headless
 spec:
   clusterIP: None
   selector:
-    app: garage
+    app: minio
 ```
 
-**Why**: StatefulSet needs headless service for pod DNS resolution: `garage-0.garage-headless.garage.svc.cluster.local`
+**Why**: StatefulSet needs headless service for pod DNS resolution: `minio-0.minio-headless.minio.svc.cluster.local`
 
 ### Pattern 2: Deployment + ClusterIP Service
 
@@ -360,10 +360,10 @@ spec:
 Each domain gets its own namespace:
 
 ```bash
-garage/     # Storage layer
-├── garage-0 (StatefulSet)
-├── garage service
-└── PVCs: data-garage-0, meta-garage-0
+minio/     # Storage layer
+├── minio-0 (StatefulSet)
+├── minio service
+└── PVCs: data-minio-0, meta-minio-0
 
 airbyte/    # Ingestion layer
 ├── airbyte-server (Deployment)
@@ -439,10 +439,10 @@ kubectl logs <pod-name> -n <namespace> --previous
 kubectl get endpoints <service-name> -n <namespace>
 
 # Test DNS resolution
-kubectl run -it --rm debug --image=busybox --restart=Never -n <namespace> -- nslookup garage
+kubectl run -it --rm debug --image=busybox --restart=Never -n <namespace> -- nslookup minio
 
 # Test connectivity
-kubectl exec -it <pod-name> -n <namespace> -- curl http://garage:3900
+kubectl exec -it <pod-name> -n <namespace> -- curl http://minio:3900
 ```
 
 **Common causes**:
@@ -459,7 +459,7 @@ See [Kubernetes Networking](kubernetes-networking.md) for detailed troubleshooti
 - **[Kubernetes Networking](kubernetes-networking.md)**: Services enable cross-namespace communication
 - **[Kubernetes Storage](kubernetes-storage.md)**: PVCs provide persistent storage for StatefulSets
 - **[Stateful Applications](stateful-applications.md)**: Deep dive on StatefulSets and storage
-- **[Garage](garage.md)**, **[Airbyte](airbyte.md)**, **[Dagster](dagster.md)**, **[Trino](trino.md)**: All deployed using these Kubernetes primitives
+- **[MinIO](minio.md)**, **[Airbyte](airbyte.md)**, **[Dagster](dagster.md)**, **[Trino](trino.md)**: All deployed using these Kubernetes primitives
 
 ## References
 
