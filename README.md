@@ -126,8 +126,9 @@ Data Pipeline (above)
 **What was Learned**:
 - Kubernetes fundamentals (pods, services, namespaces, StatefulSets)
 - Helm package management (charts, releases, values files)
-- Kubernetes networking (DNS, cross-namespace communication)
+- Kubernetes networking (DNS, same-namespace service discovery)
 - Persistent storage with PVCs
+- Namespace best practices (grouping communicating services)
 
 **Tasks Completed**:
 - [x] Garage S3 storage with cluster initialization
@@ -137,7 +138,7 @@ Data Pipeline (above)
 
 **Key Challenges Solved**:
 - Garage cluster initialization (non-obvious required step)
-- Cross-namespace service communication via DNS
+- Namespace strategy (single namespace for communicating services)
 - StatefulSet storage management with PVCs
 
 **Documentation Created**:
@@ -275,33 +276,36 @@ cat docs/SETUP_GUIDE.md
 
 **Step 2: Deploy Services in Order**
 ```bash
+# Create lakehouse namespace
+kubectl apply -f infrastructure/kubernetes/namespace.yaml
+
 # 1. Storage layer (Garage)
 helm upgrade --install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage --create-namespace --wait
+  -n lakehouse --wait
 
 # 2. Ingestion (Airbyte)
 helm upgrade --install airbyte airbyte-v2/airbyte --version 2.0.18 \
   -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n airbyte --create-namespace --wait --timeout 10m
+  -n lakehouse --wait --timeout 10m
 
 # 3. Orchestration (Dagster)
 helm upgrade --install dagster dagster/dagster \
   -f infrastructure/kubernetes/dagster/values.yaml \
-  -n dagster --create-namespace
+  -n lakehouse
 
 # 4. Query engine (Trino)
 helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
-  -n trino --create-namespace --wait --timeout 10m
+  -n lakehouse --wait --timeout 10m
 ```
 
 **Step 3: Access Services**
 ```bash
 # Port-forward UIs (each in separate terminal)
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
-kubectl port-forward -n trino svc/trino 8081:8080
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n lakehouse svc/trino 8081:8080
 ```
 
 - Airbyte: http://localhost:8080
@@ -310,12 +314,12 @@ kubectl port-forward -n trino svc/trino 8081:8080
 
 ### Check Status
 ```bash
-# View all deployments
-kubectl get pods --all-namespaces | grep -E 'garage|airbyte|dagster|trino'
+# View all deployments in lakehouse namespace
+kubectl get pods -n lakehouse
 
 # Check specific service
-kubectl get pods -n garage
-kubectl logs -n garage garage-0 --tail=100
+kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage
+kubectl logs -n lakehouse garage-0 --tail=100
 ```
 
 ## Project Structure
@@ -348,7 +352,7 @@ kubectl logs -n garage garage-0 --tail=100
 │   │   ├── dagster/            # Orchestration
 │   │   ├── trino/              # Query engine
 │   │   ├── polaris/            # Polaris REST Catalog (Phase 3)
-│   │   └── namespaces/         # Namespace definitions
+│   │   └── namespace.yaml      # Single lakehouse namespace
 │   └── helm/                   # Local Helm charts
 │       └── garage/             # Garage Helm chart
 │
@@ -453,8 +457,8 @@ This project teaches the complete modern data stack:
 **Challenge**: Understanding StatefulSets vs Deployments
 **Solution**: StatefulSets provide stable pod names and dedicated storage - critical for databases. See [Stateful Applications](docs/topics/stateful-applications.md).
 
-**Challenge**: Cross-namespace service communication
-**Solution**: Use full DNS names: `service.namespace.svc.cluster.local`. See [Cross-Namespace Communication](docs/topics/cross-namespace-communication.md).
+**Challenge**: Namespace organization for communicating services
+**Solution**: Use single `lakehouse` namespace for all services - enables simplified DNS (`service:port`). Follows Kubernetes best practices: services that communicate should live together. See [Kubernetes Networking](docs/topics/kubernetes-networking.md).
 
 ### Questions for Mentor
 - _(Record questions to discuss during mentorship sessions)_
@@ -470,13 +474,13 @@ This project teaches the complete modern data stack:
 
 ```bash
 # Uninstall all services (see docs/TEARDOWN.md for details)
-helm uninstall dagster -n dagster
-helm uninstall trino -n trino
-helm uninstall airbyte -n airbyte
-helm uninstall garage -n garage
+helm uninstall dagster -n lakehouse
+helm uninstall trino -n lakehouse
+helm uninstall airbyte -n lakehouse
+helm uninstall garage -n lakehouse
 
-# Delete namespaces
-kubectl delete namespace dagster trino airbyte garage
+# Delete namespace (deletes all resources)
+kubectl delete namespace lakehouse
 ```
 
 ## License

@@ -161,7 +161,7 @@ def dbt_resource(context):
 @resource
 def trino_resource(context):
     return TrinoResource(
-        host="trino.trino.svc.cluster.local",
+        host="trino",
         port=8080,
         catalog="lakehouse",
         schema="analytics"
@@ -225,7 +225,7 @@ Dagster deployed as multiple components:
 ```bash
 helm upgrade --install dagster dagster/dagster \
   -f infrastructure/kubernetes/dagster/values.yaml \
-  -n dagster --create-namespace
+  -n lakehouse --create-namespace
 ```
 
 **Key configuration** (`values.yaml`):
@@ -262,7 +262,7 @@ dagster-user-deployments:
 
 **Port-forward**:
 ```bash
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 ```
 
 **Access**: http://localhost:3000
@@ -469,7 +469,7 @@ def dim_customer(context):
 **Check**:
 ```bash
 kubectl get pods -n dagster
-kubectl logs -n dagster dagster-dagster-user-deployments-<pod>
+kubectl logs -n lakehouse dagster-dagster-user-deployments-<pod>
 ```
 
 **Common causes**:
@@ -481,8 +481,8 @@ kubectl logs -n dagster dagster-dagster-user-deployments-<pod>
 
 **Check**:
 ```bash
-kubectl get pods -n dagster | grep postgresql
-kubectl logs -n dagster dagster-postgresql-0
+kubectl get pods -n lakehouse | grep postgresql
+kubectl logs -n lakehouse dagster-postgresql-0
 ```
 
 **Verify connection string** in values.yaml matches PostgreSQL service.
@@ -491,7 +491,7 @@ kubectl logs -n dagster dagster-postgresql-0
 
 **Check daemon**:
 ```bash
-kubectl logs -n dagster -l component=dagster-daemon
+kubectl logs -n lakehouse -l component=dagster-daemon
 ```
 
 **Verify**:

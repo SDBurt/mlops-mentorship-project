@@ -126,7 +126,7 @@ Airbyte stores its own metadata in embedded [PostgreSQL](postgresql.md):
 
 **Deployed in this platform**:
 ```bash
-kubectl get pods -n airbyte | grep postgresql
+kubectl get pods -n lakehouse | grep postgresql
 # airbyte-airbyte-postgresql-0  1/1  Running
 ```
 
@@ -162,7 +162,7 @@ Airbyte deployed as multiple components:
 helm upgrade --install airbyte airbyte-v2/airbyte \
   --version 2.0.18 \
   -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n airbyte --create-namespace --wait --timeout 10m
+  -n lakehouse --create-namespace --wait --timeout 10m
 ```
 
 **Key configuration** (`values.yaml`):
@@ -171,7 +171,7 @@ global:
   storage:
     type: s3
     s3:
-      endpoint: http://garage.garage.svc.cluster.local:3900
+      endpoint: http://garage:3900
       bucketName: lakehouse
       accessKeyId: <from-garage-key-create>
       secretAccessKey: <from-garage-key-create>
@@ -187,7 +187,7 @@ postgresql:
 
 **Port-forward**:
 ```bash
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
 ```
 
 **Access**: http://localhost:8080
@@ -235,7 +235,7 @@ curl -X POST http://localhost:8080/api/v1/sources \
 2. Select "S3"
 3. Configure:
    - S3 Bucket Name: `lakehouse`
-   - S3 Endpoint: `http://garage.garage.svc.cluster.local:3900`
+   - S3 Endpoint: `http://garage:3900`
    - Access Key ID: `<from-garage-key-create>`
    - Secret Access Key: `<secret>`
    - Format: Parquet
@@ -281,10 +281,10 @@ curl -X POST http://localhost:8080/api/v1/connections/sync \
 **Via Logs**:
 ```bash
 # View worker logs (where syncs run)
-kubectl logs -n airbyte -l app.kubernetes.io/name=worker --tail=100 -f
+kubectl logs -n lakehouse -l app.kubernetes.io/name=worker --tail=100 -f
 
 # View server logs
-kubectl logs -n airbyte -l app.kubernetes.io/name=server --tail=100 -f
+kubectl logs -n lakehouse -l app.kubernetes.io/name=server --tail=100 -f
 ```
 
 ## Integration with Lakehouse
@@ -331,22 +331,22 @@ FROM iceberg.raw.postgres_customers;
 **Check**:
 ```bash
 # Test Garage S3 connectivity
-kubectl exec -n airbyte <worker-pod> -- curl -I http://garage.garage.svc.cluster.local:3900
+kubectl exec -n lakehouse <worker-pod> -- curl -I http://garage:3900
 ```
 
 **Verify**:
 - Garage service running: `kubectl get svc -n garage`
-- Access keys correct: `kubectl exec -n garage garage-0 -- /garage key list`
-- Bucket exists: `kubectl exec -n garage garage-0 -- /garage bucket list`
+- Access keys correct: `kubectl exec -n lakehouse garage-0 -- /garage key list`
+- Bucket exists: `kubectl exec -n lakehouse garage-0 -- /garage bucket list`
 
 ### PostgreSQL Connection Refused
 
 **Check**:
 ```bash
-kubectl get pods -n airbyte | grep postgresql
+kubectl get pods -n lakehouse | grep postgresql
 # Verify pod is Running
 
-kubectl logs -n airbyte airbyte-airbyte-postgresql-0
+kubectl logs -n lakehouse airbyte-airbyte-postgresql-0
 # Check for startup errors
 ```
 
@@ -355,7 +355,7 @@ kubectl logs -n airbyte airbyte-airbyte-postgresql-0
 **Check destination**:
 ```bash
 # List objects in Garage bucket
-kubectl exec -n garage garage-0 -- aws s3 ls s3://lakehouse/raw/ --endpoint-url http://localhost:3900 --profile garage
+kubectl exec -n lakehouse garage-0 -- aws s3 ls s3://lakehouse/raw/ --endpoint-url http://localhost:3900 --profile garage
 ```
 
 **Verify**:

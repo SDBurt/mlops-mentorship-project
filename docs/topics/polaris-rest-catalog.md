@@ -261,7 +261,7 @@ polaris:
     s3:
       bucket: lakehouse
       prefix: audit-logs/
-      endpoint: http://garage.garage.svc.cluster.local:3900
+      endpoint: http://garage:3900
 ```
 
 ### Step 6: Decommission Hive Metastore
@@ -269,7 +269,7 @@ polaris:
 **After validating Polaris works**:
 ```bash
 # Stop using Hive Metastore
-kubectl scale deployment -n database hive-metastore --replicas=0
+kubectl scale deployment -n lakehouse hive-metastore --replicas=0
 
 # After grace period, uninstall
 kubectl delete namespace database

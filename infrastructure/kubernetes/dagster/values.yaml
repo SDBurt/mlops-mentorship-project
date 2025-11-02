@@ -46,7 +46,7 @@ computeLogManager:
   #     bucket: lakehouse-dagster-logs
   #     localDir: /tmp/dagster-logs
   #     prefix: compute-logs/
-  #     endpointUrl: http://garage.garage.svc.cluster.local:3900
+  #     endpointUrl: http://garage:3900  # Same namespace - simplified DNS
   #     useSsl: false
   #     # Access keys will be provided via envSecrets
 

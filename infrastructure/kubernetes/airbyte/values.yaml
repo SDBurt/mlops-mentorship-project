@@ -4,7 +4,8 @@
 global:
   # Base URL for Airbyte server (internal Kubernetes service)
   # Note: In Airbyte V2, the UI is served by airbyte-server (not webapp)
-  airbyteUrl: "http://airbyte-airbyte-server-svc.airbyte.svc.cluster.local:8001"
+  # Services in same namespace use simple DNS (service-name:port)
+  airbyteUrl: "http://airbyte-airbyte-server-svc:8001"
 
   # Garage S3 Storage configuration
   storage:
@@ -18,8 +19,8 @@ global:
     s3:
       region: garage
       authenticationType: credentials
-      # Garage S3 API endpoint
-      endpoint: http://garage.garage.svc.cluster.local:3900
+      # Garage S3 API endpoint (same namespace - simplified DNS)
+      endpoint: http://garage:3900
       pathStyleAccess: true
 
   # TODO (Phase 2): Configure Garage/S3 storage for lakehouse integration
@@ -32,7 +33,7 @@ global:
   #   s3:
   #     region: garage
   #     authenticationType: credentials
-  #     # Endpoint will be: http://garage.garage.svc.cluster.local:3900
+  #     # Endpoint: http://garage:3900 (same namespace)
 
 # Enable internal PostgreSQL (each service manages its own DB)
 postgresql:

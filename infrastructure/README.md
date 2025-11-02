@@ -9,7 +9,7 @@ infrastructure/
 ├── helm/                   # Local Helm charts
 │   └── garage/            # Garage S3 Helm chart (fetched during setup)
 ├── kubernetes/            # Kubernetes manifests and Helm values
-│   ├── namespaces/       # Namespace definitions
+│   ├── namespace.yaml    # Single lakehouse namespace for all services
 │   ├── garage/           # Garage S3 configuration
 │   ├── database/         # PostgreSQL configuration
 │   ├── airbyte/          # Airbyte configuration
@@ -17,6 +17,8 @@ infrastructure/
 │   └── trino/            # Trino configuration
 └── README.md             # This file
 ```
+
+**Note:** All services deploy to the single `lakehouse` namespace following Kubernetes best practices - services that communicate should live together.
 
 ## Getting Started
 
@@ -354,43 +356,43 @@ rm -rf /tmp/garage-repo
 # 3. Deploy in order
 # See docs/SETUP_GUIDE.md for detailed steps
 
+# Create lakehouse namespace
+kubectl apply -f kubernetes/namespace.yaml
+
 # Garage
-kubectl apply -f kubernetes/namespaces/garage.yaml
-helm upgrade --install garage helm/garage -f kubernetes/garage/values.yaml -n garage --create-namespace --wait
+kubectl apply -f kubernetes/garage/secrets.yaml  # If needed
+helm upgrade --install garage helm/garage -f kubernetes/garage/values.yaml -n lakehouse --wait
 
 # PostgreSQL
-kubectl apply -f kubernetes/namespaces/database.yaml
 kubectl apply -f kubernetes/database/postgres-secret.yaml
 kubectl apply -f kubernetes/database/postgres-statefulset.yaml
 kubectl apply -f kubernetes/database/postgres-service.yaml
-kubectl wait --for=condition=ready pod -l app=postgres -n database --timeout=300s
+kubectl wait --for=condition=ready pod -l app=postgres -n lakehouse --timeout=300s
 
 # Airbyte
-kubectl apply -f kubernetes/namespaces/airbyte.yaml
 kubectl apply -f kubernetes/airbyte/secrets.yaml
-helm upgrade --install airbyte airbyte/airbyte --version 1.8.5 -f kubernetes/airbyte/values.yaml -n airbyte --create-namespace --wait --timeout 10m
+helm upgrade --install airbyte airbyte/airbyte --version 1.8.5 -f kubernetes/airbyte/values.yaml -n lakehouse --wait --timeout 10m
 
 # Dagster
-kubectl apply -f kubernetes/namespaces/dagster.yaml
 kubectl apply -f kubernetes/dagster/secrets.yaml
-helm upgrade --install dagster dagster/dagster -f kubernetes/dagster/values.yaml -n dagster --create-namespace --wait --timeout 10m
+helm upgrade --install dagster dagster/dagster -f kubernetes/dagster/values.yaml -n lakehouse --wait --timeout 10m
 
 # Trino
-kubectl apply -f kubernetes/namespaces/trino.yaml
-helm upgrade --install trino trino/trino -f kubernetes/trino/values.yaml -n trino --create-namespace --wait --timeout 10m
+kubectl apply -f kubernetes/trino/secrets.yaml
+helm upgrade --install trino trino/trino -f kubernetes/trino/values.yaml -n lakehouse --wait --timeout 10m
 ```
 
 ### Teardown Everything
 
 ```bash
 # Uninstall Helm releases
-helm uninstall dagster -n dagster
-helm uninstall trino -n trino
-helm uninstall airbyte -n airbyte
-helm uninstall garage -n garage
+helm uninstall dagster -n lakehouse
+helm uninstall trino -n lakehouse
+helm uninstall airbyte -n lakehouse
+helm uninstall garage -n lakehouse
 
-# Delete namespaces
-kubectl delete namespace airbyte dagster trino garage database --wait=true
+# Delete namespace (deletes all resources)
+kubectl delete namespace lakehouse --wait=true
 ```
 
 See [TEARDOWN.md](../docs/TEARDOWN.md) for detailed teardown steps with verification.
@@ -398,20 +400,20 @@ See [TEARDOWN.md](../docs/TEARDOWN.md) for detailed teardown steps with verifica
 ### Check Status
 
 ```bash
-# All namespaces
-kubectl get namespaces
+# Lakehouse namespace
+kubectl get namespace lakehouse
 
-# All pods
-kubectl get pods --all-namespaces | grep -E 'garage|airbyte|dagster|trino|database'
+# All pods in lakehouse namespace
+kubectl get pods -n lakehouse
 
-# All services
-kubectl get svc --all-namespaces | grep -E 'garage|airbyte|dagster|trino|database'
+# All services in lakehouse namespace
+kubectl get svc -n lakehouse
 
-# All PVCs
-kubectl get pvc --all-namespaces
+# All PVCs in lakehouse namespace
+kubectl get pvc -n lakehouse
 
-# Helm releases
-helm list --all-namespaces
+# Helm releases in lakehouse namespace
+helm list -n lakehouse
 ```
 
 ### Port-Forward All Services
@@ -421,16 +423,16 @@ Open multiple terminals:
 ```bash
 # Terminal 1: Airbyte
 # Note: In Airbyte V2, the UI is served by airbyte-server
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
+kubectl port-forward -n lakehouse svc/airbyte-airbyte-server-svc 8080:8001
 
 # Terminal 2: Dagster
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
+kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 
 # Terminal 3: Trino
-kubectl port-forward -n trino svc/trino 8081:8080
+kubectl port-forward -n lakehouse svc/trino 8081:8080
 
 # Terminal 4: Garage S3
-kubectl port-forward -n garage svc/garage-s3-api 3900:3900
+kubectl port-forward -n lakehouse svc/garage-s3-api 3900:3900
 ```
 
 Access:
@@ -442,19 +444,19 @@ Access:
 
 ```bash
 # Garage
-kubectl logs -n garage -l app.kubernetes.io/name=garage --tail=100 -f
+kubectl logs -n lakehouse -l app.kubernetes.io/name=garage --tail=100 -f
 
 # PostgreSQL
-kubectl logs -n database -l app=postgres --tail=100 -f
+kubectl logs -n lakehouse -l app=postgres --tail=100 -f
 
 # Airbyte (server)
-kubectl logs -n airbyte -l app.kubernetes.io/name=server --tail=100 -f
+kubectl logs -n lakehouse -l app.kubernetes.io/name=server --tail=100 -f
 
 # Dagster (webserver)
-kubectl logs -n dagster -l component=dagster-webserver --tail=100 -f
+kubectl logs -n lakehouse -l component=dagster-webserver --tail=100 -f
 
 # Trino (coordinator)
-kubectl logs -n trino -l app.kubernetes.io/component=coordinator --tail=100 -f
+kubectl logs -n lakehouse -l app.kubernetes.io/component=coordinator --tail=100 -f
 ```
 
 ---
@@ -575,15 +577,15 @@ kubectl get pv
 
 ## Quick Reference
 
-### Namespace → Service Mapping
+### Service Mapping (All in `lakehouse` Namespace)
 
-| Namespace | Services | Ports |
-|-----------|----------|-------|
-| garage | garage-s3-api, garage-admin-api | 3900, 3903 |
-| database | postgres | 5432 |
-| airbyte | airbyte-webapp, airbyte-server | 80, 8001 |
-| dagster | dagster-webserver | 80 |
-| trino | trino | 8080 |
+| Service | Component | Ports | DNS (Same Namespace) |
+|---------|-----------|-------|---------------------|
+| garage | S3 storage | 3900, 3903 | `garage:3900` |
+| postgres | Metadata DB | 5432 | `postgres:5432` |
+| airbyte-airbyte-server-svc | Ingestion | 8001 | `airbyte-airbyte-server-svc:8001` |
+| dagster-dagster-webserver | Orchestration | 80 | `dagster-dagster-webserver:80` |
+| trino | Query engine | 8080 | `trino:8080` |
 
 ### Storage Usage
 
@@ -595,11 +597,11 @@ kubectl get pv
 | Dagster | data-dagster-postgresql-0 | 5Gi | Dagster metadata |
 | Airbyte | airbyte-minio-pv-claim | 500Mi | Airbyte state |
 
-### Helm Charts
+### Helm Charts (All in `lakehouse` Namespace)
 
 | Release | Chart | Version | Namespace |
 |---------|-------|---------|-----------|
-| garage | local/garage | 0.7.2 | garage |
-| airbyte | airbyte/airbyte | 1.8.5 | airbyte |
-| dagster | dagster/dagster | 1.11.15 | dagster |
-| trino | trino/trino | 1.41.0 | trino |
+| garage | local/garage | 0.7.2 | lakehouse |
+| airbyte | airbyte/airbyte | 1.8.5 | lakehouse |
+| dagster | dagster/dagster | 1.11.15 | lakehouse |
+| trino | trino/trino | 1.41.0 | lakehouse |

@@ -237,7 +237,7 @@ CREATE TABLE dim_customer (...);
 
 Backup Hive Metastore PostgreSQL database:
 ```bash
-kubectl exec -n database hive-metastore-postgresql-0 -- \
+kubectl exec -n lakehouse hive-metastore-postgresql-0 -- \
   pg_dump -U metastore metastore > hive-metastore-backup.sql
 ```
 
@@ -245,10 +245,10 @@ kubectl exec -n database hive-metastore-postgresql-0 -- \
 
 ```bash
 # Check metastore logs
-kubectl logs -n database -l app=hive-metastore
+kubectl logs -n lakehouse -l app=hive-metastore
 
 # Check connection from Trino
-kubectl exec -n trino $TRINO_POD -- curl -I http://hive-metastore.database.svc.cluster.local:9083
+kubectl exec -n lakehouse $TRINO_POD -- curl -I http://hive-metastore.database.svc.cluster.local:9083
 ```
 
 ### 4. Plan for Phase 3 Migration
@@ -264,12 +264,12 @@ Design schemas with Polaris in mind:
 
 **Check service**:
 ```bash
-kubectl get svc -n database hive-metastore
+kubectl get svc -n lakehouse hive-metastore
 ```
 
 **Test connectivity**:
 ```bash
-kubectl exec -n trino $TRINO_POD -- telnet hive-metastore.database.svc.cluster.local 9083
+kubectl exec -n lakehouse $TRINO_POD -- telnet hive-metastore.database.svc.cluster.local 9083
 ```
 
 ### Metadata Out of Sync
@@ -285,7 +285,7 @@ CALL iceberg.system.refresh_metadata('lakehouse', 'analytics', 'dim_customer');
 
 **Check storage**:
 ```bash
-kubectl exec -n database hive-metastore-postgresql-0 -- df -h /var/lib/postgresql
+kubectl exec -n lakehouse hive-metastore-postgresql-0 -- df -h /var/lib/postgresql
 ```
 
 **Expand PVC** if needed.

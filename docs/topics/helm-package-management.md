@@ -259,7 +259,7 @@ helm template garage infrastructure/helm/garage \
 # Install with debug output
 helm install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage --dry-run --debug
+  -n lakehouse --dry-run --debug
 ```
 
 ## Common Helm Commands
@@ -378,7 +378,7 @@ global:
   storage:
     type: s3
     s3:
-      endpoint: http://garage.garage.svc.cluster.local:3900
+      endpoint: http://garage:3900
 ```
 
 3. Deploy with custom values:
@@ -386,7 +386,7 @@ global:
 helm upgrade --install airbyte airbyte-v2/airbyte \
   --version 2.0.18 \
   -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n airbyte --create-namespace --wait --timeout 10m
+  -n lakehouse --create-namespace --wait --timeout 10m
 ```
 
 **Advantages**:
@@ -419,7 +419,7 @@ persistence:
 ```bash
 helm upgrade --install garage infrastructure/helm/garage \
   -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage --create-namespace --wait
+  -n lakehouse --create-namespace --wait
 ```
 
 **Advantages**:
@@ -488,7 +488,7 @@ helm status <release-name> -n <namespace>
 ```bash
 # Increase timeout for slow-starting applications
 helm install airbyte airbyte-v2/airbyte \
-  -n airbyte --wait --timeout 15m
+  -n lakehouse --wait --timeout 15m
 
 # Check events for details
 kubectl get events -n <namespace> --sort-by='.lastTimestamp'
@@ -649,7 +649,7 @@ helm install garage-dev ./garage -n garage-dev
 **Why**: Ensures resources are healthy before command returns
 ```bash
 helm upgrade --install airbyte airbyte-v2/airbyte \
-  -n airbyte --wait --timeout 10m
+  -n lakehouse --wait --timeout 10m
 ```
 
 ### 6. Test Templates Before Deploying
