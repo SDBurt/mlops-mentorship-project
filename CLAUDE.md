@@ -20,20 +20,20 @@ This is a **mentorship learning project** focused on building an end-to-end MLOp
 **Core Stack:**
 - **Storage**: MinIO (S3-compatible) stores Parquet files
 - **Table Format**: Apache Iceberg (ACID, schema evolution, time travel)
-- **Ingestion**: Meltano (Singer taps/targets) for ELT pipelines
+- **Ingestion**: DLT (Data Load Tool) for ELT pipelines
 - **Transformations**: DBT Core (SQL models) orchestrated by Dagster
 - **Query Engine**: Trino (distributed SQL over Iceberg)
 - **BI**: Apache Superset (Phase 2+)
 
 **Data Flow:**
 ```
-Data Sources → Meltano (Singer Taps) → MinIO/S3 (Parquet)
-                                              ↓
-                                      Iceberg Tables
-                                              ↓
-                                    Trino ← DBT (Dagster)
-                                              ↓
-                                    Bronze → Silver → Gold
+Data Sources → DLT (Python) → MinIO/S3 (Parquet/Iceberg)
+                                        ↓
+                                  Iceberg Tables
+                                        ↓
+                              Trino ← DBT (Dagster)
+                                        ↓
+                              Bronze → Silver → Gold
 ```
 
 **Medallion Layers:**
@@ -56,6 +56,7 @@ Quick reference (see SETUP_GUIDE.md for full context):
 # Prerequisites
 helm repo add dagster https://dagster-io.github.io/helm
 helm repo add trino https://trinodb.github.io/charts
+helm repo add polaris https://apache.github.io/polaris
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 
@@ -77,6 +78,15 @@ helm upgrade --install dagster dagster/dagster \
 helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
   -n lakehouse --wait --timeout 10m
+
+# 4. Polaris (REST catalog - Phase 3)
+# First create secrets
+kubectl apply -f infrastructure/kubernetes/polaris/secrets.yaml
+
+# Then deploy Polaris
+helm upgrade --install polaris polaris/polaris \
+  -f infrastructure/kubernetes/polaris/values.yaml \
+  -n lakehouse --wait --timeout 10m
 ```
 
 ### Teardown
@@ -85,9 +95,10 @@ helm upgrade --install trino trino/trino \
 
 Quick reference:
 ```bash
-# Uninstall Helm releases
-helm uninstall dagster -n lakehouse
+# Uninstall Helm releases (reverse order)
+helm uninstall polaris -n lakehouse  # If Phase 3 deployed
 helm uninstall trino -n lakehouse
+helm uninstall dagster -n lakehouse
 kubectl delete -f infrastructure/kubernetes/minio/minio-standalone.yaml
 
 # Delete namespace
@@ -126,6 +137,9 @@ kubectl port-forward -n lakehouse svc/minio 9000:9000
 
 # MinIO Console (separate terminal)
 kubectl port-forward -n lakehouse svc/minio 9001:9001
+
+# Polaris REST API (separate terminal - Phase 3)
+kubectl port-forward -n lakehouse svc/polaris 8181:8181
 ```
 
 Access:
@@ -133,6 +147,7 @@ Access:
 - Trino: http://localhost:8080
 - MinIO API: http://localhost:9000
 - MinIO Console: http://localhost:9001
+- Polaris REST API: http://localhost:8181
 
 ### MinIO S3 Operations
 
@@ -195,48 +210,42 @@ dbt docs generate && dbt docs serve
 2. Raw Iceberg tables created in MinIO S3
 3. `sources.yml` updated with actual table names
 
-### Meltano ELT Pipelines
+### DLT (Data Load Tool) Pipelines
 
 ```bash
-# From ingestion/meltano/ directory
+# From ingestion/dlt/ or orchestration-dagster/ directory
 
-# Initialize Meltano project
-meltano init lakehouse-ingestion
+# Install DLT with required dependencies
+pip install dlt[filesystem]
 
-# Add extractors (taps)
-meltano add extractor tap-postgres
-meltano add extractor tap-github
-meltano add extractor tap-stripe
+# Initialize DLT pipeline
+dlt init <source_name> filesystem
 
-# Add loaders (targets)
-meltano add loader target-parquet
+# Example: Load data from API to MinIO S3 (Iceberg format)
+# Create pipeline script (example: reddit_pipeline.py)
+import dlt
+from dlt.destinations.filesystem import filesystem
 
-# Configure plugins
-meltano config tap-postgres set --interactive
-meltano config target-parquet set filepath s3://lakehouse/raw/
+pipeline = dlt.pipeline(
+    pipeline_name="reddit_posts",
+    destination=filesystem(bucket_url="s3://lakehouse/raw/reddit"),
+    dataset_name="reddit_data"
+)
 
-# Test extraction
-meltano invoke tap-postgres
-
-# Run ELT job (tap | target)
-meltano run tap-postgres target-parquet
-
-# View installed plugins
-meltano list plugins
-
-# Check plugin configuration
-meltano config tap-postgres list
-
-# Manage state
-meltano state list
-meltano state get tap-postgres target-parquet
-meltano state set tap-postgres target-parquet '{"bookmarks":{}}'
+# Run pipeline
+load_info = pipeline.run(source_data)
 
 # Run with Dagster orchestration
 dagster dev -f dagster_defs.py
+
+# DLT automatically:
+# - Creates Iceberg tables in MinIO S3
+# - Handles schema evolution
+# - Manages incremental loading
+# - Tracks state and deduplication
 ```
 
-**Important:** Meltano configuration is stored in `meltano.yml`. Use environment variables for secrets, never hardcode in config files.
+**Important:** DLT writes directly to Iceberg format in MinIO S3. Configure credentials via environment variables, never hardcode in code.
 
 ## Key Architectural Decisions
 
@@ -258,11 +267,13 @@ dagster dev -f dagster_defs.py
 **Examples:**
 - MinIO S3 API: `minio:9000`
 - Trino: `trino.trino.svc.cluster.local:8080`
-- Dagster PostgreSQL (embedded): `dagster-postgresql.dagster.svc.cluster.local:5432`
+- Dagster PostgreSQL (embedded): `dagster-postgresql:5432`
+- Polaris REST API (Phase 3): `polaris:8181`
 
 **Usage:**
-- Trino connects to Garage: `s3.endpoint=http://minio:9000`
+- Trino connects to MinIO: `s3.endpoint=http://minio:9000`
 - DBT connects to Trino: `host=trino.trino.svc.cluster.local`
+- Trino connects to Polaris catalog: `iceberg.rest.uri=http://polaris:8181/api/catalog`
 
 ### Secret Management
 
@@ -458,7 +469,18 @@ s3.path-style-access: true
   - RBAC and access control
   - Better metadata management
 - **Migration**: Update Trino to use Polaris REST catalog
-- **Trino Config**: Switch from Hadoop to REST catalog type
+- **Trino Config**: Switch from JDBC to REST catalog type
+
+**Polaris REST Catalog Configuration**:
+```yaml
+# Trino Iceberg Catalog with Polaris
+connector.name=iceberg
+iceberg.catalog.type=rest
+iceberg.rest.uri=http://polaris:8181/api/catalog
+iceberg.rest.warehouse=lakehouse
+s3.endpoint=http://minio:9000
+s3.path-style-access=true
+```
 
 **Why Not Hive Metastore?**
 - Adds complexity (extra PostgreSQL, Hive service)
@@ -479,20 +501,23 @@ s3.path-style-access: true
 - ✅ DBT project structure (templates)
 - ✅ Star schema examples
 - ✅ Trino deployed and accessible
-- ⏳ Deploy Meltano for data ingestion
-- ⏳ Configure Singer taps (data sources)
-- ⏳ Ingest data to MinIO S3 as Parquet
-- ⏳ Create Iceberg tables in MinIO S3
+- ⏳ Set up DLT for data ingestion
+- ⏳ Configure DLT sources and destinations
+- ⏳ Ingest data to MinIO S3 as Iceberg tables
+- ⏳ Verify Iceberg tables in MinIO S3
 - ⏳ Configure Trino Iceberg catalog
 - ⏳ DBT model implementation
 - ⏳ Superset deployment (optional)
 
-**Phase 3 (Governance):** Planned
-- Deploy Apache Polaris REST catalog
-- Migrate Trino to Polaris catalog
-- RBAC and access control
-- Data lineage tracking
-- Multi-engine catalog sharing
+**Phase 3 (Governance):** Ready to Start
+- ✅ Polaris Helm configuration created
+- ✅ Secrets template for database and storage
+- ⏳ Deploy Apache Polaris REST catalog
+- ⏳ Configure Trino to use Polaris catalog
+- ⏳ Migrate existing tables to Polaris
+- ⏳ RBAC and access control setup
+- ⏳ Data lineage tracking
+- ⏳ Multi-engine catalog sharing
 
 **Phase 4 (MLOps):** Planned
 - Feast feature store

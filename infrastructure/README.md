@@ -10,11 +10,10 @@ infrastructure/
 │   └── garage/            # Garage S3 Helm chart (fetched during setup)
 ├── kubernetes/            # Kubernetes manifests and Helm values
 │   ├── namespace.yaml    # Single lakehouse namespace for all services
-│   ├── garage/           # Garage S3 configuration
-│   ├── database/         # PostgreSQL configuration
-│   ├── airbyte/          # Airbyte configuration
+│   ├── minio/            # MinIO S3 configuration
 │   ├── dagster/          # Dagster configuration
-│   └── trino/            # Trino configuration
+│   ├── trino/            # Trino configuration
+│   └── polaris/          # Polaris REST catalog configuration (Phase 3)
 └── README.md             # This file
 ```
 
@@ -38,21 +37,26 @@ This guide walks you through every command with explanations, verification steps
                    │
                    ▼
 ┌─────────────────────────────────────────────────┐
-│          Airbyte (airbyte namespace)            │
+│            DLT (Python / Dagster)               │
 │         Ingestion: Sources → S3                 │
 └──────────────────┬──────────────────────────────┘
                    │
                    ▼
 ┌─────────────────────────────────────────────────┐
-│          Garage S3 (garage namespace)           │
+│          MinIO S3 (lakehouse namespace)         │
 │       Object Storage: Parquet/Iceberg           │
+└───────────┬─────────────────────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────────────┐
+│   Apache Polaris (lakehouse - Phase 3)          │
+│   REST Catalog: Unified Iceberg Metadata        │
 └───────────┬─────────────────────────────────────┘
             │
     ┌───────┴────────┬──────────────┐
     ▼                ▼              ▼
 ┌────────┐    ┌──────────┐    ┌─────────┐
 │ Trino  │    │ Dagster  │    │   DBT   │
-│(trino) │    │(dagster) │    │(local)  │
 │Query   │    │Orchestr. │    │Transform│
 └────────┘    └──────────┘    └─────────┘
     │              │              │
@@ -60,7 +64,7 @@ This guide walks you through every command with explanations, verification steps
                    ▼
         ┌──────────────────┐
         │    PostgreSQL    │
-        │    (database)    │
+        │  (Dagster embed) │
         │   Metadata DB    │
         └──────────────────┘
 ```
