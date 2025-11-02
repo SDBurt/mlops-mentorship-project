@@ -1,0 +1,11 @@
+# DLT configuration for filesystem destination with Iceberg tables
+# Credentials are in secrets.toml
+# Note: Resources use table_format="iceberg" to write Iceberg tables
+
+[destination.filesystem]
+# Layout for organizing files/tables in S3
+layout = "{table_name}/{load_id}.{file_id}.{ext}"
+
+# Non-secret configuration only
+# All credentials (aws_access_key_id, aws_secret_access_key, endpoint_url, etc.)
+# must be in secrets.toml
