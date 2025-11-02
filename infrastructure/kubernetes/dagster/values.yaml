@@ -35,18 +35,18 @@ runLauncher:
       envConfigMaps: []
       envSecrets: []
 
-# Compute Log Manager - Store logs in Garage/S3
+# Compute Log Manager - Store logs in MinIO/S3
 # TODO (Phase 2): Enable S3 compute logs for lakehouse integration
 computeLogManager:
   type: NoOpComputeLogManager  # Default: logs not stored
-  # When ready to integrate with Garage, uncomment below:
+  # When ready to integrate with MinIO, uncomment below:
   # type: S3ComputeLogManager
   # config:
   #   s3ComputeLogManager:
   #     bucket: lakehouse-dagster-logs
   #     localDir: /tmp/dagster-logs
   #     prefix: compute-logs/
-  #     endpointUrl: http://garage:3900  # Same namespace - simplified DNS
+  #     endpointUrl: http://minio:9000  # Same namespace - simplified DNS
   #     useSsl: false
   #     # Access keys will be provided via envSecrets
 

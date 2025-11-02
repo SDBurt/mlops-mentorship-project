@@ -99,7 +99,7 @@ postgresql://dagster:password@dagster-postgresql.dagster.svc.cluster.local:5432/
 - Schedule and sensor state
 - Event logs
 
-**Not stored in PostgreSQL**: Analytical data (stored in [Garage](garage.md) S3 as [Iceberg](apache-iceberg.md) tables)
+**Not stored in PostgreSQL**: Analytical data (stored in [MinIO](minio.md) S3 as [Iceberg](apache-iceberg.md) tables)
 
 ## Common Operations
 

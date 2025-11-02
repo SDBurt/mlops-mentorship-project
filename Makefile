@@ -1,13 +1,12 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup fetch-garage-chart deploy init destroy clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-all status
+.PHONY: help check setup deploy destroy clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-all status
 
 # Variables
 NAMESPACE := lakehouse
 HELM_TIMEOUT := 10m
-GARAGE_CHART_PATH := infrastructure/helm/garage
-GARAGE_VALUES := infrastructure/kubernetes/garage/values.yaml
+MINIO_VALUES := infrastructure/kubernetes/minio/values.yaml
 DAGSTER_VALUES := infrastructure/kubernetes/dagster/values.yaml
 TRINO_VALUES := infrastructure/kubernetes/trino/values.yaml
 
@@ -18,11 +17,9 @@ help:
 	@echo "Prerequisites (run once):"
 	@echo "  make check              - Verify kubectl and helm are installed"
 	@echo "  make setup              - Add/update Helm repositories"
-	@echo "  make fetch-garage-chart - Clone Garage Helm chart from git"
 	@echo ""
 	@echo "Deployment:"
 	@echo "  make deploy                 - Deploy all services to lakehouse namespace"
-	@echo "  make init                   - Initialize Garage cluster (run after deploy)"
 	@echo ""
 	@echo "Management:"
 	@echo "  make destroy                - Tear down lakehouse cluster"
@@ -41,11 +38,10 @@ help:
 	@echo "  make restart-all            - Restart all service deployments"
 	@echo ""
 	@echo "Quick Start:"
-	@echo "  1. make check && make setup && make fetch-garage-chart"
+	@echo "  1. make check && make setup"
 	@echo "  2. make deploy"
-	@echo "  3. make init"
-	@echo "  4. make port-forward-start (runs in background)"
-	@echo "  5. make port-forward-stop (when done)"
+	@echo "  3. make port-forward-start (runs in background)"
+	@echo "  4. make port-forward-stop (when done)"
 	@echo ""
 
 # Check prerequisites
@@ -67,20 +63,6 @@ setup:
 	@helm repo update
 	@echo "✓ Helm repositories configured"
 
-# Fetch Garage chart from git (no public Helm repo available)
-fetch-garage-chart:
-	@echo "Fetching Garage Helm chart..."
-	@mkdir -p infrastructure/helm
-	@if [ -d "$(GARAGE_CHART_PATH)" ]; then \
-		echo "✓ Garage chart already exists at $(GARAGE_CHART_PATH)"; \
-	else \
-		echo "Cloning Garage repository..."; \
-		git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/garage.git /tmp/garage-repo; \
-		cp -r /tmp/garage-repo/script/helm/garage $(GARAGE_CHART_PATH); \
-		rm -rf /tmp/garage-repo; \
-		echo "✓ Garage chart fetched to $(GARAGE_CHART_PATH)"; \
-	fi
-
 # Deploy all services to lakehouse namespace
 deploy:
 	@echo "Deploying lakehouse platform..."
@@ -88,11 +70,11 @@ deploy:
 	@echo "Step 1/4: Creating lakehouse namespace..."
 	@kubectl apply -f infrastructure/kubernetes/namespace.yaml
 	@echo ""
-	@echo "Step 2/4: Deploying Garage (S3 storage)..."
-	@helm upgrade --install garage $(GARAGE_CHART_PATH) \
-		-f $(GARAGE_VALUES) \
-		-n $(NAMESPACE) --wait
-	@echo "✓ Garage deployed"
+	@echo "Step 2/4: Deploying MinIO (S3 storage)..."
+	@kubectl apply -f infrastructure/kubernetes/minio/minio-standalone.yaml
+	@echo "Waiting for MinIO to be ready..."
+	@kubectl wait --for=condition=ready pod -l app=minio -n $(NAMESPACE) --timeout=120s
+	@echo "✓ MinIO deployed"
 	@echo ""
 	@echo "Step 3/4: Deploying Dagster (orchestration)..."
 	@helm upgrade --install dagster dagster/dagster \
@@ -107,46 +89,8 @@ deploy:
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
 	@echo "✓ Trino deployed"
 	@echo ""
-	@echo "Deployment complete! Run 'make init' to initialize Garage cluster."
+	@echo "Deployment complete! MinIO is ready with default bucket 'lakehouse'."
 
-# Initialize Garage cluster (CRITICAL POST-DEPLOYMENT STEP)
-init:
-	@echo "Initializing Garage cluster..."
-	@echo ""
-	@echo "This step configures Garage to accept data storage."
-	@echo "Without initialization, Garage cannot store any data!"
-	@echo ""
-	@GARAGE_POD=$$(kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}'); \
-	echo "Using Garage pod: $$GARAGE_POD"; \
-	echo ""; \
-	echo "Step 1/5: Checking cluster status..."; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage status; \
-	echo ""; \
-	echo "Step 2/5: Extracting node ID..."; \
-	NODE_ID=$$(kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $$1}'); \
-	echo "Node ID: $$NODE_ID"; \
-	echo ""; \
-	echo "Step 3/5: Assigning storage role (10GB capacity)..."; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage layout assign -z garage-dc -c 10G $$NODE_ID; \
-	echo ""; \
-	echo "Step 4/5: Applying layout (version 1)..."; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage layout apply --version 1; \
-	echo ""; \
-	echo "Step 5/5: Creating S3 bucket and access keys..."; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket create lakehouse 2>/dev/null || echo "Bucket 'lakehouse' already exists"; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage key create lakehouse-access 2>/dev/null || echo "Key 'lakehouse-access' already exists (run 'kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage key list' to view)"; \
-	kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access; \
-	echo ""; \
-	echo "Garage initialization complete!"; \
-	echo ""; \
-	echo "To view your access credentials:"; \
-	echo "  kubectl exec -n $(NAMESPACE) $$GARAGE_POD -- /garage key info lakehouse-access"
-	@echo ""
-	@echo "Initialization complete!"
-	@echo ""
-	@echo "Next steps:"
-	@echo "  1. Configure Meltano for data ingestion"
-	@echo "  2. Run 'make port-forward-start' to access UIs"
 
 # Teardown lakehouse cluster
 destroy:
@@ -160,8 +104,8 @@ destroy:
 	@helm uninstall dagster -n $(NAMESPACE) 2>/dev/null || echo "Dagster not found"
 	@echo "Uninstalling Trino..."
 	@helm uninstall trino -n $(NAMESPACE) 2>/dev/null || echo "Trino not found"
-	@echo "Uninstalling Garage..."
-	@helm uninstall garage -n $(NAMESPACE) 2>/dev/null || echo "Garage not found"
+	@echo "Uninstalling MinIO..."
+	@kubectl delete -f infrastructure/kubernetes/minio/minio-standalone.yaml 2>/dev/null || echo "MinIO not found"
 	@echo ""
 	@echo "Deleting lakehouse namespace..."
 	@kubectl delete namespace $(NAMESPACE) --wait=true 2>/dev/null || echo "Namespace $(NAMESPACE) not found"
@@ -178,12 +122,12 @@ clean-old:
 	@echo "Uninstalling from old namespaces..."
 	@helm uninstall dagster -n dagster 2>/dev/null || echo "dagster namespace not found"
 	@helm uninstall trino -n trino 2>/dev/null || echo "trino namespace not found"
-	@helm uninstall garage -n garage 2>/dev/null || echo "garage namespace not found"
+	@helm uninstall minio -n minio 2>/dev/null || echo "minio namespace not found (old Garage namespace cleanup)"
 	@echo ""
 	@echo "Deleting old namespaces..."
 	@kubectl delete namespace dagster --wait=false 2>/dev/null || echo "dagster namespace already deleted"
 	@kubectl delete namespace trino --wait=false 2>/dev/null || echo "trino namespace already deleted"
-	@kubectl delete namespace garage --wait=false 2>/dev/null || echo "garage namespace already deleted"
+	@kubectl delete namespace minio --wait=false 2>/dev/null || echo "minio namespace already deleted (old Garage namespace cleanup)"
 	@echo ""
 	@echo "Old namespace cleanup complete!"
 
@@ -193,14 +137,16 @@ port-forward-start:
 	@echo ""
 	@kubectl port-forward -n $(NAMESPACE) svc/dagster-dagster-webserver 3000:80 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/trino 8080:8080 > /dev/null 2>&1 &
-	@kubectl port-forward -n $(NAMESPACE) svc/garage 3900:3900 > /dev/null 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/minio 9000:9000 > /dev/null 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/minio 9001:9001 > /dev/null 2>&1 &
 	@sleep 1
 	@echo "Port-forwards started!"
 	@echo ""
 	@echo "Access URLs:"
-	@echo "  Dagster: http://localhost:3000"
-	@echo "  Trino:   http://localhost:8080"
-	@echo "  Garage:  http://localhost:3900 (S3 API)"
+	@echo "  Dagster:       http://localhost:3000"
+	@echo "  Trino:         http://localhost:8080"
+	@echo "  MinIO API:     http://localhost:9000 (S3 API)"
+	@echo "  MinIO Console: http://localhost:9001 (Web UI)"
 	@echo ""
 	@echo "Run 'make port-forward-status' to check status"
 	@echo "Run 'make port-forward-stop' to stop all port-forwards"

@@ -10,14 +10,14 @@ By completing this guide, you'll understand:
 - Same-namespace service communication (simplified DNS)
 - Namespace strategy (grouping communicating services)
 - Stateful application deployment
-- S3-compatible object storage (Garage)
+- S3-compatible object storage (MinIO)
 - Distributed SQL query engines (Trino)
 
 ## Overview
 
 You'll deploy these components in order:
 1. **Prerequisites**: Helm repos and single lakehouse namespace
-2. **Garage**: S3-compatible object storage (stores Parquet files)
+2. **MinIO**: S3-compatible object storage (stores Parquet files)
 3. **Dagster**: Workflow orchestration
 4. **Trino**: Distributed SQL query engine
 
@@ -42,8 +42,8 @@ Before starting, here are key Kubernetes concepts you'll encounter:
 
 **Service**: A stable network endpoint to access pods.
 - Pods have changing IPs, Services provide consistent DNS names
-- Same namespace: `garage:3900` (simplified)
-- Full DNS: `garage.lakehouse.svc.cluster.local:3900` (works but verbose)
+- Same namespace: `minio:3900` (simplified)
+- Full DNS: `minio.lakehouse.svc.cluster.local:3900` (works but verbose)
 
 **PersistentVolumeClaim (PVC)**: Request for storage that survives pod restarts.
 - Data persists even if pod is deleted
@@ -116,31 +116,31 @@ helm repo list
 
 ---
 
-### 3. Fetch Garage Helm Chart
+### 3. Fetch MinIO Helm Chart
 
-**What you're doing**: Downloading the Garage Helm chart from their git repository.
+**What you're doing**: Downloading the MinIO Helm chart from their git repository.
 
-**Why it's different**: Garage doesn't have a public Helm repository like other tools, so we fetch the chart manually from their source code.
+**Why it's different**: MinIO doesn't have a public Helm repository like other tools, so we fetch the chart manually from their source code.
 
 ```bash
 # Create helm directory
 mkdir -p infrastructure/helm
 
-# Clone Garage repo (shallow clone - just latest commit)
-git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/garage.git /tmp/garage-repo
+# Clone MinIO repo (shallow clone - just latest commit)
+git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/minio.git /tmp/minio-repo
 
 # Copy Helm chart to local directory
-cp -r /tmp/garage-repo/script/helm/garage infrastructure/helm/garage
+cp -r /tmp/minio-repo/script/helm/minio infrastructure/helm/minio
 
 # Clean up temporary clone
-rm -rf /tmp/garage-repo
+rm -rf /tmp/minio-repo
 ```
 
 **What `--depth 1` does**: Only downloads the latest commit, not entire git history. Saves time and bandwidth.
 
 **Verification:**
 ```bash
-ls -la infrastructure/helm/garage/
+ls -la infrastructure/helm/minio/
 ```
 
 **Expected output**: You should see:
@@ -150,11 +150,11 @@ ls -la infrastructure/helm/garage/
 
 ---
 
-## Phase 1: Storage Layer (Garage S3)
+## Phase 1: Storage Layer (MinIO S3)
 
 **Goal**: Deploy S3-compatible object storage to store your data lake files (Parquet format).
 
-**Why Garage?**
+**Why MinIO?**
 - Lightweight S3-compatible storage
 - Works great for local development
 - Production-ready distributed architecture
@@ -162,7 +162,7 @@ ls -la infrastructure/helm/garage/
 
 ### 1. Create Lakehouse Namespace
 
-**What you're doing**: Creating a single namespace for ALL lakehouse services (Garage, Dagster, Trino).
+**What you're doing**: Creating a single namespace for ALL lakehouse services (MinIO, Dagster, Trino).
 
 **Why a single namespace?**:
 - **Best practice**: Services that communicate should live together ([source](https://www.appvia.io/blog/best-practices-for-kubernetes-namespaces))
@@ -195,71 +195,71 @@ lakehouse   Active   Xs
 
 ---
 
-### 2. Deploy Garage
+### 2. Deploy MinIO
 
-**What you're doing**: Installing Garage as a StatefulSet with persistent storage.
+**What you're doing**: Installing MinIO as a StatefulSet with persistent storage.
 
 ```bash
-helm upgrade --install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
+helm upgrade --install minio infrastructure/helm/minio \
+  -f infrastructure/kubernetes/minio/values.yaml \
   -n lakehouse --wait
 ```
 
 **Breaking down this command:**
 - `helm upgrade --install` - Smart command: install if new, upgrade if exists
-- `garage` - Release name (your installation identifier)
-- `infrastructure/helm/garage` - Path to the chart
+- `minio` - Release name (your installation identifier)
+- `infrastructure/helm/minio` - Path to the chart
 - `-f values.yaml` - Override default settings with your configuration
 - `-n lakehouse` - Deploy into the "lakehouse" namespace (with all other services)
 - `--wait` - Don't return until all pods are Running (blocks terminal)
 
 **What gets created:**
-1. **StatefulSet** (`garage-0`) - Pod with stable name/storage
-2. **Services** - Network endpoints to access Garage
-   - `garage` (port 3900: S3 API, port 3902: RPC/Admin API)
-   - `garage-headless` (StatefulSet discovery)
+1. **StatefulSet** (`minio-0`) - Pod with stable name/storage
+2. **Services** - Network endpoints to access MinIO
+   - `minio` (port 3900: S3 API, port 3902: RPC/Admin API)
+   - `minio-headless` (StatefulSet discovery)
 3. **PersistentVolumeClaims** - Storage that survives pod restarts
-   - `data-garage-0` (10Gi) - Actual S3 object data
-   - `meta-garage-0` (1Gi) - Garage metadata
+   - `data-minio-0` (10Gi) - Actual S3 object data
+   - `meta-minio-0` (1Gi) - MinIO metadata
 
 **Verification:**
 ```bash
 # Check pod is running
-kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage
+kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio
 ```
 
 **Expected output:**
 ```
 NAME       READY   STATUS    RESTARTS   AGE
-garage-0   1/1     Running   0          30s
+minio-0   1/1     Running   0          30s
 ```
 
 **What READY "1/1" means**: 1 container running out of 1 container total.
 
 ```bash
 # Check services exist
-kubectl get svc -n lakehouse | grep garage
+kubectl get svc -n lakehouse | grep minio
 ```
 
 **Expected output:**
 ```
 NAME              TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE
-garage            ClusterIP   10.x.x.x        <none>        3900/TCP,3902/TCP   30s
-garage-headless   ClusterIP   None            <none>        3900/TCP,3902/TCP   30s
+minio            ClusterIP   10.x.x.x        <none>        3900/TCP,3902/TCP   30s
+minio-headless   ClusterIP   None            <none>        3900/TCP,3902/TCP   30s
 ```
 
 **What ClusterIP means**: Service accessible only within the Kubernetes cluster (not from outside).
 
 ```bash
 # Check persistent volumes are bound
-kubectl get pvc -n lakehouse | grep garage
+kubectl get pvc -n lakehouse | grep minio
 ```
 
 **Expected output:**
 ```
 NAME            STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
-data-garage-0   Bound    pvc-xxxxx...                              10Gi       RWO            hostpath       30s
-meta-garage-0   Bound    pvc-xxxxx...                              1Gi        RWO            hostpath       30s
+data-minio-0   Bound    pvc-xxxxx...                              10Gi       RWO            hostpath       30s
+meta-minio-0   Bound    pvc-xxxxx...                              1Gi        RWO            hostpath       30s
 ```
 
 **What STATUS "Bound" means**: PVC successfully attached to a PersistentVolume. Data can be read/written.
@@ -268,89 +268,89 @@ meta-garage-0   Bound    pvc-xxxxx...                              1Gi        RW
 
 ---
 
-### 3. Initialize Garage Cluster
+### 3. Initialize MinIO Cluster
 
 **CRITICAL SECTION**: This is the most important (and non-obvious) step.
 
 **Why initialization is required:**
 
-Garage is a **distributed storage system**. Even though you only have 1 pod now, it's designed to run across multiple nodes in production. Before Garage can store any data, you must:
+MinIO is a **distributed storage system**. Even though you only have 1 pod now, it's designed to run across multiple nodes in production. Before MinIO can store any data, you must:
 
 1. Tell it which nodes should store data
 2. Assign storage capacity to each node
 3. Configure how data is distributed (partitions)
 
-**Without this step**: Garage pod runs but can't store anything - no storage nodes are configured!
+**Without this step**: MinIO pod runs but can't store anything - no storage nodes are configured!
 
 #### Step 3a: Check Cluster Status
 
-**What you're doing**: Viewing the current state of the Garage cluster.
+**What you're doing**: Viewing the current state of the MinIO cluster.
 
 ```bash
 # Save pod name to variable for convenience
-GARAGE_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
-echo "Garage pod: $GARAGE_POD"
+GARAGE_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
+echo "MinIO pod: $GARAGE_POD"
 
-# Run /garage status command inside the pod
-kubectl exec -n lakehouse $GARAGE_POD -- /garage status
+# Run /minio status command inside the pod
+kubectl exec -n lakehouse $GARAGE_POD -- /minio status
 ```
 
 **Breaking down this command:**
 - `kubectl exec` - Run a command inside a running pod
 - `-n lakehouse` - In the lakehouse namespace
-- `$GARAGE_POD` - The pod name (garage-0)
+- `$GARAGE_POD` - The pod name (minio-0)
 - `--` - Separates kubectl flags from the command to run
-- `/garage status` - Garage CLI command (runs inside container)
+- `/minio status` - MinIO CLI command (runs inside container)
 
 **Expected output:**
 ```
 ==== HEALTHY NODES ====
 ID                Hostname  Address         Tags  Zone  Capacity          DataAvail
-<node-id>         garage-0  10.x.x.x:3901               NO ROLE ASSIGNED
+<node-id>         minio-0  10.x.x.x:3901               NO ROLE ASSIGNED
 ```
 
 **What this output means:**
 - **ID**: Unique node identifier (randomly generated)
-- **Hostname**: Pod name (garage-0)
+- **Hostname**: Pod name (minio-0)
 - **Address**: Internal Kubernetes IP + port
 - **NO ROLE ASSIGNED**: ⚠️ Node exists but not configured yet!
 
 #### Step 3b: Assign Storage Role
 
-**What you're doing**: Telling Garage this node should store data.
+**What you're doing**: Telling MinIO this node should store data.
 
 ```bash
 # Extract node ID from status output
-NODE_ID=$(kubectl exec -n lakehouse $GARAGE_POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
+NODE_ID=$(kubectl exec -n lakehouse $GARAGE_POD -- /minio status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
 echo "Node ID: $NODE_ID"
 
 # Assign storage role with 10GB capacity
-kubectl exec -n lakehouse $GARAGE_POD -- /garage layout assign -z garage-dc -c 10G $NODE_ID
+kubectl exec -n lakehouse $GARAGE_POD -- /minio layout assign -z minio-dc -c 10G $NODE_ID
 ```
 
 **Breaking down the layout assign command:**
-- `/garage layout assign` - Configure cluster layout
-- `-z garage-dc` - Zone name (for multi-datacenter deployments; just a label here)
+- `/minio layout assign` - Configure cluster layout
+- `-z minio-dc` - Zone name (for multi-datacenter deployments; just a label here)
 - `-c 10G` - Capacity: This node can store 10 gigabytes
 - `$NODE_ID` - Which node to configure
 
-**What "zone" means**: In production, you might have zones like "us-east", "us-west" for geographic distribution. Garage ensures data is replicated across zones for disaster recovery.
+**What "zone" means**: In production, you might have zones like "us-east", "us-west" for geographic distribution. MinIO ensures data is replicated across zones for disaster recovery.
 
 **Expected output:**
 ```
 Role changes are staged but not yet committed.
-Use `garage layout show` to view staged role changes,
-and `garage layout apply` to enact staged changes.
+Use `minio layout show` to view staged role changes,
+and `minio layout apply` to enact staged changes.
 ```
 
-**Why "staged"?** Safety! Like `git commit` vs `git push`, Garage lets you review changes before applying them. This prevents accidental misconfigurations in production.
+**Why "staged"?** Safety! Like `git commit` vs `git push`, MinIO lets you review changes before applying them. This prevents accidental misconfigurations in production.
 
 #### Step 3c: Review Proposed Layout
 
 **What you're doing**: Viewing what will change when you apply the layout.
 
 ```bash
-kubectl exec -n lakehouse $GARAGE_POD -- /garage layout show
+kubectl exec -n lakehouse $GARAGE_POD -- /minio layout show
 ```
 
 **Expected output (annotated):**
@@ -361,12 +361,12 @@ No nodes currently have a role in the cluster.
 
 ==== STAGED ROLE CHANGES ====
 ID                Tags  Zone       Capacity
-<node-id>               garage-dc  10.0 GB
+<node-id>               minio-dc  10.0 GB
 # ^ What you're about to apply
 
 ==== NEW CLUSTER LAYOUT AFTER APPLYING CHANGES ====
 ID                Tags  Zone       Capacity  Usable capacity
-<node-id>               garage-dc  10.0 GB   10.0 GB (100.0%)
+<node-id>               minio-dc  10.0 GB   10.0 GB (100.0%)
 # ^ Final state after applying
 
 Zone redundancy: maximum
@@ -382,14 +382,14 @@ Optimal partition size: 39.1 MB
 Usable capacity / total cluster capacity: 10.0 GB / 10.0 GB (100.0 %)
 # ^ All capacity is usable
 
-garage-dc           Tags  Partitions        Capacity  Usable capacity
+minio-dc           Tags  Partitions        Capacity  Usable capacity
   <node-id>               256 (256 new)     10.0 GB   10.0 GB (100.0%)
   TOTAL                   256 (256 unique)  10.0 GB   10.0 GB (100.0%)
 # ^ This node will handle all 256 partitions
 ```
 
 **What "partitions" mean**:
-- Garage splits your data into 256 fixed chunks
+- MinIO splits your data into 256 fixed chunks
 - Each file is stored in one of these partitions
 - Partitions can be distributed across nodes for load balancing
 - With 1 node, all 256 partitions go to that node
@@ -397,7 +397,7 @@ garage-dc           Tags  Partitions        Capacity  Usable capacity
 **In production with 3 nodes**:
 - Each partition would be replicated 3 times (across different nodes)
 - If 1 node fails, data remains available on other 2 nodes
-- This is how Garage achieves high availability
+- This is how MinIO achieves high availability
 
 #### Step 3d: Apply the Layout
 
@@ -405,7 +405,7 @@ garage-dc           Tags  Partitions        Capacity  Usable capacity
 
 ```bash
 # Apply layout version 1
-kubectl exec -n lakehouse $GARAGE_POD -- /garage layout apply --version 1
+kubectl exec -n lakehouse $GARAGE_POD -- /minio layout apply --version 1
 ```
 
 **Why `--version 1`?**
@@ -424,18 +424,18 @@ Version 1 of cluster layout applied.
 **What you're doing**: Confirming the node now has a storage role.
 
 ```bash
-kubectl exec -n lakehouse $GARAGE_POD -- /garage status
+kubectl exec -n lakehouse $GARAGE_POD -- /minio status
 ```
 
 **Expected output:**
 ```
 ==== HEALTHY NODES ====
 ID                Hostname  Address         Tags  Zone       Capacity  DataAvail
-<node-id>         garage-0  10.x.x.x:3901         garage-dc  10.0 GB   10.0 GB
+<node-id>         minio-0  10.x.x.x:3901         minio-dc  10.0 GB   10.0 GB
 # ^ NOW SHOWS CAPACITY instead of "NO ROLE ASSIGNED"!
 ```
 
-**Success!** Your Garage cluster is now ready to store data.
+**Success!** Your MinIO cluster is now ready to store data.
 
 ---
 
@@ -450,7 +450,7 @@ ID                Hostname  Address         Tags  Zone       Capacity  DataAvail
 
 ```bash
 # Create S3 bucket named "lakehouse"
-kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket create lakehouse
+kubectl exec -n lakehouse $GARAGE_POD -- /minio bucket create lakehouse
 ```
 
 **Expected output:**
@@ -460,7 +460,7 @@ Bucket lakehouse has been created
 
 ```bash
 # Create access key (like AWS Access Key ID / Secret Access Key)
-kubectl exec -n lakehouse $GARAGE_POD -- /garage key create lakehouse-access
+kubectl exec -n lakehouse $GARAGE_POD -- /minio key create lakehouse-access
 ```
 
 **Expected output:**
@@ -473,18 +473,18 @@ Secret Access Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 **🚨 IMPORTANT**: Copy these credentials! You'll need them to configure Trino.
 
-**What these credentials do**: Authenticate API requests to Garage (same as AWS credentials authenticate to S3).
+**What these credentials do**: Authenticate API requests to MinIO (same as AWS credentials authenticate to S3).
 
 ```bash
 # Grant read/write permissions to the bucket
-kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access
+kubectl exec -n lakehouse $GARAGE_POD -- /minio bucket allow --read --write lakehouse --key lakehouse-access
 ```
 
 **What this does**: Authorizes the access key to read and write objects in the "lakehouse" bucket.
 
 ```bash
 # Verify bucket exists
-kubectl exec -n lakehouse $GARAGE_POD -- /garage bucket list
+kubectl exec -n lakehouse $GARAGE_POD -- /minio bucket list
 ```
 
 **Expected output:**
@@ -495,28 +495,28 @@ lakehouse   private
 
 **Verification (Optional):**
 
-Test Garage S3 API using AWS CLI (requires `aws` command installed):
+Test MinIO S3 API using AWS CLI (requires `aws` command installed):
 
 ```bash
 # Port-forward S3 API to test locally
-kubectl port-forward -n lakehouse svc/garage 3900:3900 &
+kubectl port-forward -n lakehouse svc/minio 3900:3900 &
 PF_PID=$!
 sleep 2
 
-# Configure AWS CLI profile for Garage
-# Use the Access Key ID and Secret Access Key from "garage key create lakehouse-access" above
-aws configure --profile garage
+# Configure AWS CLI profile for MinIO
+# Use the Access Key ID and Secret Access Key from "minio key create lakehouse-access" above
+aws configure --profile minio
 # AWS Access Key ID: GKxxxxxxxxxxxxxxxxxxxx (your key from above)
 # AWS Secret Access Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (your secret from above)
-# Default region name: garage (IMPORTANT: must be "garage", not us-east-1)
+# Default region name: minio (IMPORTANT: must be "minio", not us-east-1)
 # Default output format: json
 
 # Test S3 connection
-aws s3 ls --endpoint-url http://localhost:3900 --profile garage
+aws s3 ls --endpoint-url http://localhost:3900 --profile minio
 # Expected output: 2025-XX-XX XX:XX:XX lakehouse
 
 # List bucket contents
-aws s3 ls s3://lakehouse --endpoint-url http://localhost:3900 --profile garage
+aws s3 ls s3://lakehouse --endpoint-url http://localhost:3900 --profile minio
 # Expected output: (empty - no objects yet)
 
 # Stop port-forward
@@ -524,12 +524,12 @@ kill $PF_PID
 ```
 
 **What this does:**
-- Port-forward exposes Garage S3 API on localhost:3900 (blocks terminal)
+- Port-forward exposes MinIO S3 API on localhost:3900 (blocks terminal)
 - AWS CLI authenticates using the access key you created
-- Region must be `garage` (Garage doesn't use standard AWS regions)
+- Region must be `minio` (MinIO doesn't use standard AWS regions)
 - Connection test verifies bucket access
 
-**Note:** Save your Access Key ID and Secret Access Key when you create them. Garage doesn't show the secret key after creation (like AWS).
+**Note:** Save your Access Key ID and Secret Access Key when you create them. MinIO doesn't show the secret key after creation (like AWS).
 
 ---
 
@@ -615,10 +615,10 @@ Open browser to: http://localhost:3000
 
 ## Phase 3: Query Layer (Trino)
 
-**Goal**: Deploy Trino for distributed SQL queries over Iceberg tables in Garage S3.
+**Goal**: Deploy Trino for distributed SQL queries over Iceberg tables in MinIO S3.
 
 **What Trino does:**
-- Queries data in Garage S3 (Iceberg tables)
+- Queries data in MinIO S3 (Iceberg tables)
 - Distributed query execution
 - ANSI SQL interface
 - No data movement (queries in place)
@@ -664,7 +664,7 @@ SHOW CATALOGS;
 SHOW SCHEMAS FROM iceberg;
 ```
 
-**What catalogs are**: Named connections to data sources. The `iceberg` catalog points to your Garage S3 storage.
+**What catalogs are**: Named connections to data sources. The `iceberg` catalog points to your MinIO S3 storage.
 
 ---
 
@@ -674,13 +674,13 @@ SHOW SCHEMAS FROM iceberg;
 
 ```bash
 # All namespaces
-kubectl get namespaces | grep -E 'garage|dagster|trino|database'
+kubectl get namespaces | grep -E 'minio|dagster|trino|database'
 
 # All pods
-kubectl get pods --all-namespaces | grep -E 'garage|dagster|trino'
+kubectl get pods --all-namespaces | grep -E 'minio|dagster|trino'
 
 # All services
-kubectl get svc --all-namespaces | grep -E 'garage|dagster|trino'
+kubectl get svc --all-namespaces | grep -E 'minio|dagster|trino'
 ```
 
 **Success criteria:**
@@ -695,14 +695,14 @@ kubectl get svc --all-namespaces | grep -E 'garage|dagster|trino'
 **What you're testing**: Services can reach each other using simplified DNS (all in same namespace).
 
 ```bash
-# Test Garage S3 from Trino pod (same namespace - use short DNS)
+# Test MinIO S3 from Trino pod (same namespace - use short DNS)
 TRINO_POD=$(kubectl get pods -n lakehouse -l app=trino,component=coordinator -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it -n lakehouse $TRINO_POD -- curl -I http://garage:3900
+kubectl exec -it -n lakehouse $TRINO_POD -- curl -I http://minio:3900
 ```
 
-**Expected**: Command succeeds (HTTP 403 or 200 response from Garage S3 API).
+**Expected**: Command succeeds (HTTP 403 or 200 response from MinIO S3 API).
 
-**Note the simplified DNS**: `garage:3900` instead of `garage.garage.svc.cluster.local:3900` - this is because all services are in the same `lakehouse` namespace!
+**Note the simplified DNS**: `minio:3900` instead of `minio.minio.svc.cluster.local:3900` - this is because all services are in the same `lakehouse` namespace!
 
 ---
 
@@ -731,7 +731,7 @@ Now that your infrastructure is deployed, you can:
 1. **Deploy Meltano for Data Ingestion** (Next Phase)
    - Initialize Meltano project: `meltano init lakehouse-ingestion`
    - Add Singer taps for your data sources
-   - Configure target-parquet for Garage S3
+   - Configure target-parquet for MinIO S3
    - Run ELT jobs: `meltano run tap-postgres target-parquet`
    - Integrate with Dagster for orchestration
    - See [Meltano guide](topics/meltano.md) for detailed setup
@@ -788,7 +788,7 @@ kubectl top pods -n <namespace>
 kubectl get endpoints -n <namespace>
 
 # Test DNS resolution
-kubectl run -it --rm debug --image=busybox --restart=Never -n <namespace> -- nslookup garage.garage.svc.cluster.local
+kubectl run -it --rm debug --image=busybox --restart=Never -n <namespace> -- nslookup minio.minio.svc.cluster.local
 ```
 
 ---
@@ -813,7 +813,7 @@ kubectl get pv
 ## Summary
 
 **You've deployed:**
-- ✅ Garage S3-compatible object storage
+- ✅ MinIO S3-compatible object storage
 - ✅ Dagster orchestration
 - ✅ Trino distributed SQL
 
@@ -826,7 +826,7 @@ kubectl get pv
 - Helm for package management
 
 **What makes this a lakehouse:**
-- Object storage (Garage) + Table format (Iceberg) = ACID transactions
+- Object storage (MinIO) + Table format (Iceberg) = ACID transactions
 - Distributed query engine (Trino) = Analytics at scale
 - Orchestration (Dagster) + Transformations (DBT) = Data pipelines
 

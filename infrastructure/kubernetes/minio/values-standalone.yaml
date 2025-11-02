@@ -1,0 +1,12 @@
+# MinIO Standalone Deployment (Direct, not Operator)
+# Using simple Kubernetes manifests for single-node development
+
+# This file documents the approach - we'll deploy via kubectl instead of Helm
+# for simplicity with a standalone MinIO instance
+
+# MinIO configuration:
+# - Access Key: minioadmin
+# - Secret Key: minioadmin
+# - Port: 9000 (API), 9001 (Console)
+# - Storage: 10Gi PVC
+# - Namespace: lakehouse

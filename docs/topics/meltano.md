@@ -4,7 +4,7 @@
 
 Meltano is an open-source DataOps platform that orchestrates ELT (Extract, Load, Transform) pipelines using the Singer ecosystem. It provides a CLI-driven, version-controlled approach to building and managing data integration workflows.
 
-**In this lakehouse platform**, Meltano serves as the data ingestion layer: it extracts data from various sources using Singer taps and loads it into [Garage](garage.md) S3 as Parquet files, ready for transformation by [DBT](dbt.md) and querying by [Trino](trino.md).
+**In this lakehouse platform**, Meltano serves as the data ingestion layer: it extracts data from various sources using Singer taps and loads it into [MinIO](minio.md) S3 as Parquet files, ready for transformation by [DBT](dbt.md) and querying by [Trino](trino.md).
 
 ## Why Meltano for This Platform?
 
@@ -63,12 +63,12 @@ A **tap** is a Singer-compliant extractor that pulls data from a source:
 A **target** is a Singer-compliant loader that writes data to a destination:
 
 **Common targets for this platform:**
-- `target-parquet` - Write Parquet files (for Garage S3)
+- `target-parquet` - Write Parquet files (for MinIO S3)
 - `target-s3` - Write to S3-compatible storage
 - `target-postgres` - PostgreSQL databases
 - `target-csv` - CSV files
 
-**Target configuration for Garage:**
+**Target configuration for MinIO:**
 ```yaml
 targets:
   - name: target-parquet
@@ -76,7 +76,7 @@ targets:
     pip_url: target-parquet
     config:
       filepath: s3://lakehouse/raw/
-      aws_endpoint_url: http://garage.garage.svc.cluster.local:3900
+      aws_endpoint_url: http://minio.minio.svc.cluster.local:3900
       aws_access_key_id: ${AWS_ACCESS_KEY_ID}
       aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY}
 ```
@@ -126,7 +126,7 @@ plugins:
       pip_url: target-parquet
       config:
         filepath: s3://lakehouse/raw/
-        aws_endpoint_url: http://garage:3900
+        aws_endpoint_url: http://minio:3900
 
   utilities:
     - name: dagster
@@ -498,12 +498,12 @@ spec:
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: garage-credentials
+                  name: minio-credentials
                   key: access-key-id
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: garage-credentials
+                  name: minio-credentials
                   key: secret-access-key
           restartPolicy: OnFailure
 ```
@@ -658,7 +658,7 @@ echo '{"type": "RECORD", "stream": "test", "record": {"id": 1}}' | \
 
 # Check S3 connectivity
 aws s3 ls s3://lakehouse/raw/ \
-  --endpoint-url http://garage:3900
+  --endpoint-url http://minio:3900
 ```
 
 ### State Management Issues
@@ -780,7 +780,7 @@ jobs:
 
 1. **Initialize Meltano project** in `ingestion/meltano/`
 2. **Add taps** for your data sources (PostgreSQL, APIs, etc.)
-3. **Configure target-parquet** pointing to Garage S3
+3. **Configure target-parquet** pointing to MinIO S3
 4. **Integrate with Dagster** for orchestration
 5. **Test locally** with `meltano run`
 6. **Containerize** for Kubernetes deployment
@@ -803,4 +803,4 @@ Check out MeltanoLabs on GitHub for production-grade examples:
 
 ---
 
-**Platform Integration**: In the next phase, we'll deploy Meltano in the `lakehouse` namespace, configure it to write to Garage S3, and orchestrate jobs with Dagster for a complete ELT pipeline.
+**Platform Integration**: In the next phase, we'll deploy Meltano in the `lakehouse` namespace, configure it to write to MinIO S3, and orchestrate jobs with Dagster for a complete ELT pipeline.

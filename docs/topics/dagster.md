@@ -429,7 +429,7 @@ def airbyte_sensor(context):
 **Flow**:
 1. Dagster schedules DBT job
 2. DBT executes SQL against [Trino](trino.md)
-3. Trino materializes [Iceberg](apache-iceberg.md) tables in [Garage](garage.md)
+3. Trino materializes [Iceberg](apache-iceberg.md) tables in [MinIO](minio.md)
 4. Dagster logs metadata (rows, runtime)
 
 ### Asset Metadata

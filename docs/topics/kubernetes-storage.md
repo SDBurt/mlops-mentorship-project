@@ -6,11 +6,11 @@
 
 Kubernetes storage enables data persistence beyond the lifecycle of individual [Pods](kubernetes-fundamentals.md). Without persistent storage, data is lost when pods restart. Kubernetes provides several abstractions for managing storage: PersistentVolumes (PVs), PersistentVolumeClaims (PVCs), and StorageClasses.
 
-In this lakehouse platform, storage is critical for stateful components: [Garage](garage.md) stores S3 objects, [PostgreSQL](postgresql.md) databases store metadata for [Airbyte](airbyte.md) and [Dagster](dagster.md). All use PersistentVolumeClaims to ensure data survives pod restarts.
+In this lakehouse platform, storage is critical for stateful components: [MinIO](minio.md) stores S3 objects, [PostgreSQL](postgresql.md) databases store metadata for [Airbyte](airbyte.md) and [Dagster](dagster.md). All use PersistentVolumeClaims to ensure data survives pod restarts.
 
 ## Why Storage Matters for This Platform
 
-**Data Persistence**: Databases ([PostgreSQL](postgresql.md)) and object storage ([Garage](garage.md)) require data that survives pod failures and restarts.
+**Data Persistence**: Databases ([PostgreSQL](postgresql.md)) and object storage ([MinIO](minio.md)) require data that survives pod failures and restarts.
 
 **Stateful Applications**: [StatefulSets](stateful-applications.md) depend on stable storage identities - each pod gets its own dedicated PVC.
 
@@ -36,8 +36,8 @@ kubectl get pv
 
 # Expected output:
 # NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM
-# pvc-123abc...                              10Gi       RWO            Delete           Bound    garage/data-garage-0
-# pvc-456def...                              1Gi        RWO            Delete           Bound    garage/meta-garage-0
+# pvc-123abc...                              10Gi       RWO            Delete           Bound    minio/data-minio-0
+# pvc-456def...                              1Gi        RWO            Delete           Bound    minio/meta-minio-0
 # pvc-789ghi...                              8Gi        RWO            Delete           Bound    dagster/data-dagster-postgresql-0
 ```
 
@@ -62,19 +62,19 @@ kubectl get pv
 **What it is**: A request for storage by a user. PVCs bind to available PVs that satisfy the request (size, access mode, storage class).
 
 **PVC characteristics**:
-- **Namespaced**: Lives in specific namespace (e.g., `garage` namespace)
+- **Namespaced**: Lives in specific namespace (e.g., `minio` namespace)
 - **Bound to single PV**: One-to-one relationship
 - **Used by pods**: Pods reference PVCs in volume mounts
 
 **In this platform**:
 ```bash
-# Garage storage
-kubectl get pvc -n garage
+# MinIO storage
+kubectl get pvc -n minio
 
 # Expected output:
 # NAME            STATUS   VOLUME          CAPACITY   ACCESS MODES   STORAGECLASS   AGE
-# data-garage-0   Bound    pvc-123abc...   10Gi       RWO            hostpath       10m
-# meta-garage-0   Bound    pvc-456def...   1Gi        RWO            hostpath       10m
+# data-minio-0   Bound    pvc-123abc...   10Gi       RWO            hostpath       10m
+# meta-minio-0   Bound    pvc-456def...   1Gi        RWO            hostpath       10m
 
 # Dagster PostgreSQL storage
 kubectl get pvc -n dagster
@@ -89,8 +89,8 @@ kubectl get pvc -n dagster
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: data-garage-0
-  namespace: garage
+  name: data-minio-0
+  namespace: minio
 spec:
   accessModes:
   - ReadWriteOnce  # RWO
@@ -170,8 +170,8 @@ kubectl apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: data-garage-0
-  namespace: garage
+  name: data-minio-0
+  namespace: minio
 spec:
   accessModes:
   - ReadWriteOnce
@@ -185,30 +185,30 @@ EOF
 # 3. Provisioner creates PV with 10Gi capacity
 # 4. PVC status changes: Pending → Bound
 
-kubectl get pvc data-garage-0 -n garage
+kubectl get pvc data-minio-0 -n minio
 # NAME            STATUS   VOLUME          CAPACITY
-# data-garage-0   Bound    pvc-123abc...   10Gi
+# data-minio-0   Bound    pvc-123abc...   10Gi
 ```
 
 ### 5. Volume Mounts in Pods
 
 **What it is**: Pods reference PVCs in their volume specifications to mount persistent storage into containers.
 
-**Example - Garage StatefulSet with PVC**:
+**Example - MinIO StatefulSet with PVC**:
 ```yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: garage
-  namespace: garage
+  name: minio
+  namespace: minio
 spec:
-  serviceName: garage-headless
+  serviceName: minio-headless
   replicas: 1
   template:
     spec:
       containers:
-      - name: garage
-        image: dxflrs/garage:v0.8.0
+      - name: minio
+        image: dxflrs/minio:v0.8.0
         volumeMounts:
         - name: data  # Reference to volume
           mountPath: /data  # Where to mount in container
@@ -236,13 +236,13 @@ spec:
 **Key points**:
 - **volumeMounts**: Defines where volumes appear inside container (`/data`, `/meta`)
 - **volumeClaimTemplates**: StatefulSet creates PVCs automatically per replica
-  - Replica 0: `data-garage-0`, `meta-garage-0`
-  - Replica 1: `data-garage-1`, `meta-garage-1`
+  - Replica 0: `data-minio-0`, `meta-minio-0`
+  - Replica 1: `data-minio-1`, `meta-minio-1`
   - etc.
 
 **Verify volume mounts** inside pod:
 ```bash
-kubectl exec -n lakehouse garage-0 -- df -h
+kubectl exec -n lakehouse minio-0 -- df -h
 
 # Expected output:
 # Filesystem      Size  Used  Avail  Use%  Mounted on
@@ -254,16 +254,16 @@ kubectl exec -n lakehouse garage-0 -- df -h
 
 ### Pattern 1: StatefulSet with VolumeClaimTemplates
 
-**Used by**: [Garage](garage.md), [PostgreSQL](postgresql.md) (Airbyte, Dagster)
+**Used by**: [MinIO](minio.md), [PostgreSQL](postgresql.md) (Airbyte, Dagster)
 
 **Why**: Each replica gets its own dedicated storage that persists across restarts
 
-**Example - Garage StatefulSet**:
+**Example - MinIO StatefulSet**:
 ```yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: garage
+  name: minio
 spec:
   replicas: 3  # Creates 3 pods with 6 PVCs (2 per pod)
   volumeClaimTemplates:
@@ -285,19 +285,19 @@ spec:
 
 **Result**:
 ```bash
-kubectl get pvc -n garage
+kubectl get pvc -n minio
 
 # NAME            CAPACITY   POD
-# data-garage-0   10Gi       garage-0
-# meta-garage-0   1Gi        garage-0
-# data-garage-1   10Gi       garage-1
-# meta-garage-1   1Gi        garage-1
-# data-garage-2   10Gi       garage-2
-# meta-garage-2   1Gi        garage-2
+# data-minio-0   10Gi       minio-0
+# meta-minio-0   1Gi        minio-0
+# data-minio-1   10Gi       minio-1
+# meta-minio-1   1Gi        minio-1
+# data-minio-2   10Gi       minio-2
+# meta-minio-2   1Gi        minio-2
 ```
 
 **Behavior**:
-- **Scale up**: New pod gets new PVC (`data-garage-3`)
+- **Scale up**: New pod gets new PVC (`data-minio-3`)
 - **Scale down**: PVC retained (not deleted automatically)
 - **Pod restart**: Same pod mounts same PVC (data persists)
 
@@ -374,15 +374,15 @@ spec:
 **Symptom**: PVC never binds to PV
 
 ```bash
-kubectl get pvc -n garage
+kubectl get pvc -n minio
 
 # NAME            STATUS    VOLUME   CAPACITY
-# data-garage-0   Pending   ...      ...
+# data-minio-0   Pending   ...      ...
 ```
 
 **Check PVC events**:
 ```bash
-kubectl describe pvc data-garage-0 -n garage
+kubectl describe pvc data-minio-0 -n minio
 
 # Look for events like:
 # Warning  ProvisioningFailed  ...  Failed to provision volume
@@ -426,7 +426,7 @@ kubectl apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: pv-garage-data
+  name: pv-minio-data
 spec:
   capacity:
     storage: 10Gi
@@ -435,7 +435,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: hostpath
   hostPath:
-    path: /mnt/data/garage
+    path: /mnt/data/minio
 EOF
 ```
 
@@ -444,7 +444,7 @@ EOF
 **Symptom**: Pod stuck in `ContainerCreating` or `Pending` status
 
 ```bash
-kubectl describe pod garage-0 -n garage
+kubectl describe pod minio-0 -n minio
 
 # Events:
 # Warning  FailedMount  ...  Unable to attach or mount volumes
@@ -459,14 +459,14 @@ kubectl describe pod garage-0 -n garage
 **Debug**:
 ```bash
 # Check PVC exists and is bound
-kubectl get pvc -n garage
+kubectl get pvc -n minio
 
 # Check pod node and PV node match (for RWO volumes)
-kubectl get pod garage-0 -n lakehouse -o wide
+kubectl get pod minio-0 -n lakehouse -o wide
 kubectl get pv <pv-name> -o yaml | grep nodeAffinity
 
 # Check volume mount permissions inside pod
-kubectl exec -n lakehouse garage-0 -- ls -la /data
+kubectl exec -n lakehouse minio-0 -- ls -la /data
 ```
 
 ### Data Lost After Pod Restart
@@ -481,13 +481,13 @@ kubectl exec -n lakehouse garage-0 -- ls -la /data
 **Verify storage is persistent**:
 ```bash
 # Check pod uses PVC (not emptyDir)
-kubectl get pod garage-0 -n lakehouse -o yaml | grep -A 10 volumes
+kubectl get pod minio-0 -n lakehouse -o yaml | grep -A 10 volumes
 
 # Should show:
 # volumes:
 # - name: data
 #   persistentVolumeClaim:
-#     claimName: data-garage-0
+#     claimName: data-minio-0
 
 # NOT:
 # volumes:
@@ -505,7 +505,7 @@ kubectl get pod garage-0 -n lakehouse -o yaml | grep -A 10 volumes
 **Symptom**: Application logs show disk space errors
 
 ```bash
-kubectl exec -n lakehouse garage-0 -- df -h
+kubectl exec -n lakehouse minio-0 -- df -h
 
 # Filesystem      Size  Used  Avail  Use%  Mounted on
 # /dev/sda1       10G   10G   0      100%  /data  # ← Full!
@@ -520,7 +520,7 @@ kubectl get storageclass hostpath -o yaml | grep allowVolumeExpansion
 # allowVolumeExpansion: true
 
 # Edit PVC to request more space
-kubectl edit pvc data-garage-0 -n garage
+kubectl edit pvc data-minio-0 -n minio
 
 # Change:
 # resources:
@@ -531,26 +531,26 @@ kubectl edit pvc data-garage-0 -n garage
 #     storage: 20Gi
 
 # Check expansion status
-kubectl describe pvc data-garage-0 -n garage
+kubectl describe pvc data-minio-0 -n minio
 ```
 
 **Option 2: Clean up data**:
 ```bash
 # Delete old files inside pod
-kubectl exec -n lakehouse garage-0 -- rm -rf /data/old-data/*
+kubectl exec -n lakehouse minio-0 -- rm -rf /data/old-data/*
 ```
 
 **Option 3: Add new PVC**:
 ```bash
 # Scale StatefulSet to add replica with new PVC
-kubectl scale statefulset garage -n lakehouse --replicas=2
+kubectl scale statefulset minio -n lakehouse --replicas=2
 ```
 
 ## Integration with Other Components
 
 - **[Kubernetes Fundamentals](kubernetes-fundamentals.md)**: PVCs used by Pods in StatefulSets
 - **[Stateful Applications](stateful-applications.md)**: StatefulSets use VolumeClaimTemplates for per-replica storage
-- **[Garage](garage.md)**: Uses 2 PVCs per replica (data + meta)
+- **[MinIO](minio.md)**: Uses 2 PVCs per replica (data + meta)
 - **[PostgreSQL](postgresql.md)**: Uses 1 PVC per replica (database files)
 - **[Helm Package Management](helm-package-management.md)**: Helm charts define PVC templates
 
@@ -589,7 +589,7 @@ storageClassName: hostpath  # Auto-creates PV
 **Acceptable** (static, manual):
 ```yaml
 storageClassName: ""  # Use manually created PV
-volumeName: pv-garage-data
+volumeName: pv-minio-data
 ```
 
 ### 3. Set Reclaim Policy Based on Data Criticality
@@ -612,15 +612,15 @@ reclaimPolicy: Delete
 - Storage costs (cloud environments)
 
 **Example sizing for this platform**:
-- **Garage data PVC**: 10Gi+ (grows with ingested data)
-- **Garage meta PVC**: 1Gi (relatively static)
+- **MinIO data PVC**: 10Gi+ (grows with ingested data)
+- **MinIO meta PVC**: 1Gi (relatively static)
 - **PostgreSQL PVC**: 8Gi (metadata only, not raw data)
 
 ### 5. Monitor Storage Usage
 
 ```bash
 # Check PVC usage from inside pods
-kubectl exec -n lakehouse garage-0 -- df -h
+kubectl exec -n lakehouse minio-0 -- df -h
 
 # Check node storage (Docker Desktop)
 kubectl top nodes

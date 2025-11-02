@@ -261,7 +261,7 @@ polaris:
     s3:
       bucket: lakehouse
       prefix: audit-logs/
-      endpoint: http://garage:3900
+      endpoint: http://minio:3900
 ```
 
 ### Step 6: Decommission Hive Metastore
@@ -332,7 +332,7 @@ polaris admin list-grants --namespace lakehouse.finance
 - **[Trino](trino.md)**: Queries Iceberg via Polaris REST catalog
 - **[Apache Iceberg](apache-iceberg.md)**: Polaris is Iceberg-native catalog
 - **[Hive Metastore](hive-metastore.md)**: Replaced by Polaris in Phase 3
-- **[Garage](garage.md)**: Stores data and audit logs
+- **[MinIO](minio.md)**: Stores data and audit logs
 
 ## References
 
