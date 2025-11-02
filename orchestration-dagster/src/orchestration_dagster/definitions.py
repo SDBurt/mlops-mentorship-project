@@ -7,10 +7,12 @@ from dagster import (
     ScheduleDefinition,
     DefaultScheduleStatus,
     MaterializeResult,
+    RunRequest,
+    schedule,
 )
 
 from .defs.loads.reddit import create_reddit_source, create_reddit_pipeline
-from .partitions import subreddit_partitions
+from .partitions import subreddit_partitions, SUBREDDITS
 
 
 # Subreddit metadata asset (partitioned by subreddit)
@@ -19,6 +21,7 @@ from .partitions import subreddit_partitions
     group_name="reddit",
     partitions_def=subreddit_partitions,
     compute_kind="dlt",
+    pool="reddit_subreddit_metadata",  # Concurrency pool for metadata extraction
 )
 def reddit_subreddit_assets(context: AssetExecutionContext) -> MaterializeResult:
     """
@@ -30,7 +33,8 @@ def reddit_subreddit_assets(context: AssetExecutionContext) -> MaterializeResult
     subreddit = context.partition_key
 
     # Create dlt source and pipeline dynamically based on partition
-    source = create_reddit_source(subreddit).with_resources("subreddit")
+    # Resource names now include subreddit: reddit_{subreddit}_subreddit
+    source = create_reddit_source(subreddit).with_resources(f"reddit_{subreddit}_subreddit")
     pipeline = create_reddit_pipeline(subreddit)
 
     # Run the dlt pipeline
@@ -52,6 +56,7 @@ def reddit_subreddit_assets(context: AssetExecutionContext) -> MaterializeResult
     group_name="reddit",
     partitions_def=subreddit_partitions,
     compute_kind="dlt",
+    pool="reddit_posts_comments",  # Concurrency pool for posts/comments extraction
 )
 def reddit_posts_comments_assets(context: AssetExecutionContext) -> MaterializeResult:
     """
@@ -63,7 +68,11 @@ def reddit_posts_comments_assets(context: AssetExecutionContext) -> MaterializeR
     subreddit = context.partition_key
 
     # Create dlt source and pipeline dynamically based on partition
-    source = create_reddit_source(subreddit).with_resources("posts", "comments")
+    # Resource names now include subreddit: reddit_{subreddit}_posts, reddit_{subreddit}_comments
+    source = create_reddit_source(subreddit).with_resources(
+        f"reddit_{subreddit}_posts",
+        f"reddit_{subreddit}_comments"
+    )
     pipeline = create_reddit_pipeline(subreddit)
 
     # Run the dlt pipeline
@@ -80,6 +89,7 @@ def reddit_posts_comments_assets(context: AssetExecutionContext) -> MaterializeR
 
 
 # Job for posts and comments (runs hourly)
+# Each partition writes to its own tables, enabling full parallelism
 reddit_posts_comments_job = define_asset_job(
     name="reddit_posts_comments_job",
     selection=AssetSelection.assets(reddit_posts_comments_assets),
@@ -87,6 +97,7 @@ reddit_posts_comments_job = define_asset_job(
 )
 
 # Job for all Reddit assets (manual or daily)
+# Each partition writes to its own tables, enabling full parallelism
 reddit_full_job = define_asset_job(
     name="reddit_full_ingestion_job",
     selection=AssetSelection.groups("reddit"),
@@ -95,13 +106,29 @@ reddit_full_job = define_asset_job(
 
 # Schedule to run posts/comments every hour (enabled by default)
 # This will run ALL partitions (all subreddits) on each schedule tick
-reddit_hourly_schedule = ScheduleDefinition(
+@schedule(
     name="reddit_hourly_schedule",
     job=reddit_posts_comments_job,
     cron_schedule="0 * * * *",  # Every hour at minute 0
     description="Run Reddit posts and comments ingestion for all subreddits every hour",
-    default_status=DefaultScheduleStatus.STOPPED,  # Start manually to avoid overwhelming API
+    default_status=DefaultScheduleStatus.RUNNING,  # Automatically enabled
 )
+def reddit_hourly_schedule():
+    """
+    Schedule function that runs all subreddit partitions every hour.
+
+    Yields a RunRequest for each subreddit partition, ensuring all
+    configured subreddits are processed on each schedule tick.
+    """
+    for subreddit in SUBREDDITS:
+        yield RunRequest(
+            run_key=f"reddit_{subreddit}",
+            partition_key=subreddit,
+            tags={
+                "subreddit": subreddit,
+                "schedule": "hourly",
+            },
+        )
 
 # Define all assets and resources
 defs = Definitions(
@@ -114,4 +141,7 @@ defs = Definitions(
         reddit_full_job,
     ],
     schedules=[reddit_hourly_schedule],
+    # Concurrency pool limits configured in dagster.yaml:
+    # - reddit_subreddit_metadata: limit=5 (all subreddits run in parallel)
+    # - reddit_posts_comments: limit=3 (max 3 concurrent extractions)
 )

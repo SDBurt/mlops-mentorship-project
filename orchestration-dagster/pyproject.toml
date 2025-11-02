@@ -4,10 +4,10 @@ requires-python = ">=3.9.2,<3.15"
 version = "0.1.0"
 dependencies = [
     "dagster==1.11.16",
-    "dlt[duckdb,filesystem,parquet]==1.18.1",
+    "dlt[duckdb,filesystem,parquet,pyiceberg]==1.18.1",  # Added pyiceberg extra for Iceberg destination
     "dagster-dlt",
-    "pyiceberg>=0.6.0",
-    "sqlalchemy>=2.0.18",
+    "pyiceberg>=0.6.0",  # Explicit PyIceberg for direct usage if needed
+    "sqlalchemy>=2.0.18",  # Required by PyIceberg (2.0.18+)
 ]
 
 [dependency-groups]

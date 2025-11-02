@@ -212,3 +212,7 @@ __marimo__/
 *_test.duckdb
 *_test.db
 reddit_pipeline.duckdb
+
+history/
+schedules/
+compute_logs/

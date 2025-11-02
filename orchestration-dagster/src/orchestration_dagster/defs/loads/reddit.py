@@ -31,16 +31,20 @@ def create_reddit_pipeline(subreddit: str):
     Factory function to create reddit pipeline for a specific subreddit.
 
     Args:
-        subreddit: Name of the subreddit (used for naming)
+        subreddit: Name of the subreddit (used for naming and filtering)
 
     Returns:
         Configured dlt pipeline for the specified subreddit
     """
     return dlt.pipeline(
         pipeline_name=f"reddit_{subreddit}",
-        destination="filesystem",  # Writes Parquet to Garage S3
-        dataset_name=f"reddit_{subreddit}",
+        destination="filesystem",  # Use filesystem destination with table_format="iceberg" on resources
+        dataset_name=f"raw_{subreddit}",  # Separate dataset per subreddit to avoid concurrent load conflicts
         progress="log",  # Log progress during execution
-        # Note: Iceberg tables will be created in Trino that reference these Parquet files
-        # See CLAUDE.md for Iceberg table creation via Trino
+        # Creates Iceberg tables in subreddit-specific dataset (via table_format="iceberg" in source):
+        # - raw_economics.reddit_economics_posts
+        # - raw_economics.reddit_economics_comments
+        # - raw_economics.reddit_economics_subreddit
+        # Location: s3://lakehouse/iceberg/raw_economics/reddit_economics_posts/
+        # DBT will union across datasets: raw_*.reddit_*_posts → staging.stg_reddit_posts → marts.fct_posts
     )

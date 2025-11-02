@@ -928,6 +928,12 @@ parquet = [
     { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pyarrow", version = "22.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
+pyiceberg = [
+    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "pyarrow", version = "22.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pyiceberg" },
+    { name = "sqlalchemy" },
+]
 
 [[package]]
 name = "docstring-parser"
@@ -2145,7 +2151,7 @@ source = { editable = "." }
 dependencies = [
     { name = "dagster" },
     { name = "dagster-dlt" },
-    { name = "dlt", extra = ["duckdb", "filesystem", "parquet"] },
+    { name = "dlt", extra = ["duckdb", "filesystem", "parquet", "pyiceberg"] },
     { name = "pyiceberg" },
     { name = "sqlalchemy" },
 ]
@@ -2161,7 +2167,7 @@ dev = [
 requires-dist = [
     { name = "dagster", specifier = "==1.11.16" },
     { name = "dagster-dlt" },
-    { name = "dlt", extras = ["duckdb", "filesystem", "parquet"], specifier = "==1.18.1" },
+    { name = "dlt", extras = ["duckdb", "filesystem", "parquet", "pyiceberg"], specifier = "==1.18.1" },
     { name = "pyiceberg", specifier = ">=0.6.0" },
     { name = "sqlalchemy", specifier = ">=2.0.18" },
 ]
