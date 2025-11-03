@@ -1,6 +1,6 @@
-# DLT configuration for filesystem destination with Iceberg tables
+# DLT configuration for filesystem destination with Iceberg tables via Polaris REST catalog
 # Credentials are in secrets.toml
-# Note: Resources use table_format="iceberg" to write Iceberg tables
+# PyIceberg (used by DLT) is configured via environment variables to use Polaris REST catalog
 
 [destination.filesystem]
 # Layout for organizing files/tables in S3

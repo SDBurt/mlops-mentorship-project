@@ -268,7 +268,7 @@ def reddit_source(
                     "strategy": "upsert"
                 },
                 "primary_key": "id",
-                "table_format": "iceberg",  # Write directly to Iceberg tables in MinIO
+                "table_format": "iceberg",  # Write to Iceberg tables via PyIceberg → Polaris REST catalog
                 "columns": {
                     "created_utc": {"partition": True},  # Partition by time for time-series queries
                 }
@@ -294,7 +294,7 @@ def reddit_source(
                     "strategy": "upsert"
                 },
                 "primary_key": "id",
-                "table_format": "iceberg",  # Write directly to Iceberg tables in MinIO
+                "table_format": "iceberg",  # Write to Iceberg tables via PyIceberg → Polaris REST catalog
                 "columns": {
                     "created_utc": {"partition": True},  # Partition by time for time-series queries
                 }
