@@ -62,7 +62,7 @@ setup:
 	@echo "Setting up Helm repositories..."
 	@helm repo add dagster https://dagster-io.github.io/helm
 	@helm repo add trino https://trinodb.github.io/charts
-	@echo "Note: Polaris chart is installed from GitHub repo (no official Helm repo yet)"
+	@echo "Note: Polaris chart is installed from local infrastructure/helm/polaris/"
 	@helm repo update
 	@echo "✓ Helm repositories configured"
 
@@ -92,17 +92,12 @@ deploy:
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
 	@echo "✓ Trino deployed"
 	@echo ""
-	@echo "Step 5/5: Deploying Polaris (REST catalog - optional Phase 3)..."
-	@echo "Note: Polaris requires secrets file. Skipping if not present."
-	@if [ -f $(POLARIS_SECRETS) ]; then \
-		kubectl apply -f $(POLARIS_SECRETS) && \
-		echo "Polaris deployment requires cloning the chart from GitHub:" && \
-		echo "  git clone https://github.com/apache/polaris.git /tmp/polaris-repo" && \
-		echo "  helm upgrade --install polaris /tmp/polaris-repo/helm/polaris -f $(POLARIS_VALUES) -n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)" && \
-		echo "✓ Polaris ready to deploy (run commands above)"; \
-	else \
-		echo "⊘ Polaris secrets not found at $(POLARIS_SECRETS) - skipping (Phase 3)"; \
-	fi
+	@echo "Step 5/5: Deploying Polaris (REST catalog)..."
+	@echo "Note: Using local Helm chart from infrastructure/helm/polaris"
+	@helm upgrade --install polaris infrastructure/helm/polaris \
+		-f $(POLARIS_VALUES) \
+		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
+	@echo "✓ Polaris deployed"
 	@echo ""
 	@echo "Deployment complete! MinIO is ready with default bucket 'lakehouse'."
 

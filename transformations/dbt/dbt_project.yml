@@ -60,7 +60,6 @@ models:
       +tags: ["marts"]
       reddit:
         +materialized: incremental
-        +file_format: iceberg
         +incremental_strategy: merge
         +tags: ["marts", "reddit"]
 
@@ -76,14 +75,12 @@ models:
     silver:
       +materialized: incremental
       +schema: silver
-      +file_format: iceberg
       +incremental_strategy: merge
       +tags: ["silver", "dimensions", "deprecated"]
 
     gold:
       +materialized: incremental
       +schema: gold
-      +file_format: iceberg
       +incremental_strategy: merge
       +tags: ["gold", "facts", "analytics", "deprecated"]
 

@@ -55,7 +55,7 @@ storage:
     awsAccessKeyId: aws-access-key-id
     awsSecretAccessKey: aws-secret-access-key
 
-# Environment variables for S3 configuration
+# Environment variables for S3 configuration and bootstrap
 extraEnv:
   # MinIO S3 endpoint (same namespace - simplified DNS)
   - name: AWS_S3_ENDPOINT
@@ -66,6 +66,11 @@ extraEnv:
   # Default region
   - name: AWS_REGION
     value: us-east-1
+  # Bootstrap credentials: format is "realm,principal-name,secret"
+  # IMPORTANT: Override this via Helm --set or external secret for production
+  # Default value is for development only
+  # - name: POLARIS_BOOTSTRAP_CREDENTIALS
+  #   value: "lakehouse,polaris_admin,CHANGEME_BOOTSTRAP_SECRET"
 
 # Realm configuration
 realmContext:

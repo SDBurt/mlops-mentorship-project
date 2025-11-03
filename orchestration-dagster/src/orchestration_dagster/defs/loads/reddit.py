@@ -39,12 +39,12 @@ def create_reddit_pipeline(subreddit: str):
     return dlt.pipeline(
         pipeline_name=f"reddit_{subreddit}",
         destination="filesystem",  # Use filesystem destination with table_format="iceberg" on resources
-        dataset_name=f"raw_{subreddit}",  # Separate dataset per subreddit to avoid concurrent load conflicts
+        dataset_name=f"raw_{subreddit}",  # Separate dataset per subreddit (namespace in Polaris via PyIceberg config)
         progress="log",  # Log progress during execution
-        # Creates Iceberg tables in subreddit-specific dataset (via table_format="iceberg" in source):
-        # - raw_economics.reddit_economics_posts
-        # - raw_economics.reddit_economics_comments
-        # - raw_economics.reddit_economics_subreddit
-        # Location: s3://lakehouse/iceberg/raw_economics/reddit_economics_posts/
-        # DBT will union across datasets: raw_*.reddit_*_posts → staging.stg_reddit_posts → marts.fct_posts
+        # Creates Iceberg tables via PyIceberg → Polaris REST catalog:
+        # - lakehouse.raw_economics.reddit_economics_posts
+        # - lakehouse.raw_economics.reddit_economics_comments
+        # - lakehouse.raw_economics.reddit_economics_subreddit
+        # Polaris manages metadata, MinIO stores data: s3://lakehouse/iceberg/raw_economics/reddit_economics_posts/
+        # DBT will union across namespaces: raw_*.reddit_*_posts → staging.stg_reddit_posts → marts.fct_posts
     )
