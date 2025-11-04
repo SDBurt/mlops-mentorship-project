@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup deploy destroy clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-all status
+.PHONY: help check setup deploy destroy clean-old clean-nessie port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs
 
 # Variables
 NAMESPACE := lakehouse
@@ -26,7 +26,12 @@ help:
 	@echo "Management:"
 	@echo "  make destroy                - Tear down lakehouse cluster"
 	@echo "  make clean-old              - One-time cleanup of old separate namespaces (migration only)"
+	@echo "  make clean-nessie           - Remove Nessie (if previously deployed) - MIGRATION ONLY"
 	@echo "  make status                 - Show cluster status"
+	@echo ""
+	@echo "Polaris Operations:"
+	@echo "  make polaris-status         - Show Polaris pod status and logs summary"
+	@echo "  make polaris-logs           - Tail Polaris logs (live)"
 	@echo ""
 	@echo "Port-forwarding:"
 	@echo "  make port-forward-start     - Start all port-forwards in background"
@@ -37,6 +42,7 @@ help:
 	@echo "Service Restarts:"
 	@echo "  make restart-dagster        - Restart Dagster deployments"
 	@echo "  make restart-trino          - Restart Trino deployments"
+	@echo "  make restart-polaris        - Restart Polaris deployment"
 	@echo "  make restart-all            - Restart all service deployments"
 	@echo ""
 	@echo "Quick Start:"
@@ -62,7 +68,7 @@ setup:
 	@echo "Setting up Helm repositories..."
 	@helm repo add dagster https://dagster-io.github.io/helm
 	@helm repo add trino https://trinodb.github.io/charts
-	@echo "Note: Polaris chart is installed from local infrastructure/helm/polaris/"
+	@helm repo add polaris https://apache.github.io/polaris
 	@helm repo update
 	@echo "✓ Helm repositories configured"
 
@@ -92,14 +98,15 @@ deploy:
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
 	@echo "✓ Trino deployed"
 	@echo ""
-	@echo "Step 5/5: Deploying Polaris (REST catalog)..."
-	@echo "Note: Using local Helm chart from infrastructure/helm/polaris"
-	@helm upgrade --install polaris infrastructure/helm/polaris \
+	@echo "Step 5/5: Deploying Polaris (Apache Iceberg REST catalog)..."
+	@kubectl apply -f $(POLARIS_SECRETS)
+	@helm upgrade --install polaris polaris/polaris \
 		-f $(POLARIS_VALUES) \
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
 	@echo "✓ Polaris deployed"
 	@echo ""
 	@echo "Deployment complete! MinIO is ready with default bucket 'lakehouse'."
+	@echo "Polaris REST catalog is available for unified Iceberg table management."
 
 
 # Teardown lakehouse cluster
@@ -111,7 +118,7 @@ destroy:
 	@sleep 5
 	@echo ""
 	@echo "Uninstalling Polaris (if deployed)..."
-	@helm uninstall polaris -n $(NAMESPACE) 2>/dev/null || echo "Polaris not found (Phase 3)"
+	@helm uninstall polaris -n $(NAMESPACE) 2>/dev/null || echo "Polaris not found"
 	@echo "Uninstalling Trino..."
 	@helm uninstall trino -n $(NAMESPACE) 2>/dev/null || echo "Trino not found"
 	@echo "Uninstalling Dagster..."
@@ -158,12 +165,12 @@ port-forward-start:
 	@echo "Port-forwards started!"
 	@echo ""
 	@echo "Access URLs:"
-	@echo "  Dagster:       http://localhost:3000"
-	@echo "  Trino:         http://localhost:8080"
+	@echo "  Dagster:       http://localhost:3000 (Orchestration UI)"
+	@echo "  Trino:         http://localhost:8080 (Query Engine)"
 	@echo "  MinIO API:     http://localhost:9000 (S3 API)"
-	@echo "  MinIO Console: http://localhost:9001 (Web UI)"
+	@echo "  MinIO Console: http://localhost:9001 (Storage Web UI)"
 	@if kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
-		echo "  Polaris:       http://localhost:8181 (REST Catalog - Phase 3)"; \
+		echo "  Polaris:       http://localhost:8181 (REST Catalog API)"; \
 	fi
 	@echo ""
 	@echo "Run 'make port-forward-status' to check status"
@@ -200,6 +207,18 @@ restart-trino:
 	@kubectl rollout status deployment -n $(NAMESPACE) -l app=trino,component=coordinator --timeout=120s
 	@echo "✓ Trino restarted successfully!"
 
+# Restart Polaris deployment
+restart-polaris:
+	@echo "Restarting Polaris deployment..."
+	@if kubectl get deployment -n $(NAMESPACE) -l app.kubernetes.io/name=polaris > /dev/null 2>&1; then \
+		kubectl rollout restart deployment -n $(NAMESPACE) -l app.kubernetes.io/name=polaris; \
+		echo "Waiting for Polaris to be ready..."; \
+		kubectl rollout status deployment -n $(NAMESPACE) -l app.kubernetes.io/name=polaris --timeout=120s; \
+		echo "✓ Polaris restarted successfully!"; \
+	else \
+		echo "Polaris not found. Run 'make deploy' to install."; \
+	fi
+
 # Restart all services
 restart-all:
 	@echo "Restarting all services..."
@@ -207,6 +226,8 @@ restart-all:
 	@$(MAKE) restart-dagster
 	@echo ""
 	@$(MAKE) restart-trino
+	@echo ""
+	@$(MAKE) restart-polaris
 	@echo ""
 	@echo "✓ All services restarted!"
 
@@ -229,3 +250,25 @@ status:
 	@echo ""
 	@echo "Persistent Volume Claims:"
 	@kubectl get pvc -n $(NAMESPACE) 2>/dev/null || echo "No PVCs found"
+
+# Show Polaris-specific status
+polaris-status:
+	@echo "Polaris Catalog Status"
+	@echo "====================="
+	@echo ""
+	@echo "Polaris Pods:"
+	@kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=polaris 2>/dev/null || echo "Polaris not deployed"
+	@echo ""
+	@echo "Polaris Service:"
+	@kubectl get svc -n $(NAMESPACE) polaris 2>/dev/null || echo "Polaris service not found"
+	@echo ""
+	@echo "Recent Events:"
+	@kubectl get events -n $(NAMESPACE) --field-selector involvedObject.name=polaris --sort-by='.lastTimestamp' 2>/dev/null | tail -n 5 || echo "No events found"
+	@echo ""
+	@echo "Recent Logs (last 20 lines):"
+	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/name=polaris --tail=20 2>/dev/null || echo "No logs available"
+
+# Tail Polaris logs (live)
+polaris-logs:
+	@echo "Tailing Polaris logs (Ctrl+C to exit)..."
+	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/name=polaris --tail=50 -f
