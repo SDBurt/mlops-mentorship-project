@@ -1,12 +1,14 @@
 [project]
 name = "orchestration_dagster"
-requires-python = ">=3.9.2,<3.15"
+requires-python = ">=3.10,<3.15"
 version = "0.1.0"
 dependencies = [
     "dagster==1.11.16",
-    "dlt[duckdb,filesystem,parquet,pyiceberg]==1.18.1",  # Added pyiceberg extra for Iceberg destination
-    "dagster-dlt",
-    "pyiceberg>=0.6.0",  # Explicit PyIceberg for direct usage if needed
+    "dagster-iceberg>=0.1.0",  # Iceberg IO manager
+    "pyiceberg>=0.7.0",  # Core PyIceberg library (required by dagster-iceberg)
+    "praw>=7.7.1",  # Reddit API client
+    "pandas>=2.0.0",  # DataFrame library
+    "pyarrow>=14.0.0",  # Arrow data format (required for dagster-iceberg)
     "sqlalchemy>=2.0.18",  # Required by PyIceberg (2.0.18+)
 ]
 

@@ -13,27 +13,28 @@ This is a **mentorship learning project** focused on building an end-to-end MLOp
 - **Progress Tracking**: README.md contains weekly learning progress sections
 - **Portfolio Quality**: Demonstrate enterprise patterns for production systems
 
-**Important:** This is a mentorship project. Follow the phased approach in README.md and track progress weekly. DBT models are example templates - not ready until data sources configured.
+**Important:** This is a mentorship project. Follow the phased approach in README.md and track progress weekly.
 
 ## Architecture
 
 **Core Stack:**
 - **Storage**: MinIO (S3-compatible) stores Parquet files
+- **Catalog**: Apache Polaris (REST catalog for unified Iceberg metadata)
 - **Table Format**: Apache Iceberg (ACID, schema evolution, time travel)
-- **Ingestion**: DLT (Data Load Tool) for ELT pipelines
+- **Ingestion**: dagster-iceberg with PRAW for Reddit data extraction
 - **Transformations**: DBT Core (SQL models) orchestrated by Dagster
 - **Query Engine**: Trino (distributed SQL over Iceberg)
 - **BI**: Apache Superset (Phase 2+)
 
 **Data Flow:**
 ```
-Data Sources → DLT (Python) → MinIO/S3 (Parquet/Iceberg)
-                                        ↓
-                                  Iceberg Tables
-                                        ↓
-                              Trino ← DBT (Dagster)
-                                        ↓
-                              Bronze → Silver → Gold
+Reddit API → PRAW → Dagster Assets → dagster-iceberg → Polaris Catalog
+                                                              ↓
+                                                        MinIO/S3 (Iceberg)
+                                                              ↓
+                                                         Trino Query
+                                                              ↓
+                                                    Bronze → Silver → Gold
 ```
 
 **Medallion Layers:**
@@ -42,34 +43,65 @@ Data Sources → DLT (Python) → MinIO/S3 (Parquet/Iceberg)
 - **Gold**: Business facts (star schema for analytics)
 
 **Kubernetes Namespace:**
-- `lakehouse` - All services (MinIO, Dagster, Trino)
+- `lakehouse` - All services (MinIO, Dagster, Trino, Polaris)
 
 ## Commands
 
-### Deployment
+### Makefile Commands (Preferred)
 
-**Always refer users to:** [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete step-by-step deployment.
-
-Quick reference (see SETUP_GUIDE.md for full context):
+The project includes a comprehensive Makefile for common operations:
 
 ```bash
-# Prerequisites
-helm repo add dagster https://dagster-io.github.io/helm
-helm repo add trino https://trinodb.github.io/charts
-helm repo add polaris https://apache.github.io/polaris
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
+# Setup & Deployment
+make check               # Verify prerequisites (kubectl, helm, cluster)
+make setup               # Add/update Helm repositories
+make deploy              # Deploy all services to lakehouse namespace
+make destroy             # Tear down entire cluster (with confirmation)
 
-# Create lakehouse namespace
+# Status & Monitoring
+make status              # Show overall cluster status
+make polaris-status      # Show Polaris-specific status
+make polaris-logs        # Tail Polaris logs (live)
+
+# Port-Forwarding (runs in background)
+make port-forward-start  # Start all port-forwards
+make port-forward-stop   # Stop all port-forwards
+make port-forward-status # Show active port-forwards
+
+# Service Restarts
+make restart-dagster     # Restart Dagster deployments
+make restart-trino       # Restart Trino deployments
+make restart-polaris     # Restart Polaris deployment
+make restart-all         # Restart all services
+
+# Migration Commands (one-time use)
+make clean-nessie        # Remove Nessie (if migrating from Nessie)
+make clean-old           # Remove old separate namespaces
+
+# Get help
+make help                # Show all available commands
+```
+
+**Quick Start:**
+```bash
+make check && make setup      # Verify and setup
+make deploy                   # Deploy platform
+make port-forward-start       # Access services
+make status                   # Check deployment
+```
+
+### Manual Kubernetes Commands
+
+If not using Makefile:
+
+```bash
+# Deployment (order matters - see SETUP_GUIDE.md)
 kubectl apply -f infrastructure/kubernetes/namespace.yaml
 
-# Deploy services to lakehouse namespace (order matters - see SETUP_GUIDE.md)
 # 1. MinIO (storage)
-kubectl apply -f infrastructure/kubernetes/minio/minio-standalone.yaml \
-  -f infrastructure/kubernetes/minio/values.yaml \
-  -n lakehouse --wait
+kubectl apply -f infrastructure/kubernetes/minio/minio-standalone.yaml -n lakehouse
 
-# 2. Dagster (orchestration - includes embedded PostgreSQL)
+# 2. Dagster (orchestration with embedded PostgreSQL)
 helm upgrade --install dagster dagster/dagster \
   -f infrastructure/kubernetes/dagster/values.yaml \
   -n lakehouse --wait --timeout 10m
@@ -79,104 +111,40 @@ helm upgrade --install trino trino/trino \
   -f infrastructure/kubernetes/trino/values.yaml \
   -n lakehouse --wait --timeout 10m
 
-# 4. Polaris (REST catalog - Phase 3)
-# First create secrets
+# 4. Polaris (REST catalog)
 kubectl apply -f infrastructure/kubernetes/polaris/secrets.yaml
-
-# Then deploy Polaris
 helm upgrade --install polaris polaris/polaris \
   -f infrastructure/kubernetes/polaris/values.yaml \
   -n lakehouse --wait --timeout 10m
 ```
 
-### Teardown
+### Dagster Development
 
-**Refer users to:** [TEARDOWN.md](TEARDOWN.md) for complete teardown process.
-
-Quick reference:
-```bash
-# Uninstall Helm releases (reverse order)
-helm uninstall polaris -n lakehouse  # If Phase 3 deployed
-helm uninstall trino -n lakehouse
-helm uninstall dagster -n lakehouse
-kubectl delete -f infrastructure/kubernetes/minio/minio-standalone.yaml
-
-# Delete namespace
-kubectl delete namespace lakehouse
-```
-
-### Check Status
+**Working with orchestration-dagster:**
 
 ```bash
-# All pods in lakehouse namespace
-kubectl get pods -n lakehouse
+cd orchestration-dagster
 
-# All services
-kubectl get svc -n lakehouse
+# Install dependencies
+uv sync                          # Using uv (recommended)
+# or
+pip install -e ".[dev]"          # Using pip
 
-# Helm releases in lakehouse namespace
-helm list -n lakehouse
+# Configure environment
+source set_pyiceberg_env.sh      # Sets PyIceberg and Polaris config
 
-# Pod logs
-kubectl logs -n lakehouse <pod-name> --tail=100 -f
-```
+# Create .env file with Reddit credentials
+cat > .env <<EOF
+REDDIT_CLIENT_ID="your_client_id"
+REDDIT_CLIENT_SECRET="your_client_secret"
+REDDIT_USER_AGENT="lakehouse:v1.0.0 (by /u/your_username)"
+EOF
 
-### Port-Forward Services
+# Run Dagster
+uv run dagster dev               # Starts on http://localhost:3000
 
-**Note:** Port-forward blocks the terminal. Open separate terminals for each service.
-
-```bash
-# Dagster UI (separate terminal)
-kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
-
-# Trino UI (separate terminal)
-kubectl port-forward -n lakehouse svc/trino 8080:8080
-
-# MinIO S3 API (separate terminal)
-kubectl port-forward -n lakehouse svc/minio 9000:9000
-
-# MinIO Console (separate terminal)
-kubectl port-forward -n lakehouse svc/minio 9001:9001
-
-# Polaris REST API (separate terminal - Phase 3)
-kubectl port-forward -n lakehouse svc/polaris 8181:8181
-```
-
-Access:
-- Dagster: http://localhost:3000
-- Trino: http://localhost:8080
-- MinIO API: http://localhost:9000
-- MinIO Console: http://localhost:9001
-- Polaris REST API: http://localhost:8181
-
-### MinIO S3 Operations
-
-**Note:** MinIO automatically creates the default bucket specified in values.yaml.
-
-```bash
-# Get MinIO credentials (from values.yaml or secrets)
-# Default: admin / minio123
-
-# Access MinIO Console at http://localhost:9001
-# Or use MinIO Client (mc)
-
-# Install mc (MinIO Client)
-# https://min.io/docs/minio/linux/reference/minio-mc.html
-
-# Configure mc alias
-mc alias set myminio http://localhost:9000 admin minio123
-
-# List buckets
-mc ls myminio
-
-# Create bucket (if not using defaultBuckets in values.yaml)
-mc mb myminio/lakehouse
-
-# Upload file
-mc cp myfile.parquet myminio/lakehouse/
-
-# List objects in bucket
-mc ls myminio/lakehouse
+# Materialize assets
+dagster asset materialize -m orchestration_dagster.definitions -a reddit_posts
 ```
 
 ### DBT Transformations
@@ -184,147 +152,104 @@ mc ls myminio/lakehouse
 ```bash
 # From transformations/dbt/ directory
 
-# Parse project (validate syntax)
-dbt parse
-
-# Compile SQL (dry run - check generated SQL)
-dbt compile
-
-# Run models
-dbt run                        # All models
-dbt run --select bronze.*      # Bronze layer only
-dbt run --select silver.*      # Silver layer only
-dbt run --select gold.*        # Gold layer only
-dbt run --select stg_customers # Single model
-
-# Test data quality
-dbt test                       # All tests
-dbt test --select bronze.*     # Layer tests
-
-# Generate and serve documentation
-dbt docs generate && dbt docs serve
+dbt parse                        # Validate syntax
+dbt compile                      # Generate SQL
+dbt run                          # Run all models
+dbt run --select bronze.*        # Bronze layer only
+dbt run --select silver.*        # Silver layer only
+dbt run --select gold.*          # Gold layer only
+dbt test                         # Run data quality tests
+dbt docs generate && dbt docs serve  # Generate documentation
 ```
 
-**Important:** DBT models in `transformations/dbt/models/` are example templates. Do not run until:
-1. Data sources configured and ingested
-2. Raw Iceberg tables created in MinIO S3
-3. `sources.yml` updated with actual table names
+**Important:** DBT models are example templates. Do not run until data sources are configured and ingested.
 
-### DLT (Data Load Tool) Pipelines
+### Trino Queries
 
 ```bash
-# From ingestion/dlt/ or orchestration-dagster/ directory
+# Connect to Trino (via port-forward or in-cluster)
+kubectl exec -n lakehouse deployment/trino-coordinator -- trino
 
-# Install DLT with required dependencies
-pip install dlt[filesystem]
-
-# Initialize DLT pipeline
-dlt init <source_name> filesystem
-
-# Example: Load data from API to MinIO S3 (Iceberg format)
-# Create pipeline script (example: reddit_pipeline.py)
-import dlt
-from dlt.destinations.filesystem import filesystem
-
-pipeline = dlt.pipeline(
-    pipeline_name="reddit_posts",
-    destination=filesystem(bucket_url="s3://lakehouse/raw/reddit"),
-    dataset_name="reddit_data"
-)
-
-# Run pipeline
-load_info = pipeline.run(source_data)
-
-# Run with Dagster orchestration
-dagster dev -f dagster_defs.py
-
-# DLT automatically:
-# - Creates Iceberg tables in MinIO S3
-# - Handles schema evolution
-# - Manages incremental loading
-# - Tracks state and deduplication
+# Example queries
+SHOW SCHEMAS FROM lakehouse;
+SHOW TABLES FROM lakehouse.raw;
+SELECT COUNT(*) FROM lakehouse.raw.reddit_posts;
 ```
-
-**Important:** DLT writes directly to Iceberg format in MinIO S3. Configure credentials via environment variables, never hardcode in code.
 
 ## Key Architectural Decisions
 
-### Terminology: "Lakehouse" vs "Data Lake"
+### Polaris REST Catalog (Not Nessie)
 
-**Use "lakehouse" in naming** (databases, profiles, project names):
-- `database: lakehouse` in Trino connections
-- `profile: lakehouse` in DBT profiles
-- `project: lakehouse_analytics` in DBT
+**The project uses Apache Polaris** as the REST catalog for Iceberg:
+- Simpler authentication (basic auth vs token-based)
+- Tighter integration with Iceberg REST specification
+- Built-in RBAC and governance features
+- Sufficient for Phase 1-3 requirements
 
-**Why?** Reflects the vision - governance (Phase 3 with Apache Polaris) will transform the data lake into a true lakehouse with unified catalog, RBAC, and audit trails.
+**Endpoints:**
+- Cluster: `http://polaris:8181/api/catalog`
+- Port-forward: `http://localhost:8181`
+
+**If you see Nessie references**, they are outdated. The project migrated from Nessie to Polaris.
+
+### dagster-iceberg with PRAW (Not DLT)
+
+**Data ingestion uses dagster-iceberg** IO manager:
+- **PRAW**: Python Reddit API Wrapper for data extraction
+- **dagster-iceberg**: Official Dagster integration for Iceberg
+- **Dual Backend Support**:
+  - **Pandas** (default): Best for learning, small-to-medium datasets
+  - **PyArrow** (optional): Best for performance, large datasets (2-3x faster)
+
+**Project Location:** `orchestration-dagster/` (not `ingestion/dlt/`)
+
+**Backend Selection:**
+```python
+# Pandas backend (default)
+resources={
+    "iceberg_io_manager": create_iceberg_io_manager(backend="pandas")
+}
+
+# PyArrow backend (for performance)
+resources={
+    "iceberg_io_manager": create_iceberg_io_manager(backend="pyarrow")
+}
+```
+
+See `orchestration-dagster/BACKEND_COMPARISON.md` for detailed comparison.
 
 ### Same-Namespace Service Communication
 
-**All services in same `lakehouse` namespace** - uses simplified Kubernetes DNS:
+**All services in `lakehouse` namespace** - uses simplified Kubernetes DNS:
 
 **Pattern:** `<service-name>:<port>` (within same namespace)
 
 **Examples:**
 - MinIO S3 API: `minio:9000`
-- Trino: `trino.trino.svc.cluster.local:8080`
-- Dagster PostgreSQL (embedded): `dagster-postgresql:5432`
-- Polaris REST API (Phase 3): `polaris:8181`
+- Trino: `trino:8080` (full: `trino.lakehouse.svc.cluster.local:8080`)
+- Dagster PostgreSQL: `dagster-postgresql:5432`
+- Polaris REST API: `polaris:8181`
 
 **Usage:**
-- Trino connects to MinIO: `s3.endpoint=http://minio:9000`
-- DBT connects to Trino: `host=trino.trino.svc.cluster.local`
-- Trino connects to Polaris catalog: `iceberg.rest.uri=http://polaris:8181/api/catalog`
+- Trino → MinIO: `s3.endpoint=http://minio:9000`
+- Trino → Polaris: `iceberg.rest.uri=http://polaris:8181/api/catalog`
+- dagster-iceberg → Polaris: Uses `PYICEBERG_CATALOG__DEFAULT__URI`
 
 ### Secret Management
 
 **All secrets externalized** to `secrets.yaml` files (gitignored via `**/*/secrets.yaml` pattern).
 
-**Note:**
-- MinIO credentials are configured in `values.yaml` (change for production)
-- PostgreSQL credentials for Dagster are configured in `values.yaml` (embedded database)
-
-**Never hardcode secrets** in `values.yaml` files.
+**Development credentials** (change for production):
+- MinIO: admin / minio123 (in values.yaml)
+- Polaris: polaris_admin / polaris_admin_secret (bootstrap credentials)
+- Reddit API: Set in `.env` file (not committed)
 
 **Generate secrets:**
 ```bash
-# Random password
-openssl rand -base64 32
-
-# Encode for Kubernetes (base64)
-echo -n "your-password" | base64
-
-# Decode to verify
-echo "base64-string" | base64 -d
+openssl rand -base64 32              # Random password
+echo -n "password" | base64          # Base64 encode for K8s
+echo "base64-string" | base64 -d     # Decode to verify
 ```
-
-**Secret Format:**
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: <service>-secret
-  namespace: lakehouse
-type: Opaque
-data:
-  # Base64 encoded values
-  password: <base64-encoded-password>
-stringData:
-  # Plain text (Kubernetes encodes automatically)
-  username: myuser
-```
-
-### DBT Models as Templates
-
-All DBT models in `transformations/dbt/models/` are **example templates**:
-- Clearly marked as "EXAMPLE TEMPLATE - NOT READY FOR USE"
-- Show patterns for Bronze/Silver/Gold layers
-- Demonstrate star schema (fact + dimension tables)
-- Include SCD Type 2 patterns
-
-**Do not run** until:
-1. Data sources configured and ingested
-2. Raw Iceberg tables created
-3. `sources.yml` updated with actual table names
 
 ### Star Schema Design (Gold Layer)
 
@@ -337,24 +262,41 @@ All DBT models in `transformations/dbt/models/` are **example templates**:
 ### Monorepo Domain Separation
 
 **Team domains prevent conflicts:**
-- `infrastructure/` - Platform/DevOps (Helm charts, K8s manifests, secrets)
+- `infrastructure/` - Platform/DevOps (Helm charts, K8s manifests, Makefile)
 - `transformations/` - Analytics engineering (DBT models)
 - `lakehouse/` - Data architecture (Iceberg schemas, conventions)
-- `orchestration/` - Data engineering (Dagster pipelines)
+- `orchestration-dagster/` - Data engineering (Dagster + dagster-iceberg pipelines)
 - `analytics/` - BI/Analytics (Superset dashboards) - Phase 2+
 - `ml/` - ML engineering (Feast, Kubeflow, DVC) - Phase 4
 
-Teams work independently in their domains with minimal cross-domain changes.
-
-## File Structure Notes
+## File Structure
 
 ### Infrastructure Configuration
 
 **Helm values pattern:**
 - `values.yaml` - Custom overrides (actively edited)
-- `values-default.yaml` - Complete defaults from upstream (reference only, never edit)
+- `values-default.yaml` - Complete defaults from upstream (reference only)
 
-**Only edit `values.yaml`** - keep it minimal with necessary overrides only.
+**Only edit `values.yaml`** - keep minimal with necessary overrides only.
+
+### orchestration-dagster Structure
+
+```
+orchestration-dagster/
+├── src/orchestration_dagster/
+│   ├── definitions.py          # Asset/job/resource definitions
+│   ├── resources/
+│   │   └── iceberg.py         # Iceberg IO manager (Pandas + PyArrow)
+│   └── sources/
+│       ├── reddit.py          # Pandas backend assets
+│       └── reddit_pyarrow.py  # PyArrow backend assets (optional)
+├── iceberg_config.yaml        # Polaris catalog configuration
+├── set_pyiceberg_env.sh       # Environment variable setup
+├── pyproject.toml             # Dependencies (uv or pip)
+├── BACKEND_COMPARISON.md      # Pandas vs PyArrow guide
+├── IMPLEMENTATION_SUMMARY.md  # Setup and configuration guide
+└── README.md                  # Quick start
+```
 
 ### DBT Project Structure
 
@@ -363,17 +305,10 @@ transformations/dbt/
 ├── dbt_project.yml         # Project config: lakehouse_analytics
 ├── profiles.yml            # Trino connection (lakehouse database)
 └── models/
-    ├── sources.yml         # Raw table definitions (update for your sources)
+    ├── sources.yml         # Raw table definitions
     ├── bronze/             # Staging views (stg_*)
-    │   ├── stg_customers.sql
-    │   ├── stg_orders.sql
-    │   └── stg_products.sql
     ├── silver/             # Dimensions (dim_*)
-    │   ├── dim_customer.sql
-    │   ├── dim_product.sql
-    │   └── dim_date.sql
     └── gold/               # Facts (fct_*)
-        └── fct_orders.sql
 ```
 
 ## Important Patterns
@@ -381,25 +316,40 @@ transformations/dbt/
 ### Iceberg Table Creation (via Trino)
 
 ```sql
-CREATE TABLE lakehouse.analytics.dim_customer (
-    customer_key BIGINT,
-    customer_id STRING,
-    email STRING,
-    first_name STRING,
-    last_name STRING,
-    -- SCD Type 2 columns
-    valid_from TIMESTAMP,
-    valid_to TIMESTAMP,
-    is_current BOOLEAN
+CREATE TABLE lakehouse.raw.reddit_posts (
+    id VARCHAR,
+    subreddit VARCHAR,
+    title VARCHAR,
+    score BIGINT,
+    created_utc TIMESTAMP
 )
 WITH (
     format = 'PARQUET',
-    partitioning = ARRAY['month(valid_from)'],
-    location = 's3://lakehouse/warehouse/analytics/dim_customer/'
+    partitioning = ARRAY['month(created_utc)'],
+    location = 's3://lakehouse/warehouse/raw/reddit_posts/'
 )
 ```
 
-### DBT Incremental Models (Iceberg)
+### dagster-iceberg Asset (Pandas)
+
+```python
+from dagster import asset
+import pandas as pd
+
+@asset(
+    key_prefix=["raw", "reddit"],
+    io_manager_key="iceberg_io_manager",
+    metadata={"partition_expr": "created_utc"},
+    group_name="reddit_ingestion",
+)
+def reddit_posts(context) -> pd.DataFrame:
+    # Extract data using PRAW
+    data = extract_reddit_posts()
+    df = pd.DataFrame(data)
+    return df  # dagster-iceberg handles persistence
+```
+
+### DBT Incremental Model (Iceberg)
 
 ```sql
 {{
@@ -428,215 +378,166 @@ FROM {{ source('raw', 'customers') }}
 {% endif %}
 ```
 
-### MinIO S3 Configuration (for Trino/DBT)
-
-```yaml
-# In Trino catalog properties or DBT profiles
-s3:
-  endpoint: http://minio:9000  # Same namespace - simplified DNS
-  path-style-access: true  # Required for MinIO
-  aws-access-key-id: admin  # From MinIO values.yaml
-  aws-secret-access-key: minio123  # From MinIO values.yaml
-  region: us-east-1  # Default region for MinIO
-```
-
-## Iceberg Table Format Strategy
-
-**Iceberg is configured in phases:**
-
-### Phase 2: Direct Iceberg Table Creation
-- **Approach**: Create Iceberg tables directly via Trino SQL or programmatically
-- **Catalog**: Hadoop catalog (filesystem-based) or REST catalog (Apache Polaris)
-- **Setup**: Configure Trino Iceberg connector pointing to MinIO S3
-- **Output**: Iceberg tables written to `s3://lakehouse/warehouse/`
-- **Access**: Trino reads/writes Iceberg tables using the configured catalog
-
-**Key Configuration**:
-```yaml
-# Trino Iceberg Catalog Settings
-connector.name: iceberg
-iceberg.catalog.type: hadoop
-hive.metastore.uri: thrift://localhost:9083  # Or use REST catalog
-s3.endpoint: http://minio:9000
-s3.path-style-access: true
-```
-
-### Phase 3: Apache Polaris Catalog (Upgrade)
-- **Approach**: Deploy Polaris REST catalog for unified table management
-- **Benefits**:
-  - Centralized catalog governance
-  - Multi-engine support (Trino, Spark, Flink)
-  - RBAC and access control
-  - Better metadata management
-- **Migration**: Update Trino to use Polaris REST catalog
-- **Trino Config**: Switch from JDBC to REST catalog type
-
-**Polaris REST Catalog Configuration**:
-```yaml
-# Trino Iceberg Catalog with Polaris
-connector.name=iceberg
-iceberg.catalog.type=rest
-iceberg.rest.uri=http://polaris:8181/api/catalog
-iceberg.rest.warehouse=lakehouse
-s3.endpoint=http://minio:9000
-s3.path-style-access=true
-```
-
-**Why Not Hive Metastore?**
-- Adds complexity (extra PostgreSQL, Hive service)
-- Harder to configure for S3-compatible storage
-- Polaris is cloud-native and designed for modern lakehouses
-
 ## Current Phase Status
 
-**Phase 1 (Foundation):** Complete
-- ✅ Kubernetes infrastructure
-- ✅ MinIO S3 storage
-- ✅ Dagster deployment
-- ✅ Trino deployment
-- ✅ Secret externalization
-- ✅ Documentation (SETUP_GUIDE.md, TEARDOWN.md)
+**Phase 1 (Foundation):** ✅ Complete
+- Kubernetes infrastructure
+- MinIO S3 storage
+- Dagster deployment
+- Trino deployment
+- Polaris REST catalog deployed
+- Makefile automation
+- Comprehensive documentation
 
-**Phase 2 (Analytics):** Ready to Start
-- ✅ DBT project structure (templates)
-- ✅ Star schema examples
-- ✅ Trino deployed and accessible
-- ⏳ Set up DLT for data ingestion
-- ⏳ Configure DLT sources and destinations
-- ⏳ Ingest data to MinIO S3 as Iceberg tables
-- ⏳ Verify Iceberg tables in MinIO S3
-- ⏳ Configure Trino Iceberg catalog
+**Phase 2 (Analytics):** 🔄 In Progress
+- ✅ dagster-iceberg integration
+- ✅ PRAW Reddit data source
+- ✅ Dual backend support (Pandas + PyArrow)
+- ⏳ Verify end-to-end data flow
 - ⏳ DBT model implementation
 - ⏳ Superset deployment (optional)
 
 **Phase 3 (Governance):** Ready to Start
-- ✅ Polaris Helm configuration created
-- ✅ Secrets template for database and storage
-- ⏳ Deploy Apache Polaris REST catalog
-- ⏳ Configure Trino to use Polaris catalog
-- ⏳ Migrate existing tables to Polaris
-- ⏳ RBAC and access control setup
+- ✅ Polaris deployed
+- ⏳ RBAC setup
 - ⏳ Data lineage tracking
-- ⏳ Multi-engine catalog sharing
+- ⏳ Audit logging
 
 **Phase 4 (MLOps):** Planned
 - Feast feature store
 - Kubeflow ML platform
 - DVC data versioning
 
-**Phase 5 (Real-Time):** Planned
-- Kafka/Redpanda streaming
-- Flink stream processing
-- CDC integration
-
 ## Common Workflows
 
-### Adding a New Service to Infrastructure
+### Adding a New Data Source
 
-1. Create Helm values: `infrastructure/kubernetes/<service>/values.yaml`
-2. Create secrets file: `infrastructure/kubernetes/<service>/secrets.yaml` (gitignored, must set `namespace: lakehouse`)
-3. Update `infrastructure/kubernetes/<service>/values.yaml` with service endpoints using simplified DNS (`service:port`)
-4. Add deployment section to `infrastructure/README.md`
-5. Add deployment phase to `SETUP_GUIDE.md` with:
-   - Prerequisites
-   - Deployment commands (deploy to `lakehouse` namespace)
-   - Initialization steps
-   - Verification commands
-   - Access instructions
+1. Create source file in `orchestration-dagster/src/orchestration_dagster/sources/<source>.py`
+2. Define assets using `@asset` decorator
+3. Return `pd.DataFrame` (Pandas) or `pa.Table` (PyArrow)
+4. Add assets to `definitions.py`
+5. Set `io_manager_key="iceberg_io_manager"`
+6. Add metadata: `{"partition_expr": "timestamp_column"}`
 
-**Note:** No need to create separate namespace file - all services use the single `lakehouse` namespace.
+Example:
+```python
+@asset(
+    key_prefix=["raw", "my_source"],
+    io_manager_key="iceberg_io_manager",
+    metadata={"partition_expr": "created_at"},
+)
+def my_data(context) -> pd.DataFrame:
+    data = fetch_data()
+    return pd.DataFrame(data)
+```
 
-### Adding DBT Models
+### Switching Backend (Pandas ↔ PyArrow)
 
-1. **Bronze layer** (staging): Create `models/bronze/stg_<entity>.sql`
-   - Materialized as views (no storage overhead)
-   - Basic type casting and renaming
-   - Reference source tables via `{{ source('raw', 'table') }}`
-   - Minimal transformations (just prepare for Silver)
+**In `definitions.py`:**
+```python
+# Change from Pandas to PyArrow
+resources={
+    "iceberg_io_manager": create_iceberg_io_manager(
+        namespace="raw",
+        backend="pyarrow"  # Was: "pandas"
+    ),
+}
 
-2. **Silver layer** (dimensions): Create `models/silver/dim_<entity>.sql`
-   - Materialized as incremental Iceberg tables
-   - Business logic and enrichment
-   - SCD Type 2 if tracking history
-   - Deduplication and cleaning
+# Import PyArrow assets
+from .sources.reddit_pyarrow import reddit_posts_pyarrow
+```
 
-3. **Gold layer** (facts): Create `models/gold/fct_<entity>.sql`
-   - Materialized as incremental Iceberg tables
-   - Join to dimensions for foreign keys
-   - Star schema pattern
-   - Aggregations and metrics
+**Update asset return type:**
+```python
+import pyarrow as pa
+
+@asset(...)
+def my_asset(context) -> pa.Table:  # Was: pd.DataFrame
+    data = fetch_data()
+    return pa.Table.from_pylist(data)  # Was: pd.DataFrame(data)
+```
 
 ### Debugging Failed Deployments
 
 ```bash
-# Check pod status and events
+# Use Makefile commands
+make status                      # Quick overview
+make polaris-status              # Check Polaris specifically
+make polaris-logs                # View live logs
+
+# Manual debugging
 kubectl get pods -n lakehouse
 kubectl describe pod <pod-name> -n lakehouse
-
-# View logs
 kubectl logs <pod-name> -n lakehouse --tail=100 -f
 
-# Check service endpoints
-kubectl get svc -n lakehouse
-kubectl get endpoints -n lakehouse
-
-# Check persistent volumes
-kubectl get pvc -n lakehouse
-kubectl describe pvc <pvc-name> -n lakehouse
-
-# Test DNS resolution (same namespace - use short name)
-kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- nslookup <service>
-
-# Check resource constraints
-kubectl top pods -n lakehouse
-kubectl top nodes
+# Test service connectivity
+kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- \
+  nslookup polaris
 ```
-
-## Learning Path
-
-**Recommended order for new developers:**
-
-1. **Week 1**: Deploy infrastructure following SETUP_GUIDE.md, understand MinIO S3 initialization
-2. **Week 2**: Create Iceberg tables via Trino, understand table format and catalog
-3. **Week 3**: Learn DBT, create Bronze layer models
-4. **Week 4**: Build Silver layer dimensions (star schema, SCD Type 2)
-5. **Week 5**: Build Gold layer facts (dimensional joins, metrics)
-6. **Week 6**: Query optimization and Trino performance tuning
-7. **Week 7**: Create Superset dashboards (Phase 2)
-8. **Week 8+**: Explore governance (Phase 3) or MLOps (Phase 4)
 
 ## Troubleshooting
 
-### MinIO Pod Not Starting
+### Polaris Database Warnings
 
-**Check:** Persistent volume binding
+**Symptom:** Logs show database connection warnings
+**Status:** Known, non-blocking for development
+**Fix (if needed):** Check `infrastructure/kubernetes/polaris/secrets.yaml` for database credentials
+
+### Reddit Credentials Not Found
+
+**Symptom:** Asset materialization fails with "Reddit credentials not found"
+**Fix:**
 ```bash
-kubectl get pvc -n lakehouse
-kubectl describe pvc -n lakehouse
+cd orchestration-dagster
+cat > .env <<EOF
+REDDIT_CLIENT_ID="your_id"
+REDDIT_CLIENT_SECRET="your_secret"
+REDDIT_USER_AGENT="your_agent"
+EOF
+source set_pyiceberg_env.sh
 ```
 
-### DBT Cannot Connect to Trino
+### Cannot Connect to Polaris Catalog
 
-**Check:**
-1. Port-forward active: `kubectl port-forward -n lakehouse svc/trino 8080:8080`
-2. `profiles.yml` host: Should be `localhost` (if using port-forward) or `trino` (from within cluster)
-3. Trino catalog exists: `SHOW CATALOGS;` in Trino CLI
+**Fix:**
+```bash
+# Check Polaris is running
+make polaris-status
+
+# Start port-forward
+make port-forward-start
+
+# Test connection
+curl http://localhost:8181/api/catalog/v1/config
+```
 
 ### Trino Cannot Access MinIO S3
 
 **Check:**
-1. MinIO S3 service: `kubectl get svc -n lakehouse minio`
-2. Catalog properties: S3 endpoint should be `http://minio:9000` (simplified DNS)
-3. Access keys: Match credentials in MinIO values.yaml (default: admin/minio123)
-4. Path style access: Must be `true` for MinIO
+1. MinIO service running: `kubectl get svc -n lakehouse minio`
+2. Trino catalog config: S3 endpoint = `http://minio:9000`
+3. Path style access: Must be `true` for MinIO
+4. Credentials match MinIO values.yaml
 
 ## References
 
-- **Setup Guide**: Complete deployment walkthrough - see [SETUP_GUIDE.md](SETUP_GUIDE.md)
-- **Teardown Guide**: Clean cluster teardown - see [TEARDOWN.md](TEARDOWN.md)
-- **Infrastructure**: Component documentation - see [infrastructure/README.md](infrastructure/README.md)
-- **Architecture**: Technical deep dive - see [ARCHITECTURE.md](ARCHITECTURE.md)
-- **Iceberg**: ACID table format with schema evolution
-- **Star Schema**: Dimensional modeling in Gold layer (fact + dimension tables)
-- **Medallion Architecture**: Bronze → Silver → Gold data quality progression
-- **SCD Type 2**: Historical tracking with `valid_from`/`valid_to`/`is_current` columns
+**Setup & Deployment:**
+- [SETUP_GUIDE.md](SETUP_GUIDE.md) - Complete deployment walkthrough
+- [TEARDOWN.md](TEARDOWN.md) - Clean cluster teardown
+- [Makefile](Makefile) - Automation commands
+
+**Recent Migration:**
+- [MIGRATION_COMPLETE.md](MIGRATION_COMPLETE.md) - Nessie → Polaris migration details
+- [MAKEFILE_UPDATES.md](MAKEFILE_UPDATES.md) - New Makefile commands
+- [POLARIS_DAGSTER_SETUP.md](POLARIS_DAGSTER_SETUP.md) - Complete setup guide
+
+**Dagster Integration:**
+- [orchestration-dagster/IMPLEMENTATION_SUMMARY.md](orchestration-dagster/IMPLEMENTATION_SUMMARY.md)
+- [orchestration-dagster/BACKEND_COMPARISON.md](orchestration-dagster/BACKEND_COMPARISON.md)
+- [orchestration-dagster/README.md](orchestration-dagster/README.md)
+
+**Architecture:**
+- [infrastructure/README.md](infrastructure/README.md) - Component docs
+- [docs/topics/polaris-rest-catalog.md](docs/topics/polaris-rest-catalog.md)
+- [docs/topics/dagster.md](docs/topics/dagster.md)
+- [docs/topics/apache-iceberg.md](docs/topics/apache-iceberg.md)
