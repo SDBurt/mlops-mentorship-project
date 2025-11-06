@@ -6,7 +6,7 @@
 
 Cross-namespace communication enables [Pods](kubernetes-fundamentals.md) in different [namespaces](kubernetes-fundamentals.md) to communicate via [Kubernetes DNS](kubernetes-networking.md). This is essential for microservices architectures where services are logically isolated but need to interact.
 
-In this lakehouse platform, cross-namespace communication connects all data platform components: [Airbyte](airbyte.md) in `airbyte` namespace writes to [Garage](garage.md) in `garage` namespace, [Trino](trino.md) in `trino` namespace queries Garage, and [DBT](dbt.md) jobs in [Dagster](dagster.md) connect to Trino.
+In this lakehouse platform, cross-namespace communication connects all data platform components: [Airbyte](airbyte.md) in `airbyte` namespace writes to [Garage](minio.md) in `garage` namespace, [Trino](trino.md) in `trino` namespace queries Garage, and [DBT](dbt.md) jobs in [Dagster](dagster.md) connect to Trino.
 
 ## Why Cross-Namespace Communication Matters
 
@@ -104,7 +104,7 @@ If not found, resolution fails. Always use FQDN for cross-namespace.
 
 ### Pattern 1: Airbyte → Garage (Data Ingestion)
 
-**Scenario**: [Airbyte](airbyte.md) writes ingested data to [Garage](garage.md) S3-compatible storage
+**Scenario**: [Airbyte](airbyte.md) writes ingested data to [Garage](minio.md) S3-compatible storage
 
 **Configuration** (`infrastructure/kubernetes/airbyte/values.yaml`):
 ```yaml
@@ -143,7 +143,7 @@ kubectl exec -n airbyte $AIRBYTE_POD -- curl -I http://garage.garage.svc.cluster
 
 ### Pattern 2: Trino → Garage (Data Query)
 
-**Scenario**: [Trino](trino.md) queries [Apache Iceberg](apache-iceberg.md) tables stored in [Garage](garage.md)
+**Scenario**: [Trino](trino.md) queries [Apache Iceberg](apache-iceberg.md) tables stored in [Garage](minio.md)
 
 **Configuration** (`infrastructure/kubernetes/trino/values.yaml`):
 ```yaml
@@ -446,7 +446,7 @@ kubectl delete networkpolicy garage-ingress -n garage
 
 - **[Kubernetes Fundamentals](kubernetes-fundamentals.md)**: Namespaces provide isolation, Services enable communication
 - **[Kubernetes Networking](kubernetes-networking.md)**: DNS and service discovery underpins cross-namespace communication
-- **[Garage](garage.md)**, **[Airbyte](airbyte.md)**, **[Trino](trino.md)**, **[Dagster](dagster.md)**: All services communicate via DNS
+- **[Garage](minio.md)**, **[Airbyte](airbyte.md)**, **[Trino](trino.md)**, **[Dagster](dagster.md)**: All services communicate via DNS
 
 ## Best Practices
 

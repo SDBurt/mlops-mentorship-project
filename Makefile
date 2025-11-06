@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup deploy destroy clean-old clean-nessie port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs
+.PHONY: help check setup deploy destroy clean-old clean-nessie port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris polaris-test deploy-dagster-code
 
 # Variables
 NAMESPACE := lakehouse
@@ -30,6 +30,8 @@ help:
 	@echo "  make status                 - Show cluster status"
 	@echo ""
 	@echo "Polaris Operations:"
+	@echo "  make init-polaris           - Initialize Polaris catalog with RBAC (run after deploy)"
+	@echo "  make polaris-test           - Test Polaris catalog connectivity"
 	@echo "  make polaris-status         - Show Polaris pod status and logs summary"
 	@echo "  make polaris-logs           - Tail Polaris logs (live)"
 	@echo ""
@@ -44,6 +46,9 @@ help:
 	@echo "  make restart-trino          - Restart Trino deployments"
 	@echo "  make restart-polaris        - Restart Polaris deployment"
 	@echo "  make restart-all            - Restart all service deployments"
+	@echo ""
+	@echo "Dagster User Code:"
+	@echo "  make deploy-dagster-code    - Rebuild and deploy orchestration-dagster user code"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. make check && make setup"
@@ -141,12 +146,12 @@ clean-old:
 	@echo "Uninstalling from old namespaces..."
 	@helm uninstall dagster -n dagster 2>/dev/null || echo "dagster namespace not found"
 	@helm uninstall trino -n trino 2>/dev/null || echo "trino namespace not found"
-	@helm uninstall minio -n minio 2>/dev/null || echo "minio namespace not found (old Garage namespace cleanup)"
+	@helm uninstall minio -n minio 2>/dev/null || echo "minio namespace not found (old separate namespace cleanup)"
 	@echo ""
 	@echo "Deleting old namespaces..."
 	@kubectl delete namespace dagster --wait=false 2>/dev/null || echo "dagster namespace already deleted"
 	@kubectl delete namespace trino --wait=false 2>/dev/null || echo "trino namespace already deleted"
-	@kubectl delete namespace minio --wait=false 2>/dev/null || echo "minio namespace already deleted (old Garage namespace cleanup)"
+	@kubectl delete namespace minio --wait=false 2>/dev/null || echo "minio namespace already deleted (old separate namespace cleanup)"
 	@echo ""
 	@echo "Old namespace cleanup complete!"
 
@@ -154,7 +159,7 @@ clean-old:
 port-forward-start:
 	@echo "Starting port-forwards in background..."
 	@echo ""
-	@kubectl port-forward -n $(NAMESPACE) svc/dagster-dagster-webserver 3000:80 > /dev/null 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/dagster-dagster-webserver 3001:80 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/trino 8080:8080 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/minio 9000:9000 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/minio 9001:9001 > /dev/null 2>&1 &
@@ -165,7 +170,7 @@ port-forward-start:
 	@echo "Port-forwards started!"
 	@echo ""
 	@echo "Access URLs:"
-	@echo "  Dagster:       http://localhost:3000 (Orchestration UI)"
+	@echo "  Dagster:       http://localhost:3001 (Orchestration UI)"
 	@echo "  Trino:         http://localhost:8080 (Query Engine)"
 	@echo "  MinIO API:     http://localhost:9000 (S3 API)"
 	@echo "  MinIO Console: http://localhost:9001 (Storage Web UI)"
@@ -272,3 +277,76 @@ polaris-status:
 polaris-logs:
 	@echo "Tailing Polaris logs (Ctrl+C to exit)..."
 	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/name=polaris --tail=50 -f
+
+# Initialize Polaris catalog with RBAC setup
+init-polaris:
+	@echo "Initializing Polaris catalog with RBAC..."
+	@echo ""
+	@echo "This will create:"
+	@echo "  - lakehouse catalog"
+	@echo "  - dagster_user service account"
+	@echo "  - Principal and catalog roles"
+	@echo "  - CATALOG_MANAGE_CONTENT privileges"
+	@echo "  - Namespaces: raw, staging, intermediate, marts"
+	@echo ""
+	@if ! kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
+		echo "Error: Polaris not deployed. Run 'make deploy' first."; \
+		exit 1; \
+	fi
+	@if ! ps aux | grep -q "[k]ubectl port-forward.*polaris.*8181"; then \
+		echo "Starting port-forward to Polaris..."; \
+		kubectl port-forward -n $(NAMESPACE) svc/polaris 8181:8181 > /dev/null 2>&1 & \
+		sleep 2; \
+	fi
+	@echo "Running initialization script..."
+	@chmod +x infrastructure/kubernetes/polaris/init-polaris.sh
+	@infrastructure/kubernetes/polaris/init-polaris.sh http://localhost:8181
+	@echo ""
+	@echo "IMPORTANT: Update orchestration-dagster/set_pyiceberg_env.sh with the new credentials!"
+
+# Test Polaris catalog connectivity
+polaris-test:
+	@echo "Testing Polaris catalog connectivity..."
+	@echo ""
+	@if ! kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
+		echo "Error: Polaris not deployed. Run 'make deploy' first."; \
+		exit 1; \
+	fi
+	@if ! ps aux | grep -q "[k]ubectl port-forward.*polaris.*8181"; then \
+		echo "Starting port-forward to Polaris..."; \
+		kubectl port-forward -n $(NAMESPACE) svc/polaris 8181:8181 > /dev/null 2>&1 & \
+		sleep 2; \
+	fi
+	@echo "Testing REST API endpoint..."
+	@curl -s http://localhost:8181/api/catalog/v1/config | jq '.' || echo "Failed to connect"
+	@echo ""
+	@echo "Testing OAuth token endpoint..."
+	@curl -s http://localhost:8181/api/catalog/v1/oauth/tokens \
+		--user polaris_admin:polaris_admin_secret \
+		-d 'grant_type=client_credentials' \
+		-d 'scope=PRINCIPAL_ROLE:ALL' | jq '.access_token' || echo "Failed to authenticate"
+	@echo ""
+	@echo "Polaris catalog is accessible!"
+
+# Rebuild and deploy Dagster user code
+deploy-dagster-code:
+	@echo "Rebuilding and deploying orchestration-dagster user code..."
+	@echo ""
+	@echo "Step 1/4: Building Docker image..."
+	@cd orchestration-dagster && docker build -t orchestration-dagster:latest .
+	@echo "✓ Docker image built"
+	@echo ""
+	@echo "Step 2/4: Applying ConfigMap..."
+	@kubectl apply -f infrastructure/kubernetes/dagster/user-code-env-configmap.yaml
+	@echo "✓ ConfigMap applied"
+	@echo ""
+	@echo "Step 3/4: Applying Secrets..."
+	@kubectl apply -f infrastructure/kubernetes/dagster/user-code-secrets.yaml
+	@echo "✓ Secrets applied"
+	@echo ""
+	@echo "Step 4/4: Restarting Dagster user code deployment..."
+	@kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestration-dagster -n $(NAMESPACE)
+	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=dagster,component=user-deployments -n $(NAMESPACE) --timeout=120s
+	@echo "✓ Dagster user code deployed successfully!"
+	@echo ""
+	@echo "Deployment complete! Access Dagster at http://localhost:3001"

@@ -42,12 +42,12 @@ kubectl get pods -n lakehouse -o wide
 **Testing pod-to-pod communication**:
 ```bash
 # Get MinIO pod IP
-GARAGE_IP=$(kubectl get pod minio-0 -n lakehouse -o jsonpath='{.status.podIP}')
-echo "MinIO IP: $GARAGE_IP"
+MINIO_IP=$(kubectl get pod minio-0 -n lakehouse -o jsonpath='{.status.podIP}')
+echo "MinIO IP: $MINIO_IP"
 
 # Test from another pod (Trino namespace)
 TRINO_POD=$(kubectl get pod -n lakehouse -l app.kubernetes.io/component=coordinator -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -n lakehouse $TRINO_POD -- curl -I http://$GARAGE_IP:3900
+kubectl exec -n lakehouse $TRINO_POD -- curl -I http://$MINIO_IP:3900
 
 # Expected: HTTP response from MinIO S3 API
 ```

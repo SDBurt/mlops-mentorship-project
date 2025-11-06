@@ -15,7 +15,7 @@ import os
 
 
 def create_iceberg_io_manager(
-    namespace: str = "raw",
+    namespace: str = "data",
     backend: Literal["pandas", "pyarrow"] = "pandas",
     use_vended_credentials: bool = False
 ) -> Union[PandasIcebergIOManager, PyArrowIcebergIOManager]:
@@ -29,7 +29,7 @@ def create_iceberg_io_manager(
     - Upserts/merges based on primary keys
 
     Args:
-        namespace: Schema namespace for tables (default: "raw" for raw data layer)
+        namespace: Schema namespace for tables (default: "data" for single namespace)
         backend: Data format backend - "pandas" or "pyarrow" (default: "pandas")
         use_vended_credentials: Use Polaris vended credentials for S3 (AWS only, not MinIO)
 
@@ -72,13 +72,27 @@ def create_iceberg_io_manager(
         "http://polaris:8181/api/catalog"  # Cluster default (Polaris REST catalog)
     )
 
-    # Build credential from individual env vars or use dagster_user credentials
-    polaris_client_id = os.getenv("POLARIS_CLIENT_ID", "7913425b5732d33c")
-    polaris_client_secret = os.getenv("POLARIS_CLIENT_SECRET", "4ef189d12e263450a3623a00837ca7f4")
-    credential = os.getenv(
-        "PYICEBERG_CATALOG__DEFAULT__CREDENTIAL",
-        f"{polaris_client_id}:{polaris_client_secret}"  # dagster_user credentials with CATALOG_MANAGE_CONTENT privilege
-    )
+    # Build credential from environment variables
+    # IMPORTANT: These must be set after running 'make init-polaris'
+    # The initialization script creates a dagster_user service account with proper RBAC
+    polaris_client_id = os.getenv("POLARIS_CLIENT_ID")
+    polaris_client_secret = os.getenv("POLARIS_CLIENT_SECRET")
+
+    # Use PYICEBERG_CATALOG__DEFAULT__CREDENTIAL if set, otherwise build from individual vars
+    credential = os.getenv("PYICEBERG_CATALOG__DEFAULT__CREDENTIAL")
+
+    if not credential and polaris_client_id and polaris_client_secret:
+        credential = f"{polaris_client_id}:{polaris_client_secret}"
+
+    if not credential:
+        raise ValueError(
+            "Polaris credentials not configured. Please:\n"
+            "1. Run: make init-polaris\n"
+            "2. Source credentials: source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt\n"
+            "3. Update set_pyiceberg_env.sh with POLARIS_CLIENT_ID and POLARIS_CLIENT_SECRET\n"
+            "4. Re-run: source set_pyiceberg_env.sh\n"
+            "See infrastructure/kubernetes/polaris/SETUP.md for details."
+        )
 
     s3_endpoint = os.getenv(
         "PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT",

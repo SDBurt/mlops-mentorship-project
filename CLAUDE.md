@@ -34,13 +34,15 @@ Reddit API → PRAW → Dagster Assets → dagster-iceberg → Polaris Catalog
                                                               ↓
                                                          Trino Query
                                                               ↓
-                                                    Bronze → Silver → Gold
+                                                    Single 'data' Namespace
+                                          (organized by table naming conventions)
 ```
 
-**Medallion Layers:**
-- **Bronze**: Raw staging (views of ingested data)
-- **Silver**: Cleaned dimensions (incremental Iceberg tables)
-- **Gold**: Business facts (star schema for analytics)
+**Data Layers:**
+- **Raw**: Ingested data from sources (minimal transformation)
+- **Staging**: Cleaned, typed, and deduplicated data
+- **Intermediate**: Business logic transformations (reusable models)
+- **Marts**: Final business-facing models (star schema, aggregations)
 
 **Kubernetes Namespace:**
 - `lakehouse` - All services (MinIO, Dagster, Trino, Polaris)
@@ -155,9 +157,9 @@ dagster asset materialize -m orchestration_dagster.definitions -a reddit_posts
 dbt parse                        # Validate syntax
 dbt compile                      # Generate SQL
 dbt run                          # Run all models
-dbt run --select bronze.*        # Bronze layer only
-dbt run --select silver.*        # Silver layer only
-dbt run --select gold.*          # Gold layer only
+dbt run --select staging.*       # Staging layer only
+dbt run --select intermediate.*  # Intermediate layer only
+dbt run --select marts.*         # Marts layer only
 dbt test                         # Run data quality tests
 dbt docs generate && dbt docs serve  # Generate documentation
 ```
@@ -251,7 +253,7 @@ echo -n "password" | base64          # Base64 encode for K8s
 echo "base64-string" | base64 -d     # Decode to verify
 ```
 
-### Star Schema Design (Gold Layer)
+### Star Schema Design (Marts Layer)
 
 **Dimensional modeling** for analytics:
 - **Fact tables**: `fct_orders` (measures, foreign keys to dimensions)
@@ -306,9 +308,9 @@ transformations/dbt/
 ├── profiles.yml            # Trino connection (lakehouse database)
 └── models/
     ├── sources.yml         # Raw table definitions
-    ├── bronze/             # Staging views (stg_*)
-    ├── silver/             # Dimensions (dim_*)
-    └── gold/               # Facts (fct_*)
+    ├── staging/            # Cleaned, typed data (stg_*)
+    ├── intermediate/       # Business logic transformations (int_*)
+    └── marts/              # Business-facing models (dim_*, fct_*)
 ```
 
 ## Important Patterns

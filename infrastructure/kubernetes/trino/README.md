@@ -4,24 +4,24 @@ Distributed SQL query engine for querying Iceberg tables in the lakehouse.
 
 ## What is Trino?
 
-Trino is a distributed SQL query engine that allows you to query data stored in various formats and locations. In this lakehouse, Trino queries Iceberg tables stored in Garage S3.
+Trino is a distributed SQL query engine that allows you to query data stored in various formats and locations. In this lakehouse, Trino queries Iceberg tables stored in MinIO S3.
 
 ## Architecture
 
 ```
-DBT → Trino → Iceberg Catalog → Garage S3 Storage
+DBT → Trino → Iceberg Catalog → MinIO S3 Storage
 ```
 
 - **DBT**: Runs SQL transformations via Trino
 - **Trino**: Executes distributed queries
 - **Iceberg**: Table format with ACID transactions
-- **Garage**: S3-compatible object storage
+- **MinIO**: S3-compatible object storage
 
 ## Configuration
 
 **Coordinator**: 1 replica (coordinates query execution)
 **Workers**: 2 replicas (execute query tasks)
-**Catalog**: Iceberg connector pointing to Garage S3
+**Catalog**: Iceberg connector pointing to MinIO S3
 
 See `values.yaml` for full configuration.
 
@@ -65,6 +65,8 @@ SELECT * FROM bronze.raw_customers LIMIT 10;
 ```
 
 ### DBT Access
+
+DBT connects to Trino which queries Iceberg tables in MinIO S3 storage.
 
 DBT connects to Trino automatically using `profiles.yml`:
 

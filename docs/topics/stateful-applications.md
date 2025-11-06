@@ -342,11 +342,13 @@ spec:
       - name: minio
         image: dxflrs/minio:v0.8.0
         env:
-        - name: GARAGE_RPC_SECRET
+        - name: MINIO_ROOT_USER
+          value: admin
+        - name: MINIO_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: minio-rpc-secret
-              key: secret
+              name: minio-secret
+              key: password
         ports:
         - name: s3-api
           containerPort: 3900
