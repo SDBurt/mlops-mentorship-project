@@ -72,9 +72,12 @@ def create_iceberg_io_manager(
         "http://polaris:8181/api/catalog"  # Cluster default (Polaris REST catalog)
     )
 
+    # Build credential from individual env vars or use dagster_user credentials
+    polaris_client_id = os.getenv("POLARIS_CLIENT_ID", "7913425b5732d33c")
+    polaris_client_secret = os.getenv("POLARIS_CLIENT_SECRET", "4ef189d12e263450a3623a00837ca7f4")
     credential = os.getenv(
         "PYICEBERG_CATALOG__DEFAULT__CREDENTIAL",
-        "polaris_admin:polaris_admin_secret"  # Default bootstrap credentials
+        f"{polaris_client_id}:{polaris_client_secret}"  # dagster_user credentials with CATALOG_MANAGE_CONTENT privilege
     )
 
     s3_endpoint = os.getenv(
@@ -108,14 +111,9 @@ def create_iceberg_io_manager(
         "s3.region": "us-east-1",
         # Timestamp precision: Pandas uses ns, but Iceberg requires us
         "downcast-ns-timestamp-to-us-on-write": "true",
-        # Use fsspec for direct S3 access (no write delegation)
-        "py-io-impl": "pyiceberg.io.fsspec.FsspecFileIO",
-        # Explicitly disable credential delegation - use client S3 credentials
-        # This avoids Polaris permission errors for LOAD_TABLE_WITH_READ_DELEGATION
-        "header.X-Iceberg-Access-Delegation": "false",
     }
 
-    # Override with vended credentials if explicitly requested (AWS S3 only)
+    # Add vended credentials header if explicitly requested (AWS S3 only, not MinIO)
     if use_vended_credentials:
         properties["header.X-Iceberg-Access-Delegation"] = "vended-credentials"
 
