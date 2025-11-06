@@ -7,7 +7,7 @@ This directory contains Kubernetes manifests, Helm configurations, and documenta
 ```
 infrastructure/
 ├── helm/                   # Local Helm charts
-│   └── garage/            # Garage S3 Helm chart (fetched during setup)
+│   └── minio/             # MinIO S3 Helm chart (fetched during setup)
 ├── kubernetes/            # Kubernetes manifests and Helm values
 │   ├── namespace.yaml    # Single lakehouse namespace for all services
 │   ├── minio/            # MinIO S3 configuration
@@ -71,45 +71,36 @@ This guide walks you through every command with explanations, verification steps
 
 ## Components
 
-### Garage (garage namespace)
+### MinIO (lakehouse namespace)
 
 **Purpose:** S3-compatible object storage for data lake files
 
 **Resources:**
-- StatefulSet: `garage-0`
-- Services: `garage-s3-api` (3900), `garage-admin-api` (3903)
-- PVCs: `data-garage-0` (10Gi), `meta-garage-0` (1Gi)
+- StatefulSet: `minio-0`
+- Services: `minio` (9000, 9001)
+- PVCs: `data-minio-0` (10Gi)
 
 **Configuration:**
-- Helm chart: `helm/garage/` (local)
-- Values: `kubernetes/garage/values.yaml`
+- Helm chart: `helm/minio/` (local) or from official repo
+- Values: `kubernetes/minio/values.yaml`
 
 **Key Commands:**
 ```bash
 # Deploy
-kubectl apply -f kubernetes/namespaces/garage.yaml
-helm upgrade --install garage helm/garage \
-  -f kubernetes/garage/values.yaml \
-  -n garage --create-namespace --wait
-
-# Initialize cluster
-POD=$(kubectl get pods -n garage -l app.kubernetes.io/name=garage -o jsonpath='{.items[0].metadata.name}')
-NODE_ID=$(kubectl exec -n garage $POD -- /garage status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
-kubectl exec -n garage $POD -- /garage layout assign -z garage-dc -c 10G $NODE_ID
-kubectl exec -n garage $POD -- /garage layout apply --version 1
-
-# Create bucket
-kubectl exec -n garage $POD -- /garage bucket create lakehouse
-kubectl exec -n garage $POD -- /garage key create lakehouse-access
-kubectl exec -n garage $POD -- /garage bucket allow --read --write lakehouse --key lakehouse-access
+kubectl apply -f kubernetes/namespace.yaml
+helm upgrade --install minio minio/minio \
+  -f kubernetes/minio/values.yaml \
+  -n lakehouse --create-namespace --wait
 
 # Access UI
-kubectl port-forward -n garage svc/garage-s3-api 3900:3900
+kubectl port-forward -n lakehouse svc/minio 9001:9001
+# Console: http://localhost:9001
+# S3 API: http://localhost:9000
 ```
 
 **Troubleshooting:**
-- If cluster not initializing: Check node status with `/garage status`
-- If layout apply fails: Ensure version number is correct (increment from current)
+- If pods not starting: Check PVC binding status
+- If UI not accessible: Verify port-forward is running
 
 ---
 
@@ -157,7 +148,7 @@ kubectl exec -it -n database postgres-0 -- psql -U airbyte -d airbyte
 
 ### Airbyte (airbyte namespace)
 
-**Purpose:** Data ingestion from sources to Garage S3
+**Purpose:** Data ingestion from sources to MinIO S3
 
 **Resources:**
 - Deployments: server, webapp, worker, temporal, connector-builder
@@ -248,7 +239,7 @@ kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
 **Configuration:**
 - Helm chart: `trino/trino`
 - Values: `kubernetes/trino/values.yaml`
-- Catalogs: Iceberg (Garage S3)
+- Catalogs: Iceberg (MinIO S3)
 
 **Key Commands:**
 ```bash
@@ -273,7 +264,7 @@ kubectl exec -it -n trino $POD -- trino
 **Iceberg Configuration:**
 - Catalog: `iceberg`
 - Warehouse: `s3://lakehouse/warehouse/`
-- S3 Endpoint: `http://garage-s3-api.garage.svc.cluster.local:3900`
+- S3 Endpoint: `http://minio:9000` (within lakehouse namespace)
 
 ---
 
@@ -352,10 +343,8 @@ helm repo add dagster https://dagster-io.github.io/helm
 helm repo add trino https://trinodb.github.io/charts
 helm repo update
 
-# 2. Fetch Garage chart
-git clone --depth 1 https://git.deuxfleurs.fr/Deuxfleurs/garage.git /tmp/garage-repo
-cp -r /tmp/garage-repo/script/helm/garage helm/garage
-rm -rf /tmp/garage-repo
+# 2. Add MinIO Helm repo
+helm repo add minio https://charts.min.io/
 
 # 3. Deploy in order
 # See docs/SETUP_GUIDE.md for detailed steps
@@ -363,9 +352,8 @@ rm -rf /tmp/garage-repo
 # Create lakehouse namespace
 kubectl apply -f kubernetes/namespace.yaml
 
-# Garage
-kubectl apply -f kubernetes/garage/secrets.yaml  # If needed
-helm upgrade --install garage helm/garage -f kubernetes/garage/values.yaml -n lakehouse --wait
+# MinIO
+kubectl apply -f kubernetes/minio/minio-standalone.yaml -n lakehouse
 
 # PostgreSQL
 kubectl apply -f kubernetes/database/postgres-secret.yaml
@@ -393,7 +381,7 @@ helm upgrade --install trino trino/trino -f kubernetes/trino/values.yaml -n lake
 helm uninstall dagster -n lakehouse
 helm uninstall trino -n lakehouse
 helm uninstall airbyte -n lakehouse
-helm uninstall garage -n lakehouse
+# MinIO is deployed as StatefulSet (not Helm)
 
 # Delete namespace (deletes all resources)
 kubectl delete namespace lakehouse --wait=true
@@ -435,20 +423,25 @@ kubectl port-forward -n lakehouse svc/dagster-dagster-webserver 3000:80
 # Terminal 3: Trino
 kubectl port-forward -n lakehouse svc/trino 8081:8080
 
-# Terminal 4: Garage S3
-kubectl port-forward -n lakehouse svc/garage-s3-api 3900:3900
+# Terminal 4: MinIO S3 API
+kubectl port-forward -n lakehouse svc/minio 9000:9000
+
+# Terminal 5: MinIO Console
+kubectl port-forward -n lakehouse svc/minio 9001:9001
 ```
 
 Access:
 - Airbyte: http://localhost:8080
 - Dagster: http://localhost:3000
 - Trino: http://localhost:8081
+- MinIO Console: http://localhost:9001
+- MinIO S3 API: http://localhost:9000
 
 ### View Logs
 
 ```bash
-# Garage
-kubectl logs -n lakehouse -l app.kubernetes.io/name=garage --tail=100 -f
+# MinIO
+kubectl logs -n lakehouse -l app=minio --tail=100 -f
 
 # PostgreSQL
 kubectl logs -n lakehouse -l app=postgres --tail=100 -f
@@ -585,7 +578,7 @@ kubectl get pv
 
 | Service | Component | Ports | DNS (Same Namespace) |
 |---------|-----------|-------|---------------------|
-| garage | S3 storage | 3900, 3903 | `garage:3900` |
+| minio | S3 storage | 9000, 9001 | `minio:9000` |
 | postgres | Metadata DB | 5432 | `postgres:5432` |
 | airbyte-airbyte-server-svc | Ingestion | 8001 | `airbyte-airbyte-server-svc:8001` |
 | dagster-dagster-webserver | Orchestration | 80 | `dagster-dagster-webserver:80` |
@@ -595,8 +588,7 @@ kubectl get pv
 
 | Component | PVC | Size | Purpose |
 |-----------|-----|------|---------|
-| Garage | data-garage-0 | 10Gi | Object data |
-| Garage | meta-garage-0 | 1Gi | Metadata |
+| MinIO | data-minio-0 | 10Gi | Object data |
 | PostgreSQL | postgres-storage-postgres-0 | 20Gi | All databases |
 | Dagster | data-dagster-postgresql-0 | 5Gi | Dagster metadata |
 | Airbyte | airbyte-minio-pv-claim | 500Mi | Airbyte state |
@@ -605,7 +597,7 @@ kubectl get pv
 
 | Release | Chart | Version | Namespace |
 |---------|-------|---------|-----------|
-| garage | local/garage | 0.7.2 | lakehouse |
+| minio | StatefulSet | - | lakehouse |
 | airbyte | airbyte/airbyte | 1.8.5 | lakehouse |
 | dagster | dagster/dagster | 1.11.15 | lakehouse |
 | trino | trino/trino | 1.41.0 | lakehouse |

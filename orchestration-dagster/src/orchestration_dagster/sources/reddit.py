@@ -45,7 +45,7 @@ def create_reddit_client() -> praw.Reddit:
 
 
 @asset(
-    key_prefix=["raw", "reddit"],
+    key_prefix=["data", "reddit"],
     io_manager_key="iceberg_io_manager",
     metadata={
         "partition_expr": "created_utc",  # Iceberg partition column
@@ -58,7 +58,7 @@ def reddit_posts(context: AssetExecutionContext) -> pd.DataFrame:
     Extract Reddit posts using PRAW and persist to Iceberg table.
 
     The dagster-iceberg IO manager automatically handles:
-    - Table creation (lakehouse.raw.reddit_posts)
+    - Table creation (lakehouse.data.reddit_posts)
     - Schema inference from DataFrame
     - Partitioning by created_utc
     - Upserts based on 'id' column
@@ -122,6 +122,13 @@ def reddit_posts(context: AssetExecutionContext) -> pd.DataFrame:
     if len(df) > 0:
         df['created_utc'] = pd.to_datetime(df['created_utc']).dt.as_unit('us')
 
+        # Cast integer columns to int32 to match Iceberg schema expectations
+        # Pandas defaults to int64 (long), but Iceberg tables use int32 (int)
+        if 'score' in df.columns:
+            df['score'] = df['score'].astype('int32')
+        if 'num_comments' in df.columns:
+            df['num_comments'] = df['num_comments'].astype('int32')
+
     context.log.info(f"Extracted {len(df)} posts from r/{subreddit}")
 
     # Add metadata to the asset
@@ -144,7 +151,7 @@ def reddit_posts(context: AssetExecutionContext) -> pd.DataFrame:
 
 
 @asset(
-    key_prefix=["raw", "reddit"],
+    key_prefix=["data", "reddit"],
     io_manager_key="iceberg_io_manager",
     metadata={
         "partition_expr": "created_utc",  # Iceberg partition column
@@ -158,7 +165,7 @@ def reddit_comments(context: AssetExecutionContext) -> pd.DataFrame:
     Extract Reddit comments from top posts using PRAW.
 
     The dagster-iceberg IO manager automatically handles:
-    - Table creation (lakehouse.raw.reddit_comments)
+    - Table creation (lakehouse.data.reddit_comments)
     - Schema inference from DataFrame
     - Partitioning by created_utc
     - Upserts based on 'id' column
@@ -230,6 +237,13 @@ def reddit_comments(context: AssetExecutionContext) -> pd.DataFrame:
     # Convert timestamp to microsecond precision (Iceberg requirement)
     if len(df) > 0:
         df['created_utc'] = pd.to_datetime(df['created_utc']).dt.as_unit('us')
+
+        # Cast integer columns to int32 to match Iceberg schema expectations
+        # Pandas defaults to int64 (long), but Iceberg tables use int32 (int)
+        if 'score' in df.columns:
+            df['score'] = df['score'].astype('int32')
+        if 'controversiality' in df.columns:
+            df['controversiality'] = df['controversiality'].astype('int32')
 
     context.log.info(f"Extracted {len(df)} comments from r/{subreddit}")
 

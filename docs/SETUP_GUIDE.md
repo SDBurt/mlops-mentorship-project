@@ -288,17 +288,17 @@ MinIO is a **distributed storage system**. Even though you only have 1 pod now, 
 
 ```bash
 # Save pod name to variable for convenience
-GARAGE_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
-echo "MinIO pod: $GARAGE_POD"
+MINIO_POD=$(kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio -o jsonpath='{.items[0].metadata.name}')
+echo "MinIO pod: $MINIO_POD"
 
 # Run /minio status command inside the pod
-kubectl exec -n lakehouse $GARAGE_POD -- /minio status
+kubectl exec -n lakehouse $MINIO_POD -- /minio status
 ```
 
 **Breaking down this command:**
 - `kubectl exec` - Run a command inside a running pod
 - `-n lakehouse` - In the lakehouse namespace
-- `$GARAGE_POD` - The pod name (minio-0)
+- `$MINIO_POD` - The pod name (minio-0)
 - `--` - Separates kubectl flags from the command to run
 - `/minio status` - MinIO CLI command (runs inside container)
 
@@ -321,11 +321,11 @@ ID                Hostname  Address         Tags  Zone  Capacity          DataAv
 
 ```bash
 # Extract node ID from status output
-NODE_ID=$(kubectl exec -n lakehouse $GARAGE_POD -- /minio status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
+NODE_ID=$(kubectl exec -n lakehouse $MINIO_POD -- /minio status 2>/dev/null | grep -A 2 "HEALTHY NODES" | tail -1 | awk '{print $1}')
 echo "Node ID: $NODE_ID"
 
 # Assign storage role with 10GB capacity
-kubectl exec -n lakehouse $GARAGE_POD -- /minio layout assign -z minio-dc -c 10G $NODE_ID
+kubectl exec -n lakehouse $MINIO_POD -- /minio layout assign -z minio-dc -c 10G $NODE_ID
 ```
 
 **Breaking down the layout assign command:**
@@ -350,7 +350,7 @@ and `minio layout apply` to enact staged changes.
 **What you're doing**: Viewing what will change when you apply the layout.
 
 ```bash
-kubectl exec -n lakehouse $GARAGE_POD -- /minio layout show
+kubectl exec -n lakehouse $MINIO_POD -- /minio layout show
 ```
 
 **Expected output (annotated):**
@@ -405,7 +405,7 @@ minio-dc           Tags  Partitions        Capacity  Usable capacity
 
 ```bash
 # Apply layout version 1
-kubectl exec -n lakehouse $GARAGE_POD -- /minio layout apply --version 1
+kubectl exec -n lakehouse $MINIO_POD -- /minio layout apply --version 1
 ```
 
 **Why `--version 1`?**
@@ -424,7 +424,7 @@ Version 1 of cluster layout applied.
 **What you're doing**: Confirming the node now has a storage role.
 
 ```bash
-kubectl exec -n lakehouse $GARAGE_POD -- /minio status
+kubectl exec -n lakehouse $MINIO_POD -- /minio status
 ```
 
 **Expected output:**
@@ -450,7 +450,7 @@ ID                Hostname  Address         Tags  Zone       Capacity  DataAvail
 
 ```bash
 # Create S3 bucket named "lakehouse"
-kubectl exec -n lakehouse $GARAGE_POD -- /minio bucket create lakehouse
+kubectl exec -n lakehouse $MINIO_POD -- /minio bucket create lakehouse
 ```
 
 **Expected output:**
@@ -460,7 +460,7 @@ Bucket lakehouse has been created
 
 ```bash
 # Create access key (like AWS Access Key ID / Secret Access Key)
-kubectl exec -n lakehouse $GARAGE_POD -- /minio key create lakehouse-access
+kubectl exec -n lakehouse $MINIO_POD -- /minio key create lakehouse-access
 ```
 
 **Expected output:**
@@ -477,14 +477,14 @@ Secret Access Key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ```bash
 # Grant read/write permissions to the bucket
-kubectl exec -n lakehouse $GARAGE_POD -- /minio bucket allow --read --write lakehouse --key lakehouse-access
+kubectl exec -n lakehouse $MINIO_POD -- /minio bucket allow --read --write lakehouse --key lakehouse-access
 ```
 
 **What this does**: Authorizes the access key to read and write objects in the "lakehouse" bucket.
 
 ```bash
 # Verify bucket exists
-kubectl exec -n lakehouse $GARAGE_POD -- /minio bucket list
+kubectl exec -n lakehouse $MINIO_POD -- /minio bucket list
 ```
 
 **Expected output:**

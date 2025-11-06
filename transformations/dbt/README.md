@@ -68,7 +68,7 @@ dbt docs serve
 
 ## Database Connection
 
-DBT connects to Trino which queries Iceberg tables in Garage S3 storage.
+DBT connects to Trino which queries Iceberg tables in MinIO S3 storage.
 
 **Local development:**
 ```bash

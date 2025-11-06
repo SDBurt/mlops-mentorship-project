@@ -39,13 +39,13 @@ defs = Definitions(
     resources={
         # Pandas backend (default) - best for small-to-medium datasets
         "iceberg_io_manager": create_iceberg_io_manager(
-            namespace="raw",
+            namespace="data",
             backend="pandas"
         ),
 
         # PyArrow backend (uncomment to use) - best for large datasets
         # "iceberg_io_manager": create_iceberg_io_manager(
-        #     namespace="raw",
+        #     namespace="data",
         #     backend="pyarrow"
         # ),
     },

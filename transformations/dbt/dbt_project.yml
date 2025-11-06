@@ -27,36 +27,33 @@ clean-targets:         # directories to be removed by `dbt clean`
 models:
   lakehouse_analytics:
     # ========================================================================
-    # Staging Layer: Source-conformed atomic building blocks
+    # Single Namespace: All tables in 'data' namespace
     # ========================================================================
-    # Materialized as views (no storage overhead)
-    # Basic type casting, cleaning, unions
+    # Organization via table prefixes:
+    #   - Source tables: reddit_posts, reddit_comments
+    #   - Staging: stg_reddit_posts, stg_reddit_comments
+    #   - Intermediate: int_reddit_author_stats, int_reddit_post_metrics
+    #   - Marts: dim_authors, fct_posts, fct_comments
+
+    # Staging Layer: Source-conformed atomic building blocks
     staging:
       +materialized: view
-      +schema: staging
+      +schema: data
       +tags: ["staging"]
       reddit:
         +tags: ["staging", "reddit"]
 
-    # ========================================================================
     # Intermediate Layer: Purpose-built transformations
-    # ========================================================================
-    # Materialized as ephemeral (not persisted, used as CTEs)
-    # Aggregations, calculations, enrichments
     intermediate:
       +materialized: ephemeral
-      +schema: intermediate
+      +schema: data
       +tags: ["intermediate"]
       reddit:
         +tags: ["intermediate", "reddit"]
 
-    # ========================================================================
     # Marts Layer: Business-conformed entities
-    # ========================================================================
-    # Dimensions and facts with surrogate keys
-    # Incremental Iceberg tables for efficient updates
     marts:
-      +schema: marts
+      +schema: data
       +tags: ["marts"]
       reddit:
         +materialized: incremental

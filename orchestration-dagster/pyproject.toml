@@ -4,6 +4,7 @@ requires-python = ">=3.10,<3.15"
 version = "0.1.0"
 dependencies = [
     "dagster==1.11.16",
+    "dagster-postgres",  # PostgreSQL storage for K8s run pods
     "dagster-iceberg>=0.1.0",  # Iceberg IO manager
     "pyiceberg>=0.7.0",  # Core PyIceberg library (required by dagster-iceberg)
     "praw>=7.7.1",  # Reddit API client

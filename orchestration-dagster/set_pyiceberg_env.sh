@@ -17,14 +17,40 @@ fi
 export PYICEBERG_CATALOG__DEFAULT__URI="http://localhost:8181/api/catalog"
 export PYICEBERG_CATALOG__DEFAULT__WAREHOUSE="lakehouse"
 export PYICEBERG_CATALOG__DEFAULT__TYPE="rest"
-export PYICEBERG_CATALOG__DEFAULT__CREDENTIAL="polaris_admin:polaris_admin_secret"
 
-# S3/MinIO configuration (localhost for port-forward development)
-export PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT="http://localhost:9000"
+# IMPORTANT: Replace these credentials with dagster_user credentials from init-polaris.sh
+# After running 'make init-polaris', the credentials will be saved to:
+#   infrastructure/kubernetes/polaris/.credentials/dagster_user.txt
+#
+# Run: source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt
+# Or manually copy the POLARIS_CLIENT_ID and POLARIS_CLIENT_SECRET values here.
+#
+# Security Note: Use dagster_user service account (not polaris_admin) for Dagster operations
+export PYICEBERG_CATALOG__DEFAULT__CREDENTIAL="${POLARIS_CLIENT_ID:-polaris_admin}:${POLARIS_CLIENT_SECRET:-polaris_admin_secret}"
+
+# S3/MinIO configuration (127.0.0.1 for port-forward development)
+# Note: Using 127.0.0.1 instead of localhost to avoid PyArrow DNS resolution issues
+export PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT="http://127.0.0.1:9000"
 export PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID="admin"
 export PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY="minio123"
 export PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS="true"
 export PYICEBERG_CATALOG__DEFAULT__S3__REGION="us-east-1"
+
+export PYICEBERG_CATALOG__LAKEHOUSE__S3__ENDPOINT=http://127.0.0.1:9000
+export PYICEBERG_CATALOG__LAKEHOUSE__S3__PATH_STYLE_ACCESS=true
+
+# AWS SDK configuration to prevent metadata service timeouts (WSL2 fix)
+# Disable EC2 metadata service which causes timeouts in local/WSL2 environments
+export AWS_EC2_METADATA_DISABLED="true"
+# Use static credentials to avoid credential chain lookups
+export AWS_ACCESS_KEY_ID="admin"
+export AWS_SECRET_ACCESS_KEY="minio123"
+export AWS_DEFAULT_REGION="us-east-1"
+# Force AWS SDK to use 127.0.0.1 for S3 endpoint (highest precedence)
+export AWS_ENDPOINT_URL_S3="http://127.0.0.1:9000"
+export AWS_ENDPOINT_URL="http://127.0.0.1:9000"
+# Reduce connection timeout for faster failures
+export PYICEBERG_CATALOG__DEFAULT__S3__CONNECT_TIMEOUT="5"
 
 # Reddit API credentials (for PRAW)
 # These should be set in .env file at project root
@@ -37,8 +63,22 @@ echo ""
 echo "PyIceberg environment variables set for Apache Polaris REST catalog"
 echo "  Catalog: lakehouse"
 echo "  Endpoint: http://localhost:8181/api/catalog"
-echo "  Storage: MinIO at http://localhost:9000"
+echo "  Storage: MinIO at http://127.0.0.1:9000"
 echo ""
+
+# Check if using proper dagster_user credentials
+if [ "${POLARIS_CLIENT_ID:-polaris_admin}" = "polaris_admin" ]; then
+    echo "⚠️  WARNING: Using bootstrap credentials (polaris_admin)"
+    echo "  For production, you should:"
+    echo "  1. Run: make init-polaris"
+    echo "  2. Source the credentials: source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt"
+    echo "  3. Re-run: source set_pyiceberg_env.sh"
+    echo ""
+else
+    echo "✓ Using dagster_user service account credentials (Client ID: ${POLARIS_CLIENT_ID:0:8}...)"
+    echo ""
+fi
+
 echo "Note: These endpoints use localhost (for port-forward development)."
 echo "      For in-cluster deployment, the code defaults to cluster DNS:"
 echo "      - Polaris: http://polaris:8181/api/catalog"
