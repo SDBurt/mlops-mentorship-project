@@ -239,12 +239,20 @@ See `orchestration-dagster/BACKEND_COMPARISON.md` for detailed comparison.
 
 ### Secret Management
 
-**All secrets externalized** to `secrets.yaml` files (gitignored via `**/*/secrets.yaml` pattern).
+**All secrets externalized** to separate Secret resources (gitignored via comprehensive patterns in `.gitignore`).
 
-**Development credentials** (change for production):
-- MinIO: admin / minio123 (in values.yaml)
-- Polaris: polaris_admin / polaris_admin_secret (bootstrap credentials)
-- Reddit API: Set in `.env` file (not committed)
+**Secret Management Approach:**
+- All secrets stored in Kubernetes Secret resources (not committed to git)
+- `.example` template files provided for each secret type
+- Credentials injected via environment variables or volume mounts
+- Pre-commit hooks prevent accidental credential commits
+
+**Setup Secrets:**
+1. Copy `.example` files: `cp *-secrets.yaml.example *-secrets.yaml`
+2. Edit and replace placeholders with actual values
+3. Apply to cluster: `kubectl apply -f *-secrets.yaml`
+
+**See SECURITY.md for complete setup instructions.**
 
 **Generate secrets:**
 ```bash

@@ -104,10 +104,14 @@ def create_iceberg_io_manager(
         "admin"  # Default MinIO credentials (change for production)
     )
 
-    s3_secret_key = os.getenv(
-        "PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY",
-        "minio123"  # Default MinIO credentials (change for production)
-    )
+    # IMPORTANT: S3 secret key must be provided via environment variable
+    # For production, use Kubernetes Secrets instead of hardcoded defaults
+    s3_secret_key = os.getenv("PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY")
+    if not s3_secret_key:
+        raise ValueError(
+            "PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY environment variable must be set. "
+            "Do not use hardcoded credentials in production."
+        )
 
     # Build catalog properties
     properties = {

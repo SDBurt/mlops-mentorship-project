@@ -38,7 +38,14 @@ spec:
         - name: MINIO_ROOT_USER
           value: "admin"
         - name: MINIO_ROOT_PASSWORD
-          value: "minio123"
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: secret-access-key
+              optional: true
+          # Fallback default for development (should be overridden via Secret)
+          # Create secret: kubectl create secret generic minio-credentials \
+          #   --from-literal=secret-access-key=YOUR_PASSWORD -n lakehouse
         ports:
         - containerPort: 9000
           name: api

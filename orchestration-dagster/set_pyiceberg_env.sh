@@ -30,21 +30,24 @@ export PYICEBERG_CATALOG__DEFAULT__CREDENTIAL="${POLARIS_CLIENT_ID:-polaris_admi
 
 # S3/MinIO configuration (127.0.0.1 for port-forward development)
 # Note: Using 127.0.0.1 instead of localhost to avoid PyArrow DNS resolution issues
-export PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT="http://127.0.0.1:9000"
-export PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID="admin"
-export PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY="minio123"
-export PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS="true"
-export PYICEBERG_CATALOG__DEFAULT__S3__REGION="us-east-1"
+# IMPORTANT: These credentials should be set in .env file or environment
+# For production, use Kubernetes Secrets instead of hardcoded values
+export PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT="${PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT:-http://127.0.0.1:9000}"
+export PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID="${PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID:-admin}"
+export PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY="${PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY:-CHANGEME_MINIO_PASSWORD}"
+export PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS="${PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS:-true}"
+export PYICEBERG_CATALOG__DEFAULT__S3__REGION="${PYICEBERG_CATALOG__DEFAULT__S3__REGION:-us-east-1}"
 
-export PYICEBERG_CATALOG__LAKEHOUSE__S3__ENDPOINT=http://127.0.0.1:9000
-export PYICEBERG_CATALOG__LAKEHOUSE__S3__PATH_STYLE_ACCESS=true
+export PYICEBERG_CATALOG__LAKEHOUSE__S3__ENDPOINT="${PYICEBERG_CATALOG__LAKEHOUSE__S3__ENDPOINT:-http://127.0.0.1:9000}"
+export PYICEBERG_CATALOG__LAKEHOUSE__S3__PATH_STYLE_ACCESS="${PYICEBERG_CATALOG__LAKEHOUSE__S3__PATH_STYLE_ACCESS:-true}"
 
 # AWS SDK configuration to prevent metadata service timeouts (WSL2 fix)
 # Disable EC2 metadata service which causes timeouts in local/WSL2 environments
-export AWS_EC2_METADATA_DISABLED="true"
+export AWS_EC2_METADATA_DISABLED="${AWS_EC2_METADATA_DISABLED:-true}"
 # Use static credentials to avoid credential chain lookups
-export AWS_ACCESS_KEY_ID="admin"
-export AWS_SECRET_ACCESS_KEY="minio123"
+# IMPORTANT: Set these in .env file - do not hardcode production credentials
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-admin}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-CHANGEME_MINIO_PASSWORD}"
 export AWS_DEFAULT_REGION="us-east-1"
 # Force AWS SDK to use 127.0.0.1 for S3 endpoint (highest precedence)
 export AWS_ENDPOINT_URL_S3="http://127.0.0.1:9000"
