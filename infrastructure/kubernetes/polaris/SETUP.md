@@ -169,9 +169,19 @@ You can create additional principals for other services (Trino, DBT, BI tools, e
 ### Example: Create a Read-Only Analyst Principal
 
 ```bash
+# Set bootstrap credentials (from environment or Kubernetes Secret)
+export POLARIS_BOOTSTRAP_CLIENT_ID="${POLARIS_BOOTSTRAP_CLIENT_ID:-polaris_admin}"
+export POLARIS_BOOTSTRAP_CLIENT_SECRET="${POLARIS_BOOTSTRAP_CLIENT_SECRET:-}"
+
+# Validate credentials are set
+if [ -z "$POLARIS_BOOTSTRAP_CLIENT_SECRET" ]; then
+  echo "ERROR: POLARIS_BOOTSTRAP_CLIENT_SECRET must be set"
+  exit 1
+fi
+
 # Get bootstrap token
 BOOTSTRAP_TOKEN=$(curl -s http://localhost:8181/api/catalog/v1/oauth/tokens \
-   --user polaris_admin:polaris_admin_secret \
+   --user "${POLARIS_BOOTSTRAP_CLIENT_ID}:${POLARIS_BOOTSTRAP_CLIENT_SECRET}" \
    -d 'grant_type=client_credentials' \
    -d 'scope=PRINCIPAL_ROLE:ALL' | jq -r .access_token)
 
@@ -284,11 +294,13 @@ CREATE SCHEMA lakehouse.marts;
 
 ## Security Best Practices
 
-1. **Use Service Accounts**: Always create dedicated service accounts (not `polaris_admin`) for applications
-2. **Principle of Least Privilege**: Grant only the minimum privileges required
-3. **Rotate Credentials**: Periodically regenerate principal credentials
-4. **Audit Access**: Monitor Polaris logs for unauthorized access attempts
-5. **Namespace Isolation**: Use separate namespaces for different teams/environments
+1. **Never Hardcode Credentials**: Always use environment variables or Kubernetes Secrets
+2. **Use Service Accounts**: Always create dedicated service accounts (not `polaris_admin`) for applications
+3. **Principle of Least Privilege**: Grant only the minimum privileges required
+4. **Rotate Credentials**: Periodically regenerate principal credentials
+5. **Audit Access**: Monitor Polaris logs for unauthorized access attempts
+6. **Namespace Isolation**: Use separate namespaces for different teams/environments
+7. **Bootstrap Credentials**: Store bootstrap credentials in Kubernetes Secrets, not in scripts or config files
 
 ## Next Steps
 
