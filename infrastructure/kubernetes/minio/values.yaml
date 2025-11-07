@@ -16,9 +16,11 @@ image:
 mode: standalone
 
 # Authentication
+# IMPORTANT: Override these values using Kubernetes Secrets or Helm --set flags
+# See minio-secrets.yaml.example for secret-based approach
 auth:
   rootUser: "admin"
-  rootPassword: "minio123"  # TODO: Change for production (use secrets in real deployment)
+  rootPassword: "CHANGEME_MINIO_PASSWORD"  # Override via secret or --set flag
 
 # Number of replicas (standalone mode uses 1)
 replicas: 1
