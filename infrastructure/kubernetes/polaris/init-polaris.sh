@@ -14,8 +14,35 @@
 
 set -e  # Exit on error
 
-# Configuration
-POLARIS_HOST="${1:-http://localhost:8181}"
+# Configuration - Parse command line arguments
+POLARIS_HOST=""
+POS_ARG=""
+
+# Parse arguments: handle --host flag and positional arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --host)
+            shift
+            POLARIS_HOST="$1"
+            shift
+            ;;
+        --host=*)
+            POLARIS_HOST="${1#--host=}"
+            shift
+            ;;
+        *)
+            if [ -z "$POS_ARG" ]; then
+                POS_ARG="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Set POLARIS_HOST from flag, positional argument, or default
+if [ -z "$POLARIS_HOST" ]; then
+    POLARIS_HOST="${POS_ARG:-http://localhost:8181}"
+fi
 BOOTSTRAP_CLIENT_ID="polaris_admin"
 BOOTSTRAP_CLIENT_SECRET="polaris_admin_secret"
 CATALOG_NAME="lakehouse"

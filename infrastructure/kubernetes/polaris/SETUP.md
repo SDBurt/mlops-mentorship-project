@@ -277,9 +277,9 @@ make polaris-test
 ```sql
 -- Connect to Trino
 CREATE SCHEMA lakehouse.raw;
-CREATE SCHEMA lakehouse.bronze;
-CREATE SCHEMA lakehouse.silver;
-CREATE SCHEMA lakehouse.gold;
+CREATE SCHEMA lakehouse.staging;
+CREATE SCHEMA lakehouse.intermediate;
+CREATE SCHEMA lakehouse.marts;
 ```
 
 ## Security Best Practices
