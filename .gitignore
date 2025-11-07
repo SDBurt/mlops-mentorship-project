@@ -162,3 +162,7 @@ logs/
 infrastructure/helm/
 
 .tmp_*
+
+# DBT generated/vendor directories
+**/dbt_packages/
+**/target/
