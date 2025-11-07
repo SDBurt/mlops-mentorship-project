@@ -116,14 +116,16 @@ combined_metrics AS (
         p.video_posts_count,
 
         -- Temporal
-        LEAST(
-            COALESCE(p.first_post_at, TIMESTAMP '2999-12-31 23:59:59'),
-            COALESCE(c.first_comment_at, TIMESTAMP '2999-12-31 23:59:59')
-        ) AS first_seen_at,
-        GREATEST(
-            COALESCE(p.last_post_at, TIMESTAMP '1970-01-01 00:00:00'),
-            COALESCE(c.last_comment_at, TIMESTAMP '1970-01-01 00:00:00')
-        ) AS last_seen_at,
+        CASE
+            WHEN p.first_post_at IS NULL THEN c.first_comment_at
+            WHEN c.first_comment_at IS NULL THEN p.first_post_at
+            ELSE LEAST(p.first_post_at, c.first_comment_at)
+        END AS first_seen_at,
+        CASE
+            WHEN p.last_post_at IS NULL THEN c.last_comment_at
+            WHEN c.last_comment_at IS NULL THEN p.last_post_at
+            ELSE GREATEST(p.last_post_at, c.last_comment_at)
+        END AS last_seen_at,
 
         -- Premium status
         COALESCE(p.is_premium, FALSE) AS is_premium,
