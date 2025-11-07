@@ -8,7 +8,7 @@ to Iceberg tables via dagster-iceberg IO manager.
 import praw
 import pandas as pd
 from dagster import asset, AssetExecutionContext
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 
 
@@ -88,7 +88,7 @@ def reddit_posts(context: AssetExecutionContext) -> pd.DataFrame:
             # Identity
             "id": post.id,
             "subreddit": post.subreddit.display_name,
-            "created_utc": datetime.fromtimestamp(post.created_utc),
+            "created_utc": datetime.fromtimestamp(post.created_utc, tz=timezone.utc),
             "permalink": f"https://reddit.com{post.permalink}",
 
             # Content
@@ -209,7 +209,7 @@ def reddit_comments(context: AssetExecutionContext) -> pd.DataFrame:
                 # Identity
                 "id": comment.id,
                 "subreddit": subreddit,
-                "created_utc": datetime.fromtimestamp(comment.created_utc),
+                "created_utc": datetime.fromtimestamp(comment.created_utc, tz=timezone.utc),
                 "permalink": f"https://reddit.com{comment.permalink}",
 
                 # Threading (for conversation analysis)
