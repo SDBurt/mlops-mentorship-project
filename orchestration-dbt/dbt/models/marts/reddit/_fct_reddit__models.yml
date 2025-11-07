@@ -1,0 +1,185 @@
+version: 2
+
+models:
+  # ==========================================================================
+  # Fact Model: Reddit Posts
+  # ==========================================================================
+  - name: fct_posts
+    description: |
+      Post fact table with engagement metrics and dimensional foreign keys.
+      Optimized for Feast feature store with clean, typed features.
+      Grain: One row per Reddit post.
+    config:
+      tags: ['fact', 'reddit', 'posts']
+    columns:
+      - name: post_key
+        description: "Surrogate key (primary key) generated from post_id"
+        tests:
+          - unique
+          - not_null
+
+      - name: post_id
+        description: "Natural key - Reddit post ID"
+        tests:
+          - unique
+          - not_null
+
+      - name: subreddit_key
+        description: "Foreign key to dim_subreddit"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_subreddit')
+              field: subreddit_key
+
+      - name: author_key
+        description: "Foreign key to dim_author (current version)"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_author')
+              field: author_key
+
+      - name: date_key
+        description: "Foreign key to dim_date"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+
+      - name: created_at
+        description: "UTC timestamp when post was created"
+        tests:
+          - not_null
+
+      - name: title
+        description: "Post title"
+        tests:
+          - not_null
+
+      - name: score
+        description: "Net upvotes (upvotes - downvotes)"
+        tests:
+          - not_null
+
+      - name: upvote_ratio
+        description: "Ratio of upvotes to total votes (0.0 to 1.0)"
+        tests:
+          - not_null
+
+      - name: num_comments
+        description: "Number of comments (from Reddit metadata)"
+        tests:
+          - not_null
+
+      - name: engagement_score
+        description: "Derived engagement metric (ML feature)"
+        tests:
+          - not_null
+
+      - name: quality_score
+        description: "Quality indicator (ML feature)"
+        tests:
+          - not_null
+
+      - name: content_type
+        description: "Type of content (self, video, gallery, link, other)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['self', 'video', 'gallery', 'link', 'other']
+
+  # ==========================================================================
+  # Fact Model: Reddit Comments
+  # ==========================================================================
+  - name: fct_comments
+    description: |
+      Comment fact table with engagement metrics and dimensional foreign keys.
+      Optimized for Feast feature store with thread relationship tracking.
+      Grain: One row per Reddit comment.
+    config:
+      tags: ['fact', 'reddit', 'comments']
+    columns:
+      - name: comment_key
+        description: "Surrogate key (primary key) generated from comment_id"
+        tests:
+          - unique
+          - not_null
+
+      - name: comment_id
+        description: "Natural key - Reddit comment ID"
+        tests:
+          - unique
+          - not_null
+
+      - name: post_key
+        description: "Foreign key to fct_posts"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('fct_posts')
+              field: post_key
+
+      - name: subreddit_key
+        description: "Foreign key to dim_subreddit"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_subreddit')
+              field: subreddit_key
+
+      - name: author_key
+        description: "Foreign key to dim_author (comment author)"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_author')
+              field: author_key
+
+      - name: date_key
+        description: "Foreign key to dim_date"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+
+      - name: parent_author_key
+        description: "Foreign key to dim_author (parent comment/post author) - nullable"
+        tests:
+          - relationships:
+              to: ref('dim_author')
+              field: author_key
+
+      - name: created_at
+        description: "UTC timestamp when comment was created"
+        tests:
+          - not_null
+
+      - name: post_id
+        description: "Parent post ID (degenerate dimension)"
+        tests:
+          - not_null
+
+      - name: depth
+        description: "Comment depth in thread (0 = top-level)"
+        tests:
+          - not_null
+
+      - name: score
+        description: "Net upvotes (upvotes - downvotes)"
+        tests:
+          - not_null
+
+      - name: parent_type
+        description: "Type of parent (post or comment)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['post', 'comment', 'unknown']
+
+      - name: is_submitter
+        description: "True if comment author is OP (original poster)"
+        tests:
+          - not_null

@@ -1,5 +1,10 @@
 ---
 # Job to create default bucket in MinIO
+# IMPORTANT: MinIO credentials should be provided via Secret
+# Create secret: kubectl create secret generic minio-credentials \
+#   --from-literal=access-key-id=admin \
+#   --from-literal=secret-access-key=YOUR_PASSWORD \
+#   -n lakehouse
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -12,12 +17,33 @@ spec:
       containers:
       - name: mc
         image: minio/mc:latest
+        env:
+        # MinIO credentials from Secret
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: access-key-id
+              # Required: Secret must exist for job to run
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: secret-access-key
+              # Required: Secret must exist for job to run
         command:
         - /bin/sh
         - -c
         - |
+          # MinIO credentials from Secret (required)
+          # Fail fast if credentials are not provided
+          if [ -z "${MINIO_ACCESS_KEY}" ] || [ -z "${MINIO_SECRET_KEY}" ]; then
+            echo "ERROR: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be provided via Secret"
+            exit 1
+          fi
+
           # Wait for MinIO to be ready
-          until mc alias set myminio http://minio:9000 admin minio123; do
+          until mc alias set myminio http://minio:9000 "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"; do
             echo "Waiting for MinIO to be ready..."
             sleep 2
           done

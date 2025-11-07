@@ -1,0 +1,26 @@
+# ConfigMap for Dagster User Code Environment Variables
+# Contains non-sensitive configuration for orchestration-dagster
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dagster-user-code-env
+  namespace: lakehouse
+data:
+  # Polaris REST Catalog
+  PYICEBERG_CATALOG__DEFAULT__URI: "http://polaris:8181/api/catalog"
+  PYICEBERG_CATALOG__DEFAULT__WAREHOUSE: "lakehouse"
+  PYICEBERG_CATALOG__DEFAULT__TYPE: "rest"
+
+  # MinIO S3 Storage (cluster DNS)
+  PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT: "http://minio:9000"
+  # PYICEBERG credentials provided via secret
+  # See dagster-user-code-secrets
+  PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS: "true"
+  PYICEBERG_CATALOG__DEFAULT__S3__REGION: "us-east-1"
+
+  # AWS SDK Configuration
+  # AWS_ACCESS_KEY_ID provided via secret
+  # AWS_SECRET_ACCESS_KEY provided via secret
+  AWS_DEFAULT_REGION: "us-east-1"
+  AWS_EC2_METADATA_DISABLED: "true"

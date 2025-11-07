@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup deploy destroy clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-all status
+.PHONY: help check setup deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test deploy-dagster-code
 
 # Variables
 NAMESPACE := lakehouse
@@ -25,8 +25,16 @@ help:
 	@echo ""
 	@echo "Management:"
 	@echo "  make destroy                - Tear down lakehouse cluster"
+	@echo "  make nuke                   - Complete reset: destroy everything and clean local files"
 	@echo "  make clean-old              - One-time cleanup of old separate namespaces (migration only)"
 	@echo "  make status                 - Show cluster status"
+	@echo ""
+	@echo "Polaris Operations:"
+	@echo "  make init-polaris           - Initialize Polaris catalog with RBAC (run after deploy)"
+	@echo "  make setup-polaris-rbac    - Setup RBAC and namespaces (catalog/principal must exist)"
+	@echo "  make polaris-test           - Test Polaris catalog connectivity"
+	@echo "  make polaris-status         - Show Polaris pod status and logs summary"
+	@echo "  make polaris-logs           - Tail Polaris logs (live)"
 	@echo ""
 	@echo "Port-forwarding:"
 	@echo "  make port-forward-start     - Start all port-forwards in background"
@@ -37,7 +45,11 @@ help:
 	@echo "Service Restarts:"
 	@echo "  make restart-dagster        - Restart Dagster deployments"
 	@echo "  make restart-trino          - Restart Trino deployments"
+	@echo "  make restart-polaris        - Restart Polaris deployment"
 	@echo "  make restart-all            - Restart all service deployments"
+	@echo ""
+	@echo "Dagster User Code:"
+	@echo "  make deploy-dagster-code    - Rebuild and deploy orchestration-dagster user code"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  1. make check && make setup"
@@ -62,7 +74,7 @@ setup:
 	@echo "Setting up Helm repositories..."
 	@helm repo add dagster https://dagster-io.github.io/helm
 	@helm repo add trino https://trinodb.github.io/charts
-	@echo "Note: Polaris chart is installed from GitHub repo (no official Helm repo yet)"
+	@helm repo add polaris https://apache.github.io/polaris
 	@helm repo update
 	@echo "✓ Helm repositories configured"
 
@@ -92,19 +104,15 @@ deploy:
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
 	@echo "✓ Trino deployed"
 	@echo ""
-	@echo "Step 5/5: Deploying Polaris (REST catalog - optional Phase 3)..."
-	@echo "Note: Polaris requires secrets file. Skipping if not present."
-	@if [ -f $(POLARIS_SECRETS) ]; then \
-		kubectl apply -f $(POLARIS_SECRETS) && \
-		echo "Polaris deployment requires cloning the chart from GitHub:" && \
-		echo "  git clone https://github.com/apache/polaris.git /tmp/polaris-repo" && \
-		echo "  helm upgrade --install polaris /tmp/polaris-repo/helm/polaris -f $(POLARIS_VALUES) -n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)" && \
-		echo "✓ Polaris ready to deploy (run commands above)"; \
-	else \
-		echo "⊘ Polaris secrets not found at $(POLARIS_SECRETS) - skipping (Phase 3)"; \
-	fi
+	@echo "Step 5/5: Deploying Polaris (Apache Iceberg REST catalog)..."
+	@kubectl apply -f $(POLARIS_SECRETS)
+	@helm upgrade --install polaris polaris/polaris \
+		-f $(POLARIS_VALUES) \
+		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
+	@echo "✓ Polaris deployed"
 	@echo ""
 	@echo "Deployment complete! MinIO is ready with default bucket 'lakehouse'."
+	@echo "Polaris REST catalog is available for unified Iceberg table management."
 
 
 # Teardown lakehouse cluster
@@ -115,8 +123,11 @@ destroy:
 	@echo "Press Ctrl+C within 5 seconds to cancel..."
 	@sleep 5
 	@echo ""
+	@echo "Stopping port-forwards..."
+	@$(MAKE) port-forward-stop 2>/dev/null || true
+	@echo ""
 	@echo "Uninstalling Polaris (if deployed)..."
-	@helm uninstall polaris -n $(NAMESPACE) 2>/dev/null || echo "Polaris not found (Phase 3)"
+	@helm uninstall polaris -n $(NAMESPACE) 2>/dev/null || echo "Polaris not found"
 	@echo "Uninstalling Trino..."
 	@helm uninstall trino -n $(NAMESPACE) 2>/dev/null || echo "Trino not found"
 	@echo "Uninstalling Dagster..."
@@ -129,6 +140,57 @@ destroy:
 	@echo ""
 	@echo "Teardown complete!"
 
+# Complete reset: destroy everything and clean local files
+nuke:
+	@echo "=========================================="
+	@echo "   NUKE: Complete Platform Reset"
+	@echo "=========================================="
+	@echo ""
+	@echo "⚠️  WARNING: This will:"
+	@echo "  - Destroy ALL services and data in lakehouse namespace"
+	@echo "  - Stop all port-forwards"
+	@echo "  - Delete local credential files (.credentials/)"
+	@echo "  - Remove all Helm releases"
+	@echo "  - Delete the entire namespace"
+	@echo ""
+	@echo "This is IRREVERSIBLE. All data will be lost!"
+	@echo ""
+	@echo "Press Ctrl+C within 10 seconds to cancel..."
+	@sleep 10
+	@echo ""
+	@echo "Step 1/5: Stopping all port-forwards..."
+	@$(MAKE) port-forward-stop 2>/dev/null || true
+	@echo "✓ Port-forwards stopped"
+	@echo ""
+	@echo "Step 2/5: Uninstalling all Helm releases..."
+	@helm uninstall polaris -n $(NAMESPACE) 2>/dev/null || echo "  Polaris: not found"
+	@helm uninstall trino -n $(NAMESPACE) 2>/dev/null || echo "  Trino: not found"
+	@helm uninstall dagster -n $(NAMESPACE) 2>/dev/null || echo "  Dagster: not found"
+	@echo "✓ Helm releases uninstalled"
+	@echo ""
+	@echo "Step 3/5: Deleting all resources..."
+	@kubectl delete -f infrastructure/kubernetes/minio/minio-standalone.yaml 2>/dev/null || echo "  MinIO: not found"
+	@kubectl delete job -n $(NAMESPACE) --all 2>/dev/null || true
+	@kubectl delete pvc -n $(NAMESPACE) --all 2>/dev/null || true
+	@echo "✓ Resources deleted"
+	@echo ""
+	@echo "Step 4/5: Deleting namespace..."
+	@kubectl delete namespace $(NAMESPACE) --wait=true --timeout=120s 2>/dev/null || echo "  Namespace $(NAMESPACE): not found"
+	@echo "✓ Namespace deleted"
+	@echo ""
+	@echo "Step 5/5: Cleaning local credential files..."
+	@rm -rf infrastructure/kubernetes/polaris/.credentials 2>/dev/null || true
+	@echo "✓ Local credentials cleaned"
+	@echo ""
+	@echo "=========================================="
+	@echo "   NUKE Complete!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Everything has been reset. You can now run:"
+	@echo "  make deploy"
+	@echo ""
+	@echo "to start fresh!"
+
 # One-time cleanup of old separate namespaces (for migration from old architecture)
 clean-old:
 	@echo "Cleaning up old separate namespaces..."
@@ -139,12 +201,12 @@ clean-old:
 	@echo "Uninstalling from old namespaces..."
 	@helm uninstall dagster -n dagster 2>/dev/null || echo "dagster namespace not found"
 	@helm uninstall trino -n trino 2>/dev/null || echo "trino namespace not found"
-	@helm uninstall minio -n minio 2>/dev/null || echo "minio namespace not found (old Garage namespace cleanup)"
+	@helm uninstall minio -n minio 2>/dev/null || echo "minio namespace not found (old separate namespace cleanup)"
 	@echo ""
 	@echo "Deleting old namespaces..."
 	@kubectl delete namespace dagster --wait=false 2>/dev/null || echo "dagster namespace already deleted"
 	@kubectl delete namespace trino --wait=false 2>/dev/null || echo "trino namespace already deleted"
-	@kubectl delete namespace minio --wait=false 2>/dev/null || echo "minio namespace already deleted (old Garage namespace cleanup)"
+	@kubectl delete namespace minio --wait=false 2>/dev/null || echo "minio namespace already deleted (old separate namespace cleanup)"
 	@echo ""
 	@echo "Old namespace cleanup complete!"
 
@@ -152,7 +214,7 @@ clean-old:
 port-forward-start:
 	@echo "Starting port-forwards in background..."
 	@echo ""
-	@kubectl port-forward -n $(NAMESPACE) svc/dagster-dagster-webserver 3000:80 > /dev/null 2>&1 &
+	@kubectl port-forward -n $(NAMESPACE) svc/dagster-dagster-webserver 3001:80 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/trino 8080:8080 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/minio 9000:9000 > /dev/null 2>&1 &
 	@kubectl port-forward -n $(NAMESPACE) svc/minio 9001:9001 > /dev/null 2>&1 &
@@ -163,12 +225,12 @@ port-forward-start:
 	@echo "Port-forwards started!"
 	@echo ""
 	@echo "Access URLs:"
-	@echo "  Dagster:       http://localhost:3000"
-	@echo "  Trino:         http://localhost:8080"
+	@echo "  Dagster:       http://localhost:3001 (Orchestration UI)"
+	@echo "  Trino:         http://localhost:8080 (Query Engine)"
 	@echo "  MinIO API:     http://localhost:9000 (S3 API)"
-	@echo "  MinIO Console: http://localhost:9001 (Web UI)"
+	@echo "  MinIO Console: http://localhost:9001 (Storage Web UI)"
 	@if kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
-		echo "  Polaris:       http://localhost:8181 (REST Catalog - Phase 3)"; \
+		echo "  Polaris:       http://localhost:8181 (REST Catalog API)"; \
 	fi
 	@echo ""
 	@echo "Run 'make port-forward-status' to check status"
@@ -205,6 +267,18 @@ restart-trino:
 	@kubectl rollout status deployment -n $(NAMESPACE) -l app=trino,component=coordinator --timeout=120s
 	@echo "✓ Trino restarted successfully!"
 
+# Restart Polaris deployment
+restart-polaris:
+	@echo "Restarting Polaris deployment..."
+	@if kubectl get deployment -n $(NAMESPACE) -l app.kubernetes.io/name=polaris > /dev/null 2>&1; then \
+		kubectl rollout restart deployment -n $(NAMESPACE) -l app.kubernetes.io/name=polaris; \
+		echo "Waiting for Polaris to be ready..."; \
+		kubectl rollout status deployment -n $(NAMESPACE) -l app.kubernetes.io/name=polaris --timeout=120s; \
+		echo "✓ Polaris restarted successfully!"; \
+	else \
+		echo "Polaris not found. Run 'make deploy' to install."; \
+	fi
+
 # Restart all services
 restart-all:
 	@echo "Restarting all services..."
@@ -212,6 +286,8 @@ restart-all:
 	@$(MAKE) restart-dagster
 	@echo ""
 	@$(MAKE) restart-trino
+	@echo ""
+	@$(MAKE) restart-polaris
 	@echo ""
 	@echo "✓ All services restarted!"
 
@@ -234,3 +310,181 @@ status:
 	@echo ""
 	@echo "Persistent Volume Claims:"
 	@kubectl get pvc -n $(NAMESPACE) 2>/dev/null || echo "No PVCs found"
+
+# Show Polaris-specific status
+polaris-status:
+	@echo "Polaris Catalog Status"
+	@echo "====================="
+	@echo ""
+	@echo "Polaris Pods:"
+	@kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=polaris 2>/dev/null || echo "Polaris not deployed"
+	@echo ""
+	@echo "Polaris Service:"
+	@kubectl get svc -n $(NAMESPACE) polaris 2>/dev/null || echo "Polaris service not found"
+	@echo ""
+	@echo "Recent Events:"
+	@kubectl get events -n $(NAMESPACE) --field-selector involvedObject.name=polaris --sort-by='.lastTimestamp' 2>/dev/null | tail -n 5 || echo "No events found"
+	@echo ""
+	@echo "Recent Logs (last 20 lines):"
+	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/name=polaris --tail=20 2>/dev/null || echo "No logs available"
+
+# Tail Polaris logs (live)
+polaris-logs:
+	@echo "Tailing Polaris logs (Ctrl+C to exit)..."
+	@kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/name=polaris --tail=50 -f
+
+# Initialize Polaris catalog with RBAC setup
+init-polaris:
+	@echo "Initializing Polaris catalog with RBAC..."
+	@echo ""
+	@echo "This will create:"
+	@echo "  - lakehouse catalog"
+	@echo "  - dagster_user service account"
+	@echo "  - Principal and catalog roles"
+	@echo "  - CATALOG_MANAGE_CONTENT privileges"
+	@echo "  - Namespaces: raw, staging, intermediate, marts"
+	@echo ""
+	@if ! kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
+		echo "Error: Polaris not deployed. Run 'make deploy' first."; \
+		exit 1; \
+	fi
+	@if [ -z "$$POLARIS_BOOTSTRAP_CLIENT_ID" ] || [ -z "$$POLARIS_BOOTSTRAP_CLIENT_SECRET" ]; then \
+		echo "⚠️  Warning: Bootstrap credentials not set via environment variables."; \
+		echo ""; \
+		echo "Please provide credentials:"; \
+		echo "  export POLARIS_BOOTSTRAP_CLIENT_ID=\"polaris_admin\""; \
+		echo "  export POLARIS_BOOTSTRAP_CLIENT_SECRET=\"your_secret\""; \
+		echo ""; \
+		echo "Or use command-line flags:"; \
+		echo "  make init-polaris BOOTSTRAP_ID=polaris_admin BOOTSTRAP_SECRET=your_secret"; \
+		echo ""; \
+		read -p "Continue anyway? (y/N) " -n 1 -r; \
+		echo ""; \
+		if [[ ! $$REPLY =~ ^[Yy]$$ ]]; then \
+			exit 1; \
+		fi; \
+	fi
+	@if ! ps aux | grep -q "[k]ubectl port-forward.*polaris.*8181"; then \
+		echo "Starting port-forward to Polaris..."; \
+		kubectl port-forward -n $(NAMESPACE) svc/polaris 8181:8181 > /dev/null 2>&1 & \
+		sleep 2; \
+	fi
+	@echo "Running initialization script..."
+	@chmod +x infrastructure/kubernetes/polaris/init-polaris.sh
+	@if [ -n "$$BOOTSTRAP_ID" ] && [ -n "$$BOOTSTRAP_SECRET" ]; then \
+		infrastructure/kubernetes/polaris/init-polaris.sh --host http://localhost:8181 \
+			--bootstrap-client-id "$$BOOTSTRAP_ID" \
+			--bootstrap-client-secret "$$BOOTSTRAP_SECRET"; \
+	else \
+		POLARIS_BOOTSTRAP_CLIENT_ID="$$POLARIS_BOOTSTRAP_CLIENT_ID" \
+		POLARIS_BOOTSTRAP_CLIENT_SECRET="$$POLARIS_BOOTSTRAP_CLIENT_SECRET" \
+		infrastructure/kubernetes/polaris/init-polaris.sh http://localhost:8181; \
+	fi
+	@echo ""
+	@echo "IMPORTANT: Update orchestration-dagster/set_pyiceberg_env.sh with the new credentials!"
+
+# Setup Polaris RBAC and namespaces (assumes catalog and principal exist)
+setup-polaris-rbac:
+	@echo "Setting up Polaris RBAC and namespaces..."
+	@echo ""
+	@echo "This will:"
+	@echo "  - Create principal and catalog roles"
+	@echo "  - Grant roles and privileges"
+	@echo "  - Create namespaces: data"
+	@echo ""
+	@if ! kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
+		echo "Error: Polaris not deployed. Run 'make deploy' first."; \
+		exit 1; \
+	fi
+	@if [ -z "$$POLARIS_BOOTSTRAP_CLIENT_ID" ] || [ -z "$$POLARIS_BOOTSTRAP_CLIENT_SECRET" ]; then \
+		echo "⚠️  Warning: Bootstrap credentials not set via environment variables."; \
+		echo ""; \
+		echo "Please provide credentials:"; \
+		echo "  export POLARIS_BOOTSTRAP_CLIENT_ID=\"polaris_admin\""; \
+		echo "  export POLARIS_BOOTSTRAP_CLIENT_SECRET=\"your_secret\""; \
+		echo ""; \
+		echo "Or use command-line flags:"; \
+		echo "  make setup-polaris-rbac BOOTSTRAP_ID=polaris_admin BOOTSTRAP_SECRET=your_secret"; \
+		echo ""; \
+		read -p "Continue anyway? (y/N) " -n 1 -r; \
+		echo ""; \
+		if [[ ! $$REPLY =~ ^[Yy]$$ ]]; then \
+			exit 1; \
+		fi; \
+	fi
+	@if ! ps aux | grep -q "[k]ubectl port-forward.*polaris.*8181"; then \
+		echo "Starting port-forward to Polaris..."; \
+		kubectl port-forward -n $(NAMESPACE) svc/polaris 8181:8181 > /dev/null 2>&1 & \
+		sleep 2; \
+	fi
+	@echo "Running RBAC and namespace setup script..."
+	@chmod +x infrastructure/kubernetes/polaris/setup-rbac-namespaces.sh
+	@if [ -n "$$BOOTSTRAP_ID" ] && [ -n "$$BOOTSTRAP_SECRET" ]; then \
+		infrastructure/kubernetes/polaris/setup-rbac-namespaces.sh --host http://localhost:8181 \
+			--bootstrap-client-id "$$BOOTSTRAP_ID" \
+			--bootstrap-client-secret "$$BOOTSTRAP_SECRET"; \
+	else \
+		POLARIS_BOOTSTRAP_CLIENT_ID="$$POLARIS_BOOTSTRAP_CLIENT_ID" \
+		POLARIS_BOOTSTRAP_CLIENT_SECRET="$$POLARIS_BOOTSTRAP_CLIENT_SECRET" \
+		infrastructure/kubernetes/polaris/setup-rbac-namespaces.sh http://localhost:8181; \
+	fi
+	@echo ""
+	@echo "RBAC and namespace setup complete!"
+
+# Test Polaris catalog connectivity
+polaris-test:
+	@echo "Testing Polaris catalog connectivity..."
+	@echo ""
+	@if ! kubectl get svc polaris -n $(NAMESPACE) > /dev/null 2>&1; then \
+		echo "Error: Polaris not deployed. Run 'make deploy' first."; \
+		exit 1; \
+	fi
+	@if ! ps aux | grep -q "[k]ubectl port-forward.*polaris.*8181"; then \
+		echo "Starting port-forward to Polaris..."; \
+		kubectl port-forward -n $(NAMESPACE) svc/polaris 8181:8181 > /dev/null 2>&1 & \
+		sleep 2; \
+	fi
+	@echo "Testing REST API endpoint..."
+	@curl -s http://localhost:8181/api/catalog/v1/config | jq '.' || echo "Failed to connect"
+	@echo ""
+	@echo "Testing OAuth token endpoint..."
+	@if [ -z "$$POLARIS_BOOTSTRAP_CLIENT_ID" ] || [ -z "$$POLARIS_BOOTSTRAP_CLIENT_SECRET" ]; then \
+		echo "⚠️  Warning: Bootstrap credentials not set. Skipping OAuth test."; \
+		echo "   Set POLARIS_BOOTSTRAP_CLIENT_ID and POLARIS_BOOTSTRAP_CLIENT_SECRET to test authentication."; \
+	else \
+		curl -s http://localhost:8181/api/catalog/v1/oauth/tokens \
+			--user "$$POLARIS_BOOTSTRAP_CLIENT_ID:$$POLARIS_BOOTSTRAP_CLIENT_SECRET" \
+			-d 'grant_type=client_credentials' \
+			-d 'scope=PRINCIPAL_ROLE:ALL' | jq '.access_token' || echo "Failed to authenticate"; \
+	fi
+	@echo ""
+	@echo "Polaris catalog is accessible!"
+
+# Rebuild and deploy Dagster user code
+deploy-dagster-code:
+	@echo "Rebuilding and deploying orchestration-dagster user code..."
+	@echo ""
+	@echo "Step 1/4: Building Docker image..."
+	@cd orchestration-dagster && docker build -t orchestration-dagster:latest .
+	@echo "✓ Docker image built"
+	@echo ""
+	@echo "Step 2/4: Applying ConfigMap..."
+	@kubectl apply -f infrastructure/kubernetes/dagster/user-code-env-configmap.yaml
+	@echo "✓ ConfigMap applied"
+	@echo ""
+	@echo "Step 3/4: Applying Secrets..."
+	@if [ ! -f infrastructure/kubernetes/dagster/user-code-secrets.yaml ]; then \
+		echo "⚠️  Warning: user-code-secrets.yaml not found."; \
+		echo "   Create it from the example: cp infrastructure/kubernetes/dagster/user-code-secrets.yaml.example infrastructure/kubernetes/dagster/user-code-secrets.yaml"; \
+		echo "   Then edit it with your credentials before running this command again."; \
+		exit 1; \
+	fi
+	@kubectl apply -f infrastructure/kubernetes/dagster/user-code-secrets.yaml
+	@echo "✓ Secrets applied"
+	@echo ""
+	@echo "Step 4/4: Restarting Dagster user code deployment..."
+	@kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestration-dagster -n $(NAMESPACE)
+	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=dagster,component=user-deployments -n $(NAMESPACE) --timeout=120s
+	@echo "✓ Dagster user code deployed successfully!"
+	@echo ""
+	@echo "Deployment complete! Access Dagster at http://localhost:3001"
