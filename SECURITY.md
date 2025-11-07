@@ -10,6 +10,48 @@ This project uses Kubernetes Secrets for credential management. **Credentials ar
 - Secret files use `.example` templates that are committed to git
 - Actual secret files (without `.example` suffix) are gitignored
 - Credentials are injected into pods via environment variables or volume mounts
+- **Pre-commit hooks** automatically detect and prevent credential commits
+
+## Pre-commit Hooks
+
+This project uses the [pre-commit](https://pre-commit.com/) framework to automatically check for secrets and other issues before commits.
+
+### Installation
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install git hooks
+pre-commit install
+
+# (Optional) Run on all files to check current state
+pre-commit run --all-files
+```
+
+### What It Checks
+
+- **detect-secrets**: Scans for potential secrets and credentials
+- **yamllint**: Validates YAML syntax and formatting
+- **bandit**: Checks Python code for security issues
+- **Standard checks**: Trailing whitespace, merge conflicts, large files, etc.
+
+### Updating Hooks
+
+```bash
+# Update all hooks to latest versions
+pre-commit autoupdate
+```
+
+### Bypassing (Not Recommended)
+
+If you need to bypass pre-commit checks:
+
+```bash
+git commit --no-verify
+```
+
+**Warning**: Only bypass if you're certain there are no secrets in your commit.
 
 ## .gitignore Protection
 
@@ -173,10 +215,11 @@ kubectl get secret dagster-user-code-secrets -n lakehouse \
 ## Best Practices
 
 1. **Never commit secret files** - Always use `.example` templates
-2. **Rotate credentials regularly** - Especially if exposed or compromised
-3. **Use strong passwords** - Generate random passwords for production
-4. **Limit secret access** - Use RBAC to restrict who can read secrets
-5. **Use external secret management** - For production, consider using:
+2. **Use pre-commit hooks** - Automatically prevents credential commits
+3. **Rotate credentials regularly** - Especially if exposed or compromised
+4. **Use strong passwords** - Generate random passwords for production
+5. **Limit secret access** - Use RBAC to restrict who can read secrets
+6. **Use external secret management** - For production, consider using:
    - HashiCorp Vault
    - AWS Secrets Manager
    - Azure Key Vault
@@ -194,6 +237,17 @@ git check-ignore -v infrastructure/kubernetes/dagster/user-code-secrets.yaml
 
 If it's not ignored, check `.gitignore` patterns and ensure the file matches one of the patterns.
 
+### Pre-commit hook fails
+
+If pre-commit detects a potential secret:
+
+1. Review the flagged content
+2. If it's a placeholder (CHANGEME, YOUR_, etc.), it's safe to ignore
+3. If it's an actual credential:
+   - Remove it from the file
+   - Use environment variables or Kubernetes Secrets instead
+   - Update `.secrets.baseline` if it's a false positive: `detect-secrets scan --baseline .secrets.baseline`
+
 ### Pod can't access secrets
 
 1. Verify secret exists: `kubectl get secret <secret-name> -n lakehouse`
@@ -207,4 +261,3 @@ If it's not ignored, check `.gitignore` patterns and ensure the file matches one
 2. Check if credentials need to be base64 encoded (use `stringData` instead of `data`)
 3. Ensure the secret is in the correct namespace
 4. Verify the application is reading from the correct environment variable names
-
