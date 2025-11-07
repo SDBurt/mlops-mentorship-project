@@ -6,19 +6,29 @@
 #
 # Prerequisites:
 # - Polaris deployed and accessible (kubectl port-forward to localhost:8181)
-# - Bootstrap credentials available (polaris_admin:polaris_admin_secret)
+# - Bootstrap credentials provided via environment variables or command-line flags
 # - curl and jq installed
 #
 # Usage:
+#   # Using environment variables (recommended):
+#   export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
+#   export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"
 #   ./init-polaris.sh [--host http://localhost:8181]
+#
+#   # Using command-line flags:
+#   ./init-polaris.sh --host http://localhost:8181 \
+#     --bootstrap-client-id polaris_admin \
+#     --bootstrap-client-secret your_secret
 
 set -e  # Exit on error
 
 # Configuration - Parse command line arguments
 POLARIS_HOST=""
 POS_ARG=""
+BOOTSTRAP_CLIENT_ID=""
+BOOTSTRAP_CLIENT_SECRET=""
 
-# Parse arguments: handle --host flag and positional arguments
+# Parse arguments: handle --host, --bootstrap-client-id, --bootstrap-client-secret flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --host)
@@ -28,6 +38,24 @@ while [[ $# -gt 0 ]]; do
             ;;
         --host=*)
             POLARIS_HOST="${1#--host=}"
+            shift
+            ;;
+        --bootstrap-client-id)
+            shift
+            BOOTSTRAP_CLIENT_ID="$1"
+            shift
+            ;;
+        --bootstrap-client-id=*)
+            BOOTSTRAP_CLIENT_ID="${1#--bootstrap-client-id=}"
+            shift
+            ;;
+        --bootstrap-client-secret)
+            shift
+            BOOTSTRAP_CLIENT_SECRET="$1"
+            shift
+            ;;
+        --bootstrap-client-secret=*)
+            BOOTSTRAP_CLIENT_SECRET="${1#--bootstrap-client-secret=}"
             shift
             ;;
         *)
@@ -43,8 +71,16 @@ done
 if [ -z "$POLARIS_HOST" ]; then
     POLARIS_HOST="${POS_ARG:-http://localhost:8181}"
 fi
-BOOTSTRAP_CLIENT_ID="polaris_admin"
-BOOTSTRAP_CLIENT_SECRET="polaris_admin_secret"
+
+# Get bootstrap credentials from flags, environment variables, or fail
+if [ -z "$BOOTSTRAP_CLIENT_ID" ]; then
+    BOOTSTRAP_CLIENT_ID="${POLARIS_BOOTSTRAP_CLIENT_ID:-}"
+fi
+
+if [ -z "$BOOTSTRAP_CLIENT_SECRET" ]; then
+    BOOTSTRAP_CLIENT_SECRET="${POLARIS_BOOTSTRAP_CLIENT_SECRET:-}"
+fi
+
 CATALOG_NAME="lakehouse"
 PRINCIPAL_NAME="dagster_user"
 PRINCIPAL_ROLE_NAME="dagster_role"
@@ -73,6 +109,24 @@ log_warn() {
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+# Validate bootstrap credentials are provided
+if [ -z "$BOOTSTRAP_CLIENT_ID" ] || [ -z "$BOOTSTRAP_CLIENT_SECRET" ]; then
+    log_error "Bootstrap credentials are required!"
+    echo ""
+    echo "Provide credentials via:"
+    echo "  1. Environment variables:"
+    echo "     export POLARIS_BOOTSTRAP_CLIENT_ID=\"polaris_admin\""
+    echo "     export POLARIS_BOOTSTRAP_CLIENT_SECRET=\"your_secret\""
+    echo ""
+    echo "  2. Command-line flags:"
+    echo "     --bootstrap-client-id polaris_admin --bootstrap-client-secret your_secret"
+    echo ""
+    echo "  3. Kubernetes Secret (for in-cluster use):"
+    echo "     kubectl get secret polaris-bootstrap-secret -n lakehouse -o jsonpath='{.data.credentials}' | base64 -d"
+    echo ""
+    exit 1
+fi
 
 # Check prerequisites
 check_prerequisites() {
@@ -130,7 +184,8 @@ test_connectivity() {
         log_error "Cannot connect to Polaris or authentication failed (HTTP $http_code)"
         log_error "Make sure:"
         log_error "  1. Port-forward is running: kubectl port-forward -n lakehouse svc/polaris 8181:8181"
-        log_error "  2. Bootstrap credentials are correct (polaris_admin:polaris_admin_secret)"
+        log_error "  2. Bootstrap credentials are correct"
+        log_error "  3. Credentials are provided via environment variables or command-line flags"
         exit 1
     fi
 
