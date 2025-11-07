@@ -39,7 +39,7 @@ Before initializing Polaris, you need to provide bootstrap credentials:
 ```bash
 # Option 1: Environment variables (recommended)
 export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
-export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"
+export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"  # pragma: allowlist secret
 
 # Option 2: Command-line flags (see step 3)
 ```
@@ -84,7 +84,7 @@ source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt
 cat infrastructure/kubernetes/polaris/.credentials/dagster_user.txt
 ```
 
-Update [orchestration-dagster/set_pyiceberg_env.sh](../../../orchestration-dagster/set_pyiceberg_env.sh) with the new credentials:
+Update [orchestration-dagster/set_pyiceberg_env.sh](../../orchestration-dagster/set_pyiceberg_env.sh) with the new credentials:
 
 ```bash
 # Replace the PYICEBERG_CATALOG__DEFAULT__CREDENTIAL line with:
@@ -98,7 +98,7 @@ Verify Polaris is accessible:
 ```bash
 # Set bootstrap credentials if not already set
 export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
-export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"
+export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"  # pragma: allowlist secret
 
 make polaris-test
 ```
@@ -129,7 +129,7 @@ If you prefer to run the script directly:
 ```bash
 # Set bootstrap credentials
 export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
-export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"
+export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"  # pragma: allowlist secret
 
 # Start port-forward to Polaris
 kubectl port-forward -n lakehouse svc/polaris 8181:8181 &
@@ -155,7 +155,7 @@ If the catalog and principal already exist, you can set up RBAC and namespaces s
 ```bash
 # Set bootstrap credentials
 export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
-export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"
+export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"  # pragma: allowlist secret
 
 # Start port-forward
 kubectl port-forward -n lakehouse svc/polaris 8181:8181 &
@@ -348,7 +348,7 @@ make polaris-test
 ```bash
 # Set environment variables
 export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
-export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"
+export POLARIS_BOOTSTRAP_CLIENT_SECRET="your_secret"  # pragma: allowlist secret
 
 # Or use command-line flags
 make init-polaris BOOTSTRAP_ID=polaris_admin BOOTSTRAP_SECRET=your_secret
@@ -383,7 +383,7 @@ CREATE SCHEMA lakehouse.data;
 
 ### For Trino Integration
 
-Update [trino/values.yaml](../trino/values.yaml) to use principal credentials instead of bootstrap credentials:
+Update [trino/values.yaml](../../infrastructure/kubernetes/trino/values.yaml) to use principal credentials instead of bootstrap credentials:
 
 ```yaml
 env:
@@ -416,9 +416,15 @@ lakehouse_analytics:
 3. Set up audit log monitoring
 4. Document data lineage and access patterns
 
+## Related Guides
+
+- [Deploying the Cluster](deploying-the-cluster.md) - Initial cluster deployment
+- [Updating Polaris](update-polaris.md) - Updating Polaris configuration and versions
+- [Deploying Dagster User Code](deploying-dagster-user-code.md) - Deploying orchestration code
+
 ## Resources
 
 - [Apache Polaris Documentation](https://polaris.apache.org/)
 - [Polaris RBAC Guide](https://polaris.apache.org/in-dev/unreleased/entities/)
 - [Apache Iceberg REST Catalog Spec](https://iceberg.apache.org/spec/#catalog-api)
-- [Project CLAUDE.md](../../../CLAUDE.md) - Project architecture and patterns
+- [Project CLAUDE.md](../../CLAUDE.md) - Project architecture and patterns
