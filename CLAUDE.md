@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important Guidelines
+
+**Memory & Context:**
+- **Check Memory MCP at conversation start**: Always check the memory MCP at the beginning of a new conversation to retrieve user preferences, project context, and previous decisions
+- **Use Context7 for technical documentation**: When checking technical documentation, syntax, or implementation details, use the Context7 MCP instead of general web search or training data
+
+**Commit Messages:**
+- Keep commit messages concise and action-focused
+- Show what was done, not long explanations
+- Example: `security: remove hardcoded credentials, add pre-commit hooks`
+
 ## Project Overview
 
 This is a **mentorship learning project** focused on building an end-to-end MLOps platform. The journey starts with foundational data engineering (batch pipelines, dimensional modeling) and progressively integrates MLOps capabilities (feature stores, model training, model serving).
