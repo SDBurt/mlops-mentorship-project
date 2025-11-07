@@ -42,10 +42,9 @@ spec:
             secretKeyRef:
               name: minio-credentials
               key: secret-access-key
-              optional: true
-          # Fallback default for development (should be overridden via Secret)
-          # Create secret: kubectl create secret generic minio-credentials \
-          #   --from-literal=secret-access-key=YOUR_PASSWORD -n lakehouse
+              # Required: Secret must exist for deployment to work
+              # Create secret: kubectl create secret generic minio-credentials \
+              #   --from-literal=secret-access-key=YOUR_PASSWORD -n lakehouse
         ports:
         - containerPort: 9000
           name: api

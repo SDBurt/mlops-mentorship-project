@@ -35,5 +35,3 @@ root_module = "orchestration_dagster"
 registry_modules = [
     "orchestration_dagster.components.*",
 ]
-
-
