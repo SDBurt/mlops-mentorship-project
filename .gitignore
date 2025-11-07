@@ -141,9 +141,28 @@ $RECYCLE.BIN/
 # Start of User-specific Gitignore
 
 logs/
-**/*/secrets.yaml
+
+# Kubernetes Secrets - Multiple patterns to catch all variants
+# Pattern 1: Exact match "secrets.yaml" in any directory
+**/secrets.yaml
+# Pattern 2: Suffix match "*-secrets.yaml" (e.g., user-code-secrets.yaml)
+**/*-secrets.yaml
+# Pattern 3: Any file with "secrets" in name
+**/*secrets.yaml
+# Pattern 4: Prefix match "secret-*.yaml"
+**/secret-*.yaml
+
+# Credentials directory
+**/.credentials/
+
+# User-specific configs
+.user*
 
 # Downloaded Helm charts (Garage doesn't have a Helm repo)
 infrastructure/helm/
 
 .tmp_*
+
+# DBT generated/vendor directories
+**/dbt_packages/
+**/target/

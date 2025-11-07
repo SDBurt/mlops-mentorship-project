@@ -28,45 +28,41 @@ service:
   port: 8080
 
 # Iceberg catalog configuration for MinIO S3
-# Using Polaris REST catalog for unified metadata management (Phase 3)
-# Data remains in MinIO S3 (where DLT writes Iceberg tables)
+# Using Polaris REST catalog for unified catalog management
+# Data stored in MinIO S3 (where DLT writes Iceberg tables)
 additionalCatalogs:
   lakehouse: |
     connector.name=iceberg
     iceberg.catalog.type=rest
-    iceberg.rest.uri=http://polaris:8181/api/catalog
-    iceberg.rest.warehouse=lakehouse
+    iceberg.rest-catalog.uri=http://polaris:8181/api/catalog
+    iceberg.rest-catalog.warehouse=lakehouse
+    iceberg.rest-catalog.security=OAUTH2
+    # OAuth credentials provided via environment variable (from Secret)
+    iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_OAUTH_CREDENTIAL}
+    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
     fs.native-s3.enabled=true
     s3.endpoint=http://minio:9000
     s3.path-style-access=true
     s3.region=us-east-1
-    s3.aws-access-key-id=${ENV:S3_ACCESS_KEY}
-    s3.aws-secret-access-key=${ENV:S3_SECRET_KEY}
+    s3.aws-access-key=${ENV:S3_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:S3_SECRET_KEY}
 
-  # Legacy JDBC catalog configuration (Phase 2 - keep for reference)
-  # Uncomment and use 'lakehouse_jdbc' catalog if Polaris is not deployed
-  # lakehouse_jdbc: |
-  #   connector.name=iceberg
-  #   iceberg.catalog.type=jdbc
-  #   iceberg.jdbc-catalog.driver-class=org.postgresql.Driver
-  #   iceberg.jdbc-catalog.connection-url=jdbc:postgresql://dagster-postgresql:5432/dagster
-  #   iceberg.jdbc-catalog.connection-user=dagster
-  #   iceberg.jdbc-catalog.connection-password=dagster
-  #   iceberg.jdbc-catalog.catalog-name=lakehouse
-  #   iceberg.jdbc-catalog.default-warehouse-dir=s3://lakehouse/iceberg/
-  #   fs.native-s3.enabled=true
-  #   s3.endpoint=http://minio:9000
-  #   s3.path-style-access=true
-  #   s3.region=us-east-1
-  #   s3.aws-access-key-id=${ENV:S3_ACCESS_KEY}
-  #   s3.aws-secret-access-key=${ENV:S3_SECRET_KEY}
-
-# Environment variables for S3 credentials (using MinIO credentials)
+# Environment variables for S3 credentials
+# IMPORTANT: These MUST be provided via Secret (trino-env-secrets)
+# Secret is required - no fallback defaults for security
 env:
   - name: S3_ACCESS_KEY
-    value: admin
+    valueFrom:
+      secretKeyRef:
+        name: trino-env-secrets
+        key: S3_ACCESS_KEY
+        # Required: Secret must exist
   - name: S3_SECRET_KEY
-    value: minio123
+    valueFrom:
+      secretKeyRef:
+        name: trino-env-secrets
+        key: S3_SECRET_KEY
+        # Required: Secret must exist
 
 # Server configuration
 server:

@@ -50,32 +50,36 @@ computeLogManager:
   #     useSsl: false
   #     # Access keys will be provided via envSecrets
 
-# User Code Deployments - enabled to provide workspace configuration
-# Note: Dagster requires workspace config. The example deployment will be scaled to 0 after install.
-# You'll replace this with your own DBT/Dagster code in Phase 2
+# User Code Deployments - orchestration-dagster with Iceberg integration
 dagster-user-deployments:
   enabled: true
   enableSubchart: true
   deployments:
-    - name: "dagster-user-code"
+    - name: "orchestration-dagster"
       image:
-        repository: "dagster/user-code-example"
-        tag: "1.11.15"
+        repository: "orchestration-dagster"
+        tag: "latest"
         pullPolicy: IfNotPresent
       port: 3030
+      envConfigMaps:
+        - name: dagster-user-code-env
+      envSecrets:
+        - name: dagster-user-code-secrets
       resources:
         requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          cpu: 500m
+          cpu: 200m
           memory: 512Mi
+        limits:
+          cpu: 1000m
+          memory: 2Gi
 
 # PostgreSQL - Internal database for Dagster metadata
+# IMPORTANT: Password should be provided via Kubernetes Secret or Helm --set flag
+# See dagster/secrets.yaml.example for secret-based approach
 postgresql:
   enabled: true
   postgresqlUsername: dagster
-  postgresqlPassword: dagster123  # TODO: Change for production
+  postgresqlPassword: "CHANGEME_DAGSTER_PASSWORD"  # Override via secret or --set flag
   postgresqlDatabase: dagster
   service:
     port: 5432
