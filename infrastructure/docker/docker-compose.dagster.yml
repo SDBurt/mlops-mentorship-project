@@ -1,0 +1,118 @@
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: dagster
+      POSTGRES_DB: dagster
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dagster -d dagster"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - local-iceberg-lakehouse
+
+  dagster-user-code:
+    build:
+      context: ../../orchestration-dagster
+      dockerfile: ./Dockerfile
+    image: dagster_user_code_image
+    container_name: dagster_user_code
+    restart: always
+    environment:
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: dagster
+      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_CURRENT_IMAGE: dagster_user_code_image
+      # PyIceberg / Polaris / MinIO for IO manager
+      PYICEBERG_CATALOG__DEFAULT__URI: http://polaris:8181/api/catalog
+      PYICEBERG_CATALOG__DEFAULT__WAREHOUSE: polariscatalog
+      PYICEBERG_CATALOG__DEFAULT__TYPE: rest
+      PYICEBERG_CATALOG__DEFAULT__CREDENTIAL: root:secret
+      PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT: http://minio:9000
+      PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID: admin
+      PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY: password
+      PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS: "true"
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: password
+    expose:
+      - "3030"
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "-p", "3030"]
+      timeout: 2s
+      interval: 3s
+      retries: 20
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      postgres:
+        condition: service_healthy
+      polaris:
+        condition: service_started
+      minio:
+        condition: service_started
+
+  dagster-webserver:
+    build:
+      context: ./dagster
+      dockerfile: ./Dockerfile_dagster
+    entrypoint:
+      - dagster-webserver
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "3000"
+      - -w
+      - workspace.yaml
+    ports:
+      - "3000:3000"
+    environment:
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: dagster
+      DAGSTER_POSTGRES_DB: dagster
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dagster-io:/tmp/io_manager_storage
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dagster-user-code:
+        condition: service_healthy
+
+  dagster-daemon:
+    build:
+      context: ./dagster
+      dockerfile: ./Dockerfile_dagster
+    entrypoint:
+      - dagster-daemon
+      - run
+    restart: on-failure
+    environment:
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: dagster
+      DAGSTER_POSTGRES_DB: dagster
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dagster-io:/tmp/io_manager_storage
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dagster-user-code:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  dagster-io:
+
+networks:
+  local-iceberg-lakehouse:
+    name: local-iceberg-lakehouse
