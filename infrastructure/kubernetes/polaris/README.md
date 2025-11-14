@@ -26,17 +26,11 @@ Apache Polaris provides a unified REST catalog for Apache Iceberg tables, enabli
                   ↓
 ┌─────────────────────────────────────────────┐
 │         Apache Polaris Catalog               │
-│  - Table metadata                            │
-│  - Access control                            │
+│  - Table metadata (in-memory)                │
+│  - Access control (RBAC)                     │
 │  - Audit logging                             │
 └─────────────────┬───────────────────────────┘
-                  │ JDBC
-                  ↓
-┌─────────────────────────────────────────────┐
-│      PostgreSQL (Dagster embedded)           │
-│  - Catalog metadata storage                  │
-└─────────────────────────────────────────────┘
-                  │
+                  │ S3 API
                   ↓
 ┌─────────────────────────────────────────────┐
 │           MinIO S3 Storage                   │
@@ -45,17 +39,23 @@ Apache Polaris provides a unified REST catalog for Apache Iceberg tables, enabli
 └─────────────────────────────────────────────┘
 ```
 
+**Persistence Mode**: In-memory (development)
+- Data does not persist across pod restarts
+- Suitable for development and testing
+- For production: use `persistence.type: relational-jdbc` with external PostgreSQL
+
 ## Configuration Files
 
 - **values.yaml**: Custom Helm overrides (edit this)
 - **values-default.yaml**: Upstream defaults (reference only, do not edit)
-- **secrets.yaml**: Database and storage credentials (gitignored)
+- **secrets.yaml**: Storage and bootstrap credentials (gitignored)
+- **bootstrap-credentials.yaml**: Bootstrap admin credentials (gitignored)
 
 ## Prerequisites
 
-1. Dagster deployed (provides PostgreSQL for metadata)
-2. MinIO deployed (provides S3 storage)
-3. Secrets file created from template
+1. MinIO deployed (provides S3 storage)
+2. Secrets file created from template (storage credentials)
+3. Bootstrap credentials configured
 
 ## Deployment
 
@@ -219,7 +219,21 @@ If you have existing tables in a JDBC catalog (Phase 2), you'll need to register
 
 ### Persistence
 
-Polaris uses **relational-jdbc** persistence with Dagster's PostgreSQL:
+Polaris uses **in-memory** persistence for development:
+
+```yaml
+persistence:
+  type: in-memory
+```
+
+**Characteristics**:
+- Data is stored in memory only
+- Does not persist across pod restarts
+- Suitable for development and testing
+- No database required
+
+**For Production**:
+Use `relational-jdbc` persistence with an external PostgreSQL database:
 
 ```yaml
 persistence:
@@ -230,11 +244,6 @@ persistence:
       username: username
       password: password
       jdbcUrl: jdbcUrl
-```
-
-Database connection string:
-```
-jdbc:postgresql://dagster-postgresql:5432/dagster
 ```
 
 ### Storage Credentials
