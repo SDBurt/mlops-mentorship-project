@@ -498,12 +498,6 @@ kubectl run -it --rm debug --image=busybox --restart=Never -n lakehouse -- \
 
 ## Troubleshooting
 
-### Polaris Database Warnings
-
-**Symptom:** Logs show database connection warnings
-**Status:** Known, non-blocking for development
-**Fix (if needed):** Check `infrastructure/kubernetes/polaris/secrets.yaml` for database credentials
-
 ### Reddit Credentials Not Found
 
 **Symptom:** Asset materialization fails with "Reddit credentials not found"
