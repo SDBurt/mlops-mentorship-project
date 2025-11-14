@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test deploy-dagster-code
+.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test
 
 # Variables
 NAMESPACE := lakehouse
@@ -9,19 +9,36 @@ HELM_TIMEOUT := 10m
 MINIO_VALUES := infrastructure/kubernetes/minio/values.yaml
 DAGSTER_VALUES := infrastructure/kubernetes/dagster/values.yaml
 TRINO_VALUES := infrastructure/kubernetes/trino/values.yaml
+TRINO_VALUES_MINIMAL := infrastructure/kubernetes/trino/values-minimal.yaml
 POLARIS_VALUES := infrastructure/kubernetes/polaris/values.yaml
-POLARIS_SECRETS := infrastructure/kubernetes/polaris/secrets.yaml
+POLARIS_SECRETS := infrastructure/kubernetes/polaris/polaris-secrets.yaml
+POLARIS_REPO := infrastructure/helm/polaris
+
+# Required secret files (checked before deployment)
+MINIO_SECRETS := infrastructure/kubernetes/minio/minio-secrets.yaml
+DAGSTER_USER_SECRETS := infrastructure/kubernetes/dagster/user-code-secrets.yaml
+TRINO_SECRETS := infrastructure/kubernetes/trino/secrets.yaml
 
 # Default target - show help
 help:
 	@echo "Kubernetes Lakehouse Platform - Available Commands"
 	@echo ""
-	@echo "Prerequisites (run once):"
-	@echo "  make check              - Verify kubectl and helm are installed"
-	@echo "  make setup              - Add/update Helm repositories"
+	@echo "Quick Start (First Time Setup):"
+	@echo "  1. Configure secrets (see docs/guides/GETTING-STARTED.md)"
+	@echo "  2. make setup                 - Complete setup: check, configure repos, deploy"
+	@echo "  3. make init-polaris          - Initialize Polaris catalog with RBAC"
+	@echo "  4. make configure-trino-polaris  - Connect Trino to Polaris"
+	@echo ""
+	@echo "Complete Guide: docs/guides/GETTING-STARTED.md (step-by-step walkthrough)"
+	@echo ""
+	@echo "Prerequisites & Setup:"
+	@echo "  make check                  - Verify kubectl and helm are installed"
+	@echo "  make validate-secrets       - Validate required secret files exist"
+	@echo "  make generate-user-secrets  - Auto-generate user-code-secrets.yaml from sources"
 	@echo ""
 	@echo "Deployment:"
-	@echo "  make deploy                 - Deploy all services to lakehouse namespace"
+	@echo "  make deploy                 - Deploy all services to lakehouse namespace (full pipeline)"
+	@echo "  make install                - Install services only (called by deploy)"
 	@echo ""
 	@echo "Management:"
 	@echo "  make destroy                - Tear down lakehouse cluster"
@@ -30,11 +47,12 @@ help:
 	@echo "  make status                 - Show cluster status"
 	@echo ""
 	@echo "Polaris Operations:"
-	@echo "  make init-polaris           - Initialize Polaris catalog with RBAC (run after deploy)"
-	@echo "  make setup-polaris-rbac    - Setup RBAC and namespaces (catalog/principal must exist)"
-	@echo "  make polaris-test           - Test Polaris catalog connectivity"
-	@echo "  make polaris-status         - Show Polaris pod status and logs summary"
-	@echo "  make polaris-logs           - Tail Polaris logs (live)"
+	@echo "  make init-polaris              - Initialize Polaris catalog with RBAC (run after deploy)"
+	@echo "  make configure-trino-polaris   - Configure Trino-Polaris integration (run after init-polaris)"
+	@echo "  make setup-polaris-rbac        - Setup RBAC and namespaces (catalog/principal must exist)"
+	@echo "  make polaris-test              - Test Polaris catalog connectivity"
+	@echo "  make polaris-status            - Show Polaris pod status and logs summary"
+	@echo "  make polaris-logs              - Tail Polaris logs (live)"
 	@echo ""
 	@echo "Port-forwarding:"
 	@echo "  make port-forward-start     - Start all port-forwards in background"
@@ -49,13 +67,16 @@ help:
 	@echo "  make restart-all            - Restart all service deployments"
 	@echo ""
 	@echo "Dagster User Code:"
-	@echo "  make deploy-dagster-code    - Rebuild and deploy orchestration-dagster user code"
+	@echo "  make build-dagster-image    - Build orchestration-dagster Docker image"
+	@echo "  make deploy-dagster-code    - Deploy user code (ConfigMap + scale deployment)"
 	@echo ""
-	@echo "Quick Start:"
-	@echo "  1. make check && make setup"
-	@echo "  2. make deploy"
-	@echo "  3. make port-forward-start (runs in background)"
-	@echo "  4. make port-forward-stop (when done)"
+	@echo "Complete Workflow:"
+	@echo "  1. make setup                       # One command: setup repos and deploy everything"
+	@echo "  2. make build-dagster-image         # Build user code Docker image"
+	@echo "  3. make deploy-dagster-code         # Deploy user code to Dagster"
+	@echo "  4. make init-polaris                # Initialize Polaris catalog"
+	@echo "  5. make configure-trino-polaris     # Connect Trino to Polaris"
+	@echo "  6. make port-forward-start          # Access services locally"
 	@echo ""
 
 # Check prerequisites
@@ -69,50 +90,254 @@ check:
 	@echo "✓ cluster: $$(kubectl config current-context)"
 	@echo "Prerequisites check passed!"
 
-# Setup Helm repositories
+# Setup Helm repositories, clone dependencies, and deploy platform
 setup:
-	@echo "Setting up Helm repositories..."
-	@helm repo add dagster https://dagster-io.github.io/helm
-	@helm repo add trino https://trinodb.github.io/charts
-	@helm repo add polaris https://apache.github.io/polaris
+	@echo "=========================================="
+	@echo "   Lakehouse Platform Setup"
+	@echo "=========================================="
+	@echo ""
+	@echo "This will:"
+	@echo "  1. Verify prerequisites (kubectl, helm, cluster)"
+	@echo "  2. Configure Helm repositories"
+	@echo "  3. Clone Apache Polaris repository"
+	@echo "  4. Deploy the entire lakehouse platform"
+	@echo ""
+	@echo "Step 1/4: Checking prerequisites..."
+	@$(MAKE) check
+	@echo ""
+	@echo "Step 2/4: Setting up Helm repositories and dependencies..."
+	@helm repo add dagster https://dagster-io.github.io/helm 2>/dev/null || true
+	@helm repo add trino https://trinodb.github.io/charts 2>/dev/null || true
+	@helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
 	@helm repo update
 	@echo "✓ Helm repositories configured"
-
-# Deploy all services to lakehouse namespace
-deploy:
-	@echo "Deploying lakehouse platform..."
 	@echo ""
-	@echo "Step 1/4: Creating lakehouse namespace..."
+	@echo "Step 3/4: Cloning Apache Polaris repository (if needed)..."
+	@if [ ! -d "$(POLARIS_REPO)" ]; then \
+		git clone https://github.com/apache/polaris.git $(POLARIS_REPO); \
+		echo "✓ Polaris repository cloned"; \
+	else \
+		echo "✓ Polaris repository already exists"; \
+	fi
+	@echo ""
+	@echo "Step 4/4: Deploying platform..."
+	@$(MAKE) deploy
+	@echo ""
+	@echo "=========================================="
+	@echo "   Setup Complete!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Platform is deployed and running!"
+	@echo ""
+	@echo "Next Steps:"
+	@echo "  1. Initialize Polaris catalog:"
+	@echo "     make init-polaris"
+	@echo ""
+	@echo "  2. Connect Trino to Polaris:"
+	@echo "     make configure-trino-polaris"
+	@echo ""
+	@echo "  3. (Optional) Deploy Dagster user code:"
+	@echo "     make deploy-dagster-code"
+	@echo ""
+	@echo "  4. Access services locally:"
+	@echo "     make port-forward-start"
+	@echo ""
+	@echo "  5. Check platform status:"
+	@echo "     make status"
+	@echo ""
+
+# Validate that all required secret files exist before deployment
+validate-secrets:
+	@echo "Validating required secret files..."
+	@MISSING=0; \
+	if [ ! -f "$(MINIO_SECRETS)" ]; then \
+		echo "❌ Missing: $(MINIO_SECRETS)"; \
+		echo "   → Copy from: infrastructure/kubernetes/minio/minio-secrets.yaml.example"; \
+		MISSING=1; \
+	else \
+		echo "✓ MinIO secrets found"; \
+	fi; \
+	if [ ! -f "$(DAGSTER_USER_SECRETS)" ]; then \
+		echo "❌ Missing: $(DAGSTER_USER_SECRETS)"; \
+		echo "   → Copy from: infrastructure/kubernetes/dagster/user-code-secrets.yaml.example"; \
+		MISSING=1; \
+	else \
+		echo "✓ Dagster user-code secrets found"; \
+		if grep -q "REPLACE_WITH" "$(DAGSTER_USER_SECRETS)"; then \
+			echo "⚠️  Warning: $(DAGSTER_USER_SECRETS) contains REPLACE_WITH placeholders"; \
+			echo "   → Update with actual credentials before deployment"; \
+		fi; \
+	fi; \
+	if [ ! -f "$(TRINO_SECRETS)" ]; then \
+		echo "❌ Missing: $(TRINO_SECRETS)"; \
+		echo "   → Copy from: infrastructure/kubernetes/trino/secrets.yaml.example"; \
+		MISSING=1; \
+	else \
+		echo "✓ Trino secrets found"; \
+	fi; \
+	if [ ! -f "$(POLARIS_SECRETS)" ]; then \
+		echo "❌ Missing: $(POLARIS_SECRETS)"; \
+		echo "   → Copy from: infrastructure/kubernetes/polaris/polaris-secrets.yaml.example"; \
+		MISSING=1; \
+	else \
+		echo "✓ Polaris secrets found"; \
+	fi; \
+	if [ $$MISSING -eq 1 ]; then \
+		echo ""; \
+		echo "========================================"; \
+		echo "Secret files are missing!"; \
+		echo "========================================"; \
+		echo ""; \
+		echo "Please create missing secret files from .example templates:"; \
+		echo "  1. Copy .example files: cp *-secrets.yaml.example *-secrets.yaml"; \
+		echo "  2. Edit and replace placeholders with actual values"; \
+		echo "  3. Run 'make validate-secrets' again"; \
+		echo ""; \
+		exit 1; \
+	fi; \
+	echo "✓ All required secrets validated"
+
+# Generate user-code-secrets.yaml from credential sources
+generate-user-secrets:
+	@echo "Generating user-code-secrets.yaml from sources..."
+	@if [ ! -f "$(MINIO_SECRETS)" ]; then \
+		echo "❌ Error: minio-secrets.yaml not found"; \
+		exit 1; \
+	fi
+	@if [ ! -f "infrastructure/kubernetes/polaris/.credentials/dagster_user.txt" ]; then \
+		echo "❌ Error: Polaris credentials not found"; \
+		echo "   Run 'make init-polaris' first to generate credentials"; \
+		exit 1; \
+	fi
+	@echo "Reading MinIO credentials from minio-secrets.yaml..."
+	@MINIO_ACCESS_KEY=$$(grep 'access-key-id:' $(MINIO_SECRETS) | awk -F'"' '{print $$2}'); \
+	MINIO_SECRET_KEY=$$(grep 'secret-access-key:' $(MINIO_SECRETS) | awk -F'"' '{print $$2}'); \
+	echo "Reading Polaris credentials from .credentials/dagster_user.txt..."; \
+	. infrastructure/kubernetes/polaris/.credentials/dagster_user.txt; \
+	echo "Updating user-code-secrets.yaml..."; \
+	if [ -f "$(DAGSTER_USER_SECRETS)" ]; then \
+		REDDIT_ID=$$(grep 'REDDIT_CLIENT_ID:' $(DAGSTER_USER_SECRETS) | awk -F'"' '{print $$2}'); \
+		REDDIT_SECRET=$$(grep 'REDDIT_CLIENT_SECRET:' $(DAGSTER_USER_SECRETS) | awk -F'"' '{print $$2}'); \
+		REDDIT_AGENT=$$(grep 'REDDIT_USER_AGENT:' $(DAGSTER_USER_SECRETS) | awk -F'"' '{print $$2}'); \
+	else \
+		REDDIT_ID="REPLACE_WITH_REDDIT_CLIENT_ID"; \
+		REDDIT_SECRET="REPLACE_WITH_REDDIT_CLIENT_SECRET"; \
+		REDDIT_AGENT="REPLACE_WITH_REDDIT_USER_AGENT"; \
+	fi; \
+	sed -e "s|POLARIS_CLIENT_ID:.*|POLARIS_CLIENT_ID: \"$$POLARIS_CLIENT_ID\"|" \
+	    -e "s|POLARIS_CLIENT_SECRET:.*|POLARIS_CLIENT_SECRET: \"$$POLARIS_CLIENT_SECRET\"|" \
+	    -e "s|PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID:.*|PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID: \"$$MINIO_ACCESS_KEY\"|" \
+	    -e "s|PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY:.*|PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY: \"$$MINIO_SECRET_KEY\"|" \
+	    -e "s|AWS_ACCESS_KEY_ID:.*|AWS_ACCESS_KEY_ID: \"$$MINIO_ACCESS_KEY\"|" \
+	    -e "s|AWS_SECRET_ACCESS_KEY:.*|AWS_SECRET_ACCESS_KEY: \"$$MINIO_SECRET_KEY\"|" \
+	    -e "s|REDDIT_CLIENT_ID:.*|REDDIT_CLIENT_ID: \"$$REDDIT_ID\"|" \
+	    -e "s|REDDIT_CLIENT_SECRET:.*|REDDIT_CLIENT_SECRET: \"$$REDDIT_SECRET\"|" \
+	    -e "s|REDDIT_USER_AGENT:.*|REDDIT_USER_AGENT: \"$$REDDIT_AGENT\"|" \
+	    infrastructure/kubernetes/dagster/user-code-secrets.yaml.example > $(DAGSTER_USER_SECRETS)
+	@echo "✓ user-code-secrets.yaml generated successfully"
+	@echo ""
+	@echo "Credentials populated from:"
+	@echo "  - MinIO: minio-secrets.yaml"
+	@echo "  - Polaris: .credentials/dagster_user.txt"
+	@echo "  - Reddit: preserved from existing file (or needs manual update)"
+
+# Configure Trino to connect to Polaris catalog (run after init-polaris)
+configure-trino-polaris:
+	@echo "Configuring Trino-Polaris integration..."
+	@if [ ! -f "infrastructure/kubernetes/polaris/.credentials/dagster_user.txt" ]; then \
+		echo "❌ Error: Polaris credentials not found"; \
+		echo "   Run 'make init-polaris' first to generate credentials"; \
+		exit 1; \
+	fi
+	@echo "Reading Polaris credentials..."
+	@POLARIS_CRED=$$( . infrastructure/kubernetes/polaris/.credentials/dagster_user.txt && echo "$$POLARIS_CLIENT_ID:$$POLARIS_CLIENT_SECRET"); \
+	echo "Adding POLARIS_OAUTH_CREDENTIAL to trino-env-secrets..."; \
+	kubectl patch secret trino-env-secrets -n $(NAMESPACE) --type merge -p "{\"stringData\":{\"POLARIS_OAUTH_CREDENTIAL\":\"$$POLARIS_CRED\"}}"; \
+	echo "✓ Polaris credentials added to trino-env-secrets"
+	@echo ""
+	@echo "Updating Trino with full catalog configuration..."
+	@helm upgrade trino trino/trino \
+		-f $(TRINO_VALUES) \
+		-n $(NAMESPACE)
+	@echo "✓ Trino upgraded with lakehouse catalog"
+	@echo ""
+	@echo "Restarting Trino to apply changes..."
+	@kubectl rollout restart deployment -n $(NAMESPACE) -l app.kubernetes.io/name=trino
+	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=trino,app.kubernetes.io/component=coordinator -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
+	@echo "✓ Trino configured with Polaris catalog"
+	@echo ""
+	@echo "Lakehouse catalog is now available in Trino!"
+	@echo "Test with: SHOW SCHEMAS FROM lakehouse;"
+
+# Build Dagster user code Docker image
+build-dagster-image:
+	@echo "Building Dagster user code image..."
+	@cd orchestration-dagster && docker build -t orchestration-dagster:latest .
+	@echo "✓ Dagster image built: orchestration-dagster:latest"
+
+# Deploy full lakehouse platform (orchestration)
+deploy:
+	@echo "=========================================="
+	@echo "   Deploying Lakehouse Platform"
+	@echo "=========================================="
+	@echo ""
+	@$(MAKE) validate-secrets
+	@echo ""
+	@$(MAKE) install
+	@echo ""
+	@echo "=========================================="
+	@echo "   Deployment Complete!"
+	@echo "=========================================="
+	@echo ""
+	@echo "MinIO is ready with default bucket 'lakehouse'"
+	@echo "Polaris REST catalog is available for unified Iceberg table management"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. make build-dagster-image   # Build user code Docker image"
+	@echo "  2. make deploy-dagster-code   # Deploy user code to Dagster"
+	@echo "  3. make port-forward-start    # Access services locally"
+	@echo "  4. make status                # Check deployment status"
+
+# Install all services to lakehouse namespace
+install:
+	@echo "Step 1/7: Creating lakehouse namespace..."
 	@kubectl apply -f infrastructure/kubernetes/namespace.yaml
 	@echo ""
-	@echo "Step 2/4: Deploying MinIO (S3 storage)..."
+	@echo "Step 2/7: Applying secrets..."
+	@kubectl apply -f infrastructure/kubernetes/minio/minio-secrets.yaml 2>/dev/null || echo "  MinIO secrets not found (optional)"
+	# Note: dagster-postgresql-secret is managed by Helm (generatePostgresqlPasswordSecret: true)
+	@kubectl apply -f infrastructure/kubernetes/dagster/user-code-secrets.yaml 2>/dev/null || echo "  Dagster user-code secrets not found (optional)"
+	@kubectl apply -f infrastructure/kubernetes/trino/secrets.yaml 2>/dev/null || echo "  Trino secrets not found (optional)"
+	@kubectl apply -f $(POLARIS_SECRETS) 2>/dev/null || echo "  Polaris secrets not found (optional)"
+	@echo "✓ Secrets applied"
+	@echo ""
+	@echo "Step 3/7: Deploying MinIO (S3 storage)..."
 	@kubectl apply -f infrastructure/kubernetes/minio/minio-standalone.yaml
 	@echo "Waiting for MinIO to be ready..."
 	@kubectl wait --for=condition=ready pod -l app=minio -n $(NAMESPACE) --timeout=120s
 	@echo "✓ MinIO deployed"
 	@echo ""
-	@echo "Step 3/4: Deploying Dagster (orchestration)..."
+	@echo "Step 4/7: Deploying Dagster (orchestration)..."
 	@helm upgrade --install dagster dagster/dagster \
 		-f $(DAGSTER_VALUES) \
-		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT) || true
-	@kubectl scale deployment -n $(NAMESPACE) dagster-dagster-user-deployments-dagster-user-code --replicas=0 2>/dev/null || true
+		-n $(NAMESPACE)
+	@echo "Waiting for Dagster core components..."
+	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=dagster,app.kubernetes.io/component=dagster-webserver -n $(NAMESPACE) --timeout=120s 2>/dev/null || true
+	@kubectl scale deployment -n $(NAMESPACE) dagster-dagster-user-deployments-orchestration-dagster --replicas=0 2>/dev/null || true
 	@echo "✓ Dagster deployed"
 	@echo ""
-	@echo "Step 4/5: Deploying Trino (query engine)..."
+	@echo "Step 5/6: Deploying Trino (query engine - minimal, no lakehouse catalog)..."
 	@helm upgrade --install trino trino/trino \
-		-f $(TRINO_VALUES) \
+		-f $(TRINO_VALUES_MINIMAL) \
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
-	@echo "✓ Trino deployed"
+	@echo "✓ Trino deployed (without lakehouse catalog)"
+	@echo "   Run 'make configure-trino-polaris' after 'make init-polaris' to add lakehouse catalog"
 	@echo ""
-	@echo "Step 5/5: Deploying Polaris (Apache Iceberg REST catalog)..."
-	@kubectl apply -f $(POLARIS_SECRETS)
-	@helm upgrade --install polaris polaris/polaris \
+	@echo "Step 6/6: Deploying Polaris (Apache Iceberg REST catalog with in-memory persistence)..."
+	@helm upgrade --install polaris $(POLARIS_REPO)/helm/polaris \
 		-f $(POLARIS_VALUES) \
 		-n $(NAMESPACE) --wait --timeout $(HELM_TIMEOUT)
 	@echo "✓ Polaris deployed"
-	@echo ""
-	@echo "Deployment complete! MinIO is ready with default bucket 'lakehouse'."
-	@echo "Polaris REST catalog is available for unified Iceberg table management."
 
 
 # Teardown lakehouse cluster
@@ -472,17 +697,20 @@ deploy-dagster-code:
 	@kubectl apply -f infrastructure/kubernetes/dagster/user-code-env-configmap.yaml
 	@echo "✓ ConfigMap applied"
 	@echo ""
-	@echo "Step 3/4: Applying Secrets..."
+	@echo "Step 3/5: Applying Secrets..."
 	@if [ ! -f infrastructure/kubernetes/dagster/user-code-secrets.yaml ]; then \
-		echo "⚠️  Warning: user-code-secrets.yaml not found."; \
-		echo "   Create it from the example: cp infrastructure/kubernetes/dagster/user-code-secrets.yaml.example infrastructure/kubernetes/dagster/user-code-secrets.yaml"; \
-		echo "   Then edit it with your credentials before running this command again."; \
-		exit 1; \
+		echo "⚠️  user-code-secrets.yaml not found."; \
+		echo "   Generating from sources..."; \
+		$(MAKE) generate-user-secrets; \
 	fi
 	@kubectl apply -f infrastructure/kubernetes/dagster/user-code-secrets.yaml
 	@echo "✓ Secrets applied"
 	@echo ""
-	@echo "Step 4/4: Restarting Dagster user code deployment..."
+	@echo "Step 4/5: Scaling user code deployment to 1 replica..."
+	@kubectl scale deployment -n $(NAMESPACE) dagster-dagster-user-deployments-orchestration-dagster --replicas=1
+	@echo "✓ Deployment scaled up"
+	@echo ""
+	@echo "Step 5/5: Restarting Dagster user code deployment..."
 	@kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestration-dagster -n $(NAMESPACE)
 	@kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=dagster,component=user-deployments -n $(NAMESPACE) --timeout=120s
 	@echo "✓ Dagster user code deployed successfully!"
