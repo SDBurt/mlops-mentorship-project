@@ -151,6 +151,9 @@ logs/
 **/*secrets.yaml
 # Pattern 4: Prefix match "secret-*.yaml"
 **/secret-*.yaml
+# Pattern 5: Credentials files (e.g., bootstrap-credentials.yaml)
+**/*credentials.yaml
+**/*-credentials.yaml
 
 # Credentials directory
 **/.credentials/
@@ -158,7 +161,7 @@ logs/
 # User-specific configs
 .user*
 
-# Downloaded Helm charts (Garage doesn't have a Helm repo)
+# Downloaded/cloned Helm charts (Polaris, Garage, etc.)
 infrastructure/helm/
 
 .tmp_*

@@ -69,16 +69,18 @@ helm upgrade --install polaris polaris/polaris \
 
 ### Common Configuration Updates
 
-**Database Connection:**
+**Persistence Mode:**
 ```yaml
+# In-memory persistence (development)
 persistence:
-  type: relational-jdbc
-  relationalJdbc:
-    secret:
-      name: polaris-db-secret
-      username: polaris
-      password: <updated-password>
-      jdbcUrl: jdbc:postgresql://polaris-postgresql:5432/polaris
+  type: in-memory
+
+# Or for production, use relational-jdbc with external PostgreSQL
+# persistence:
+#   type: relational-jdbc
+#   relationalJdbc:
+#     secret:
+#       name: polaris-db-secret
 ```
 
 **Storage Configuration:**
@@ -103,14 +105,18 @@ resources:
 
 ## Updating Secrets/Credentials
 
-### Database Credentials
+**Note:** The default configuration uses in-memory persistence and does not require database credentials. Database credentials are only needed if you switch to `relational-jdbc` persistence with an external PostgreSQL instance.
+
+### Database Credentials (Production Only)
+
+Only required if using `persistence.type: relational-jdbc`:
 
 1. Update the secret:
 ```bash
 kubectl create secret generic polaris-db-secret \
   --from-literal=username=polaris \
   --from-literal=password=<new-password> \
-  --from-literal=jdbcUrl=jdbc:postgresql://polaris-postgresql:5432/polaris \
+  --from-literal=jdbcUrl=jdbc:postgresql://<external-postgres-host>:5432/polaris \
   -n lakehouse --dry-run=client -o yaml | kubectl apply -f -
 ```
 
@@ -274,7 +280,15 @@ kubectl logs -n lakehouse -l app.kubernetes.io/name=polaris --tail=100
 # - Storage credentials invalid: Verify storage secret
 ```
 
-### Database Connection Errors
+### Persistence Issues
+
+**In-Memory Mode:**
+
+**Symptoms**: Data lost after pod restart
+
+**Note**: This is expected behavior with in-memory persistence. Data does not persist across restarts. For production, use relational-jdbc persistence with an external PostgreSQL database.
+
+**Relational-JDBC Mode (Production):**
 
 **Symptoms**: Logs show database connection failures
 
@@ -283,9 +297,9 @@ kubectl logs -n lakehouse -l app.kubernetes.io/name=polaris --tail=100
 # Verify database secret exists
 kubectl get secret polaris-db-secret -n lakehouse
 
-# Test database connectivity
+# Test database connectivity to external PostgreSQL
 kubectl run -it --rm debug --image=postgres:14 --restart=Never -n lakehouse -- \
-  psql -h polaris-postgresql -U polaris -d polaris -W
+  psql -h <external-postgres-host> -U polaris -d polaris -W
 
 # Update secret if needed (see "Updating Secrets/Credentials" above)
 ```

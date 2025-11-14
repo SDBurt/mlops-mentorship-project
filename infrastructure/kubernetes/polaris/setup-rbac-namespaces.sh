@@ -256,35 +256,26 @@ grant_catalog_role() {
     local token="$1"
     log_info "Granting catalog role '${CATALOG_ROLE_NAME}' to principal role '${PRINCIPAL_ROLE_NAME}'..."
 
+    # Correct API endpoint: PUT /api/management/v1/principal-roles/{principalRole}/catalog-roles/{catalog}
     local response=$(curl -s -w "\n%{http_code}" -X PUT \
-        "${POLARIS_HOST}/api/management/v1/catalogs/${CATALOG_NAME}/catalog-roles/${CATALOG_ROLE_NAME}/principal-roles/${PRINCIPAL_ROLE_NAME}" \
-        -H "Authorization: Bearer ${token}")
+        "${POLARIS_HOST}/api/management/v1/principal-roles/${PRINCIPAL_ROLE_NAME}/catalog-roles/${CATALOG_NAME}" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d "{\"catalogRole\": {\"name\": \"${CATALOG_ROLE_NAME}\"}}")
 
     local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | head -n-1)
+
+    # Check if it's a duplicate key error (grant already exists)
+    if echo "$body" | grep -q "duplicate key value"; then
+        log_warn "Catalog role already granted (duplicate key - this is OK)"
+        return 0
+    fi
 
     if [ "$http_code" != "200" ] && [ "$http_code" != "201" ] && [ "$http_code" != "204" ]; then
-        # Try with JSON body
-        log_warn "First endpoint failed (HTTP $http_code), trying alternative with JSON body..."
-        response=$(curl -s -w "\n%{http_code}" -X PUT \
-            "${POLARIS_HOST}/api/management/v1/catalogs/${CATALOG_NAME}/catalog-roles/${CATALOG_ROLE_NAME}/principal-roles" \
-            -H "Authorization: Bearer ${token}" \
-            -H "Content-Type: application/json" \
-            -d "{\"principalRole\": {\"name\": \"${PRINCIPAL_ROLE_NAME}\"}}")
-
-        http_code=$(echo "$response" | tail -n1)
-        local body=$(echo "$response" | head -n-1)
-
-        # Check if it's a duplicate key error (grant already exists)
-        if echo "$body" | grep -q "duplicate key value"; then
-            log_warn "Catalog role already granted (duplicate key - this is OK)"
-            return 0
-        fi
-
-        if [ "$http_code" != "200" ] && [ "$http_code" != "201" ] && [ "$http_code" != "204" ]; then
-            log_error "Failed to grant catalog role (HTTP $http_code)"
-            echo "$body" | jq '.' 2>/dev/null || echo "$body"
-            return 1
-        fi
+        log_error "Failed to grant catalog role (HTTP $http_code)"
+        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+        return 1
     fi
 
     log_success "Catalog role granted to principal role"

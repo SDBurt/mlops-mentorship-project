@@ -88,33 +88,7 @@ helm upgrade minio bitnami/minio \
   -n lakehouse
 ```
 
-### 2. Polaris PostgreSQL Secrets
-
-PostgreSQL database for Polaris catalog metadata storage.
-
-```bash
-# Copy template
-cp infrastructure/kubernetes/polaris-postgresql/postgres-secrets.yaml.example \
-   infrastructure/kubernetes/polaris-postgresql/postgres-secrets.yaml
-
-# Edit and replace placeholders:
-# - CHANGEME_POLARIS_PASSWORD
-# - CHANGEME_POSTGRES_PASSWORD
-nano infrastructure/kubernetes/polaris-postgresql/postgres-secrets.yaml
-
-# Apply to cluster
-kubectl apply -f infrastructure/kubernetes/polaris-postgresql/postgres-secrets.yaml
-```
-
-**Note:** You can also override passwords via Helm:
-```bash
-helm upgrade polaris-postgresql bitnami/postgresql \
-  --set global.postgresql.auth.password="your-password" \
-  --set global.postgresql.auth.postgresPassword="your-postgres-password" \
-  -n lakehouse
-```
-
-### 3. Polaris Catalog Secrets
+### 2. Polaris Catalog Secrets
 
 Polaris REST catalog requires database connection and storage credentials.
 
@@ -133,7 +107,7 @@ nano infrastructure/kubernetes/polaris/secrets.yaml
 kubectl apply -f infrastructure/kubernetes/polaris/secrets.yaml
 ```
 
-### 4. Dagster User Code Secrets
+### 3. Dagster User Code Secrets
 
 Secrets for Dagster user code deployments (Polaris REST catalog, Reddit API, etc.).
 
@@ -172,7 +146,7 @@ Run the Polaris initialization script to create a principal and get credentials:
 2. Create a "script" type application
 3. Copy the client ID and secret
 
-### 5. Trino OAuth Credentials
+### 4. Trino OAuth Credentials
 
 Trino uses OAuth2 to authenticate with Polaris REST catalog.
 
