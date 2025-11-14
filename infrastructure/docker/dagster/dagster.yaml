@@ -1,0 +1,27 @@
+storage:
+  postgres:
+    postgres_db:
+      db_name:
+        env: DAGSTER_POSTGRES_DB
+      hostname: postgres
+      port: 5432
+      username:
+        env: DAGSTER_POSTGRES_USER
+      password:
+        env: DAGSTER_POSTGRES_PASSWORD
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+
+# Use local filesystem for compute logs inside the container
+compute_logs:
+  module: dagster.core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: /tmp/io_manager_storage
+
+# Default launcher (simple). Switch to DockerRunLauncher if you want per-step containers.
+run_launcher:
+  module: dagster.core.launcher
+  class: DefaultRunLauncher

@@ -113,14 +113,25 @@ def create_iceberg_io_manager(
             "Do not use hardcoded credentials in production."
         )
 
+    # Get warehouse name from environment (catalog name in Polaris)
+    warehouse = os.getenv("PYICEBERG_CATALOG__DEFAULT__WAREHOUSE", "lakehouse")
+    if not warehouse:
+        raise ValueError(
+            "PYICEBERG_CATALOG__DEFAULT__WAREHOUSE environment variable must be set. "
+            "This should match the catalog name created in Polaris."
+        )
+
+    # Get scope from environment (required for Polaris OAuth2)
+    scope = os.getenv("PYICEBERG_CATALOG__DEFAULT__SCOPE", "PRINCIPAL_ROLE:ALL")
+
     # Build catalog properties
     properties = {
         "uri": uri,
-        "warehouse": "lakehouse",
+        "warehouse": warehouse,
         "type": "rest",
         # Authentication: Polaris uses OAuth2 with bootstrap credentials
         "credential": credential,
-        "scope": "PRINCIPAL_ROLE:ALL",  # Required for Polaris OAuth2
+        "scope": scope,  # Required for Polaris OAuth2
         # S3/MinIO storage configuration
         "s3.endpoint": s3_endpoint,
         "s3.access-key-id": s3_access_key,
@@ -140,13 +151,13 @@ def create_iceberg_io_manager(
     # Return appropriate IO manager based on backend
     if backend == "pyarrow":
         return PyArrowIcebergIOManager(
-            name="lakehouse",
+            name=warehouse,
             config=catalog_config,
             namespace=namespace,
         )
     else:  # pandas (default)
         return PandasIcebergIOManager(
-            name="lakehouse",
+            name=warehouse,
             config=catalog_config,
             namespace=namespace,
         )
