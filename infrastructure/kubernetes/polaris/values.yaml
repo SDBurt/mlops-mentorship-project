@@ -34,21 +34,15 @@ resources:
     cpu: 1000m
     memory: 1Gi
 
-# Persistence configuration - Using relational-jdbc with Dagster's PostgreSQL
-# This provides persistent metadata storage across pod restarts
+# Persistence configuration - Using in-memory for development
+# Note: Data will not persist across pod restarts
+# For production, use relational-jdbc with PostgreSQL
 persistence:
-  type: relational-jdbc
-  relationalJdbc:
-    secret:
-      # Secret containing database connection details
-      # See secrets.yaml for secret creation
-      name: polaris-db-secret
-      username: username  # Key name in secret
-      password: password  # Key name in secret
-      jdbcUrl: jdbcUrl    # Key name in secret
+  type: in-memory
 
-# Storage credentials for MinIO S3
-# These credentials allow Polaris to access the lakehouse bucket
+# Storage credentials for MinIO
+# This configures Polaris to vend MinIO credentials to clients
+# Combined with AWS env vars, this should prevent STS calls
 storage:
   secret:
     name: polaris-storage-secret
@@ -66,11 +60,25 @@ extraEnv:
   # Default region
   - name: AWS_REGION
     value: us-east-1
-  # Bootstrap credentials: format is "realm,principal-name,secret"
-  # IMPORTANT: Override this via Helm --set or external secret for production
-  # Default value is for development only
-  # - name: POLARIS_BOOTSTRAP_CREDENTIALS
-  #   value: "lakehouse,polaris_admin,CHANGEME_BOOTSTRAP_SECRET"
+  # Static AWS credentials (MinIO credentials)
+  # This prevents Polaris from trying to call AWS STS
+  - name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: polaris-storage-secret
+        key: aws-access-key-id
+  - name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: polaris-storage-secret
+        key: aws-secret-access-key
+  # Bootstrap credentials: from Kubernetes secret
+  # Format: "realm,principal-name,secret"
+  - name: POLARIS_BOOTSTRAP_CREDENTIALS
+    valueFrom:
+      secretKeyRef:
+        name: polaris-bootstrap-credentials
+        key: bootstrap-credentials
 
 # Realm configuration
 realmContext:
