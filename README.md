@@ -143,8 +143,8 @@ Data Pipeline (above)
 
 **Documentation Created**:
 - 18 comprehensive topic guides in [docs/topics/](docs/topics/)
-- [SETUP_GUIDE.md](docs/SETUP_GUIDE.md) - Step-by-step deployment
-- [TEARDOWN.md](docs/TEARDOWN.md) - Clean uninstall procedures
+- [GETTING-STARTED.md](docs/guides/GETTING-STARTED.md) - Complete setup guide with hand-holding
+- [deploying-the-cluster.md](docs/guides/deploying-the-cluster.md) - Technical deployment reference
 
 ### Week 3-4: Data Pipeline Implementation
 **Status**: 🔄 In Progress
@@ -277,52 +277,90 @@ docker --version          # Docker (for local cluster)
 
 ### Deploy the Platform
 
-**Step 1: Follow the Setup Guide**
+**Using Automated Makefile Commands** (Recommended)
+
 ```bash
-# Comprehensive step-by-step guide with explanations
-cat docs/SETUP_GUIDE.md
+# Step 1: Verify prerequisites
+make check
+
+# Step 2: Setup Helm repositories and clone dependencies
+make setup
+
+# Step 3: Deploy infrastructure
+#   - MinIO (S3 storage)
+#   - Dagster (orchestration, user code disabled initially)
+#   - Trino (query engine, without lakehouse catalog)
+#   - Polaris (REST catalog)
+make deploy
+
+# Step 4: Initialize Polaris catalog and create credentials
+make init-polaris
+
+# Step 5: Configure Trino to connect to Polaris
+#   - Adds lakehouse catalog to Trino
+#   - Requires Polaris credentials from step 4
+make configure-trino-polaris
+
+# Step 6: Deploy Dagster user code (optional)
+#   - Auto-generates secrets from MinIO + Polaris credentials
+#   - Builds Docker image for orchestration-dagster
+#   - Scales user code deployment to 1 replica
+make deploy-dagster-code
+
+# Step 7: Access services locally
+make port-forward-start
 ```
 
-**Step 2: Deploy Services in Order**
-```bash
-# Create lakehouse namespace
-kubectl apply -f infrastructure/kubernetes/namespace.yaml
-
-# 1. Storage layer (MinIO)
-helm upgrade --install minio infrastructure/helm/minio \
-  -f infrastructure/kubernetes/minio/values.yaml \
-  -n lakehouse --wait
-
-# 2. Orchestration (Dagster)
-helm upgrade --install dagster dagster/dagster \
-  -f infrastructure/kubernetes/dagster/values.yaml \
-  -n lakehouse
-
-# 3. Query engine (Trino)
-helm upgrade --install trino trino/trino \
-  -f infrastructure/kubernetes/trino/values.yaml \
-  -n lakehouse --wait --timeout 10m
-```
-
-**Step 3: Access Services**
-```bash
-# Port-forward UIs (each in separate terminal)
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
-kubectl port-forward -n trino svc/trino 8080:8080
-```
-
-- Dagster: http://localhost:3000
+**Service URLs** (after port-forward):
+- Dagster: http://localhost:3001
 - Trino: http://localhost:8080
+- MinIO Console: http://localhost:9001
+- Polaris: http://localhost:8181
+
+**Stop Port Forwards**:
+```bash
+make port-forward-stop
+```
 
 ### Check Status
 ```bash
-# View all deployments
-kubectl get pods --all-namespaces | grep -E 'minio|dagster|trino'
+# Quick status overview
+make status
 
-# Check specific service
-kubectl get pods -n lakehouse -l app.kubernetes.io/name=minio
-kubectl logs -n lakehouse minio-0 --tail=100
+# Polaris-specific status
+make polaris-status
+
+# View all pods
+kubectl get pods -n lakehouse
+
+# Check specific service logs
+kubectl logs -n lakehouse deployment/dagster-dagster-webserver
+kubectl logs -n lakehouse deployment/trino-coordinator
 ```
+
+### Common Operations
+
+```bash
+# Validate secret files exist
+make validate-secrets
+
+# Auto-generate user code secrets from sources
+make generate-user-secrets
+
+# Restart services
+make restart-dagster
+make restart-trino
+make restart-polaris
+make restart-all
+
+# Complete teardown
+make destroy      # Remove services, keep secrets
+make nuke         # Complete reset (irreversible)
+```
+
+### Complete Setup Guide
+
+For a complete, hand-holding setup guide from scratch, see [GETTING-STARTED.md](docs/guides/GETTING-STARTED.md).
 
 ## Project Structure
 
@@ -342,9 +380,11 @@ kubectl logs -n lakehouse minio-0 --tail=100
 │   │   ├── star-schema.md
 │   │   ├── mlops.md              # Phase 4 guide
 │   │   └── ... (more)
-│   ├── ARCHITECTURE.md           # Technical deep dive
-│   ├── SETUP_GUIDE.md            # Step-by-step deployment
-│   └── TEARDOWN.md               # Clean uninstall guide
+│   ├── guides/                   # Step-by-step guides
+│   │   ├── GETTING-STARTED.md   # Complete setup guide
+│   │   ├── deploying-the-cluster.md  # Technical reference
+│   │   ├── setup-polaris.md     # Polaris RBAC setup
+│   │   └── update-polaris.md    # Polaris updates
 │
 ├── infrastructure/               # Platform infrastructure
 │   ├── kubernetes/              # K8s manifests and Helm values
@@ -404,8 +444,8 @@ kubectl logs -n lakehouse minio-0 --tail=100
 ## Key Learning Resources
 
 ### Documentation
-- **[SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**: Complete deployment walkthrough with explanations
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Technical deep dive into design decisions
+- **[GETTING-STARTED.md](docs/guides/GETTING-STARTED.md)**: Complete setup guide from scratch
+- **[deploying-the-cluster.md](docs/guides/deploying-the-cluster.md)**: Technical deployment reference
 - **[docs/topics/](docs/topics/)**: 18 comprehensive guides on every component
 
 ### Essential Topics
