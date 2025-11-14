@@ -1478,4 +1478,3 @@ pipelineRun:
   #   ENV_ONE: one
   #   ENV_TWO: two
   env: {}
-

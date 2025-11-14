@@ -18,8 +18,8 @@ This project follows a deliberate progression that mirrors real-world platform d
 
 ### Phase 1-2: Data Foundation (Learn First)
 **Build the data pipeline infrastructure**
-- Deploy Kubernetes services (Garage, Airbyte, Dagster, Trino)
-- Implement batch data ingestion with Airbyte
+- Deploy Kubernetes services (MinIO, Dagster, Trino)
+- Implement batch data ingestion
 - Create DBT transformations (Bronze → Silver → Gold)
 - Build dimensional models (star schema)
 - Master SQL, data modeling, and pipeline orchestration
@@ -60,9 +60,9 @@ This project follows a deliberate progression that mirrors real-world platform d
 ```
 Data Sources
     ↓
-[Airbyte] - Ingestion
+[Meltano] - ELT Ingestion (Singer Taps/Targets)
     ↓
-[Garage S3] - Object Storage (Parquet files)
+[MinIO S3] - Object Storage (Parquet files)
     ↓
 [Apache Iceberg] - Table Format (ACID, Schema Evolution)
     ↓
@@ -101,12 +101,13 @@ Data Pipeline (above)
 **Infrastructure** (Kubernetes-native):
 - **Kubernetes**: Container orchestration (Docker Desktop / minikube)
 - **Helm**: Package management for services
-- **Garage**: S3-compatible object storage (lightweight alternative to MinIO)
-- **PostgreSQL**: Metadata storage (embedded in Airbyte/Dagster)
+- **MinIO**: S3-compatible object storage (lightweight alternative to MinIO)
+- **PostgreSQL**: Metadata storage (embedded in Dagster)
 
 **Data Platform**:
-- **Airbyte**: Data ingestion with 300+ connectors
+- **Meltano**: ELT ingestion via Singer ecosystem (600+ connectors)
 - **Apache Iceberg**: Open table format (ACID, time travel, schema evolution)
+- **Apache Polaris**: REST catalog for Iceberg (unified metadata, governance)
 - **DBT**: SQL-based transformations (medallion architecture)
 - **Dagster**: Asset-centric orchestration
 - **Trino**: Distributed SQL query engine
@@ -126,33 +127,35 @@ Data Pipeline (above)
 **What was Learned**:
 - Kubernetes fundamentals (pods, services, namespaces, StatefulSets)
 - Helm package management (charts, releases, values files)
-- Kubernetes networking (DNS, cross-namespace communication)
+- Kubernetes networking (DNS, same-namespace service discovery)
 - Persistent storage with PVCs
+- Namespace best practices (grouping communicating services)
 
 **Tasks Completed**:
-- [x] Garage S3 storage with cluster initialization
-- [x] Airbyte V2 with embedded PostgreSQL
+- [x] MinIO S3 storage with cluster initialization
 - [x] Dagster with embedded PostgreSQL
 - [x] Trino query engine
 
 **Key Challenges Solved**:
-- Garage cluster initialization (non-obvious required step)
-- Cross-namespace service communication via DNS
+- MinIO cluster initialization (non-obvious required step)
+- Namespace strategy (single namespace for communicating services)
 - StatefulSet storage management with PVCs
 
 **Documentation Created**:
 - 18 comprehensive topic guides in [docs/topics/](docs/topics/)
-- [SETUP_GUIDE.md](docs/SETUP_GUIDE.md) - Step-by-step deployment
-- [TEARDOWN.md](docs/TEARDOWN.md) - Clean uninstall procedures
+- [GETTING-STARTED.md](docs/guides/GETTING-STARTED.md) - Complete setup guide with hand-holding
+- [deploying-the-cluster.md](docs/guides/deploying-the-cluster.md) - Technical deployment reference
 
 ### Week 3-4: Data Pipeline Implementation
 **Status**: 🔄 In Progress
 
 **Current Focus**:
-- [ ] Configure Airbyte data sources
-- [ ] Configure Airbyte Iceberg destination (S3 + Garage)
-- [ ] Ingest raw data as Iceberg tables to Garage S3
-- [ ] Configure Trino to read Airbyte's Iceberg catalog
+- [x] Set up DLT for data ingestion (Reddit source)
+- [x] Configure Dagster hourly ingestion schedule
+- [x] Configure DLT to write Iceberg tables to MinIO S3
+- [ ] Verify Iceberg table structure and partitioning
+- [ ] Expand DLT sources (additional data sources)
+- [ ] Configure Trino Iceberg catalog
 - [ ] Build DBT project structure
 - [ ] Implement Bronze layer (staging views)
 - [ ] Implement Silver layer (cleaned dimensions)
@@ -182,7 +185,7 @@ Data Pipeline (above)
 - [ ] Create Dagster assets for DBT models
 - [ ] Set up daily refresh schedules
 - [ ] Implement data quality tests in DBT
-- [ ] Build Dagster sensors for Airbyte syncs
+- [ ] Build Dagster sensors for data refreshes
 - [ ] Create monitoring dashboards
 - [ ] Set up alerting for pipeline failures
 
@@ -193,28 +196,35 @@ Data Pipeline (above)
 - Error handling and retry strategies
 
 ### Week 7-8: Data Governance (Phase 3)
-**Status**: ⏳ Planned
+**Status**: 🔄 Ready to Start (Configuration Complete)
+
+**Completed**:
+- [x] Create Polaris Helm configuration
+- [x] Configure secrets for database and storage
+- [x] Document Polaris deployment and setup
+- [x] Update Makefile with Polaris commands
 
 **Planned Tasks**:
 - [ ] Deploy Apache Polaris REST Catalog
-- [ ] Migrate Airbyte + Trino to use Polaris catalog
+- [ ] Migrate Trino to use Polaris catalog
+- [ ] Create initial catalog and namespaces
 - [ ] Implement RBAC policies for table access
 - [ ] Set up audit logging and monitoring
 - [ ] Document table lineage
-- [ ] Multi-engine catalog sharing
+- [ ] Test multi-engine catalog sharing (Trino, Spark)
 
 **Learning Goals**:
-- Modern REST catalog vs embedded catalogs
+- Modern REST catalog vs embedded catalogs (JDBC, Hive)
 - Fine-grained access control for data lakes
 - Governance and compliance in production systems
-- Centralized metadata management
+- Centralized metadata management across compute engines
 
 ### Week 9-12: MLOps Integration (Phase 4) - PRIMARY GOAL
 **Status**: ⏳ Planned
 
 **Planned Tasks**:
 - [ ] Deploy Feast feature store
-  - [ ] Configure offline store (Iceberg/Garage)
+  - [ ] Configure offline store (Iceberg/MinIO)
   - [ ] Configure online store (Redis)
   - [ ] Define feature views from Gold tables
 - [ ] Deploy Kubeflow platform
@@ -222,7 +232,7 @@ Data Pipeline (above)
   - [ ] Create Jupyter notebook environment
   - [ ] Build first training pipeline
 - [ ] Set up DVC for versioning
-  - [ ] Configure Garage as remote storage
+  - [ ] Configure MinIO as remote storage
   - [ ] Version training datasets
   - [ ] Track model artifacts
 - [ ] Build ML pipelines
@@ -267,66 +277,99 @@ docker --version          # Docker (for local cluster)
 
 ### Deploy the Platform
 
-**Step 1: Follow the Setup Guide**
+**Using Automated Makefile Commands** (Recommended)
+
 ```bash
-# Comprehensive step-by-step guide with explanations
-cat docs/SETUP_GUIDE.md
+# Step 1: Verify prerequisites
+make check
+
+# Step 2: Setup Helm repositories and clone dependencies
+make setup
+
+# Step 3: Deploy infrastructure
+#   - MinIO (S3 storage)
+#   - Dagster (orchestration, user code disabled initially)
+#   - Trino (query engine, without lakehouse catalog)
+#   - Polaris (REST catalog)
+make deploy
+
+# Step 4: Initialize Polaris catalog and create credentials
+make init-polaris
+
+# Step 5: Configure Trino to connect to Polaris
+#   - Adds lakehouse catalog to Trino
+#   - Requires Polaris credentials from step 4
+make configure-trino-polaris
+
+# Step 6: Deploy Dagster user code (optional)
+#   - Auto-generates secrets from MinIO + Polaris credentials
+#   - Builds Docker image for orchestration-dagster
+#   - Scales user code deployment to 1 replica
+make deploy-dagster-code
+
+# Step 7: Access services locally
+make port-forward-start
 ```
 
-**Step 2: Deploy Services in Order**
+**Service URLs** (after port-forward):
+- Dagster: http://localhost:3001
+- Trino: http://localhost:8080
+- MinIO Console: http://localhost:9001
+- Polaris: http://localhost:8181
+
+**Stop Port Forwards**:
 ```bash
-# 1. Storage layer (Garage)
-helm upgrade --install garage infrastructure/helm/garage \
-  -f infrastructure/kubernetes/garage/values.yaml \
-  -n garage --create-namespace --wait
-
-# 2. Ingestion (Airbyte)
-helm upgrade --install airbyte airbyte-v2/airbyte --version 2.0.18 \
-  -f infrastructure/kubernetes/airbyte/values.yaml \
-  -n airbyte --create-namespace --wait --timeout 10m
-
-# 3. Orchestration (Dagster)
-helm upgrade --install dagster dagster/dagster \
-  -f infrastructure/kubernetes/dagster/values.yaml \
-  -n dagster --create-namespace
-
-# 4. Query engine (Trino)
-helm upgrade --install trino trino/trino \
-  -f infrastructure/kubernetes/trino/values.yaml \
-  -n trino --create-namespace --wait --timeout 10m
+make port-forward-stop
 ```
-
-**Step 3: Access Services**
-```bash
-# Port-forward UIs (each in separate terminal)
-kubectl port-forward -n airbyte svc/airbyte-airbyte-server-svc 8080:8001
-kubectl port-forward -n dagster svc/dagster-dagster-webserver 3000:80
-kubectl port-forward -n trino svc/trino 8081:8080
-```
-
-- Airbyte: http://localhost:8080
-- Dagster: http://localhost:3000
-- Trino: http://localhost:8081
 
 ### Check Status
 ```bash
-# View all deployments
-kubectl get pods --all-namespaces | grep -E 'garage|airbyte|dagster|trino'
+# Quick status overview
+make status
 
-# Check specific service
-kubectl get pods -n garage
-kubectl logs -n garage garage-0 --tail=100
+# Polaris-specific status
+make polaris-status
+
+# View all pods
+kubectl get pods -n lakehouse
+
+# Check specific service logs
+kubectl logs -n lakehouse deployment/dagster-dagster-webserver
+kubectl logs -n lakehouse deployment/trino-coordinator
 ```
+
+### Common Operations
+
+```bash
+# Validate secret files exist
+make validate-secrets
+
+# Auto-generate user code secrets from sources
+make generate-user-secrets
+
+# Restart services
+make restart-dagster
+make restart-trino
+make restart-polaris
+make restart-all
+
+# Complete teardown
+make destroy      # Remove services, keep secrets
+make nuke         # Complete reset (irreversible)
+```
+
+### Complete Setup Guide
+
+For a complete, hand-holding setup guide from scratch, see [GETTING-STARTED.md](docs/guides/GETTING-STARTED.md).
 
 ## Project Structure
 
 ```
 .
 ├── docs/                          # Comprehensive documentation
-│   ├── topics/                   # 18 detailed topic guides
+│   ├── topics/                   # Detailed topic guides
 │   │   ├── kubernetes-fundamentals.md
-│   │   ├── garage.md
-│   │   ├── airbyte.md
+│   │   ├── minio.md
 │   │   ├── dagster.md
 │   │   ├── trino.md
 │   │   ├── dbt.md
@@ -337,20 +380,21 @@ kubectl logs -n garage garage-0 --tail=100
 │   │   ├── star-schema.md
 │   │   ├── mlops.md              # Phase 4 guide
 │   │   └── ... (more)
-│   ├── ARCHITECTURE.md           # Technical deep dive
-│   ├── SETUP_GUIDE.md            # Step-by-step deployment
-│   └── TEARDOWN.md               # Clean uninstall guide
+│   ├── guides/                   # Step-by-step guides
+│   │   ├── GETTING-STARTED.md   # Complete setup guide
+│   │   ├── deploying-the-cluster.md  # Technical reference
+│   │   ├── setup-polaris.md     # Polaris RBAC setup
+│   │   └── update-polaris.md    # Polaris updates
 │
 ├── infrastructure/               # Platform infrastructure
 │   ├── kubernetes/              # K8s manifests and Helm values
-│   │   ├── garage/             # S3 storage
-│   │   ├── airbyte/            # Data ingestion
+│   │   ├── minio/             # S3 storage
 │   │   ├── dagster/            # Orchestration
 │   │   ├── trino/              # Query engine
 │   │   ├── polaris/            # Polaris REST Catalog (Phase 3)
-│   │   └── namespaces/         # Namespace definitions
+│   │   └── namespace.yaml      # Single lakehouse namespace
 │   └── helm/                   # Local Helm charts
-│       └── garage/             # Garage Helm chart
+│       └── minio/             # MinIO Helm chart
 │
 ├── transformations/             # DBT transformations
 │   └── dbt/
@@ -367,7 +411,7 @@ kubectl logs -n garage garage-0 --tail=100
 │       ├── assets/             # DBT assets, custom assets
 │       ├── jobs/               # Job definitions
 │       ├── schedules/          # Schedules
-│       └── sensors/            # Sensors (Airbyte triggers)
+│       └── sensors/            # Sensors (data triggers)
 │
 ├── lakehouse/                   # Iceberg schemas & conventions
 │   ├── schemas/
@@ -400,8 +444,8 @@ kubectl logs -n garage garage-0 --tail=100
 ## Key Learning Resources
 
 ### Documentation
-- **[SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**: Complete deployment walkthrough with explanations
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Technical deep dive into design decisions
+- **[GETTING-STARTED.md](docs/guides/GETTING-STARTED.md)**: Complete setup guide from scratch
+- **[deploying-the-cluster.md](docs/guides/deploying-the-cluster.md)**: Technical deployment reference
 - **[docs/topics/](docs/topics/)**: 18 comprehensive guides on every component
 
 ### Essential Topics
@@ -447,14 +491,14 @@ This project teaches the complete modern data stack:
 
 ### Challenges & Solutions
 
-**Challenge**: Garage cluster initialization was not automatic
-**Solution**: Must explicitly assign storage roles and apply layout after deployment. Documented in [Garage guide](docs/topics/garage.md).
+**Challenge**: MinIO cluster initialization was not automatic
+**Solution**: Must explicitly assign storage roles and apply layout after deployment. Documented in [MinIO guide](docs/topics/minio.md).
 
 **Challenge**: Understanding StatefulSets vs Deployments
 **Solution**: StatefulSets provide stable pod names and dedicated storage - critical for databases. See [Stateful Applications](docs/topics/stateful-applications.md).
 
-**Challenge**: Cross-namespace service communication
-**Solution**: Use full DNS names: `service.namespace.svc.cluster.local`. See [Cross-Namespace Communication](docs/topics/cross-namespace-communication.md).
+**Challenge**: Namespace organization for communicating services
+**Solution**: Use single `lakehouse` namespace for all services - enables simplified DNS (`service:port`). Follows Kubernetes best practices: services that communicate should live together. See [Kubernetes Networking](docs/topics/kubernetes-networking.md).
 
 ### Questions for Mentor
 - _(Record questions to discuss during mentorship sessions)_
@@ -472,11 +516,10 @@ This project teaches the complete modern data stack:
 # Uninstall all services (see docs/TEARDOWN.md for details)
 helm uninstall dagster -n dagster
 helm uninstall trino -n trino
-helm uninstall airbyte -n airbyte
-helm uninstall garage -n garage
+helm uninstall minio -n minio
 
 # Delete namespaces
-kubectl delete namespace dagster trino airbyte garage
+kubectl delete namespace dagster trino minio
 ```
 
 ## License

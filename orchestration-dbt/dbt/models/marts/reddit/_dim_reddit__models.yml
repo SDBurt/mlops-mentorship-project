@@ -1,0 +1,170 @@
+version: 2
+
+models:
+  # ==========================================================================
+  # Dimension Model: Date Dimension
+  # ==========================================================================
+  - name: dim_date
+    description: |
+      Standard date dimension table for time-based analysis of Reddit data.
+      Contains date attributes, labels, and flags for filtering and grouping.
+    config:
+      tags: ['dimension', 'reddit', 'date']
+    columns:
+      - name: date_key
+        description: "Surrogate key generated from date_day"
+        tests:
+          - unique
+          - not_null
+
+      - name: date_day
+        description: "Natural key - the date (DATE type)"
+        tests:
+          - unique
+          - not_null
+
+      - name: year
+        description: "Year (e.g., 2024)"
+        tests:
+          - not_null
+
+      - name: quarter
+        description: "Quarter (1-4)"
+        tests:
+          - not_null
+
+      - name: month
+        description: "Month (1-12)"
+        tests:
+          - not_null
+
+      - name: day_of_week
+        description: "Day of week (1=Monday, 7=Sunday)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6, 7]
+
+      - name: is_weekend
+        description: "True if date is Saturday or Sunday"
+        tests:
+          - not_null
+
+  # ==========================================================================
+  # Dimension Model: Subreddit Dimension
+  # ==========================================================================
+  - name: dim_subreddit
+    description: |
+      Subreddit dimension with metadata and community metrics.
+      SCD Type 1 (replace) - metadata changes are overwritten.
+    config:
+      tags: ['dimension', 'reddit', 'subreddit']
+    columns:
+      - name: subreddit_key
+        description: "Surrogate key generated from subreddit"
+        tests:
+          - unique
+          - not_null
+
+      - name: subreddit
+        description: "Natural key - subreddit display name"
+        tests:
+          - unique
+          - not_null
+          - accepted_values:
+              values: ['worldnews', 'economics', 'finance', 'wallstreetbets', 'investing']
+
+      - name: subreddit_id
+        description: "Reddit subreddit ID"
+        tests:
+          - unique
+          - not_null
+
+      - name: title
+        description: "Subreddit title/heading"
+        tests:
+          - not_null
+
+      - name: subscribers
+        description: "Total number of subscribers"
+        tests:
+          - not_null
+
+      - name: subreddit_type
+        description: "Subreddit type (public, private, etc.)"
+        tests:
+          - not_null
+
+  # ==========================================================================
+  # Dimension Model: Author Dimension with SCD Type 2
+  # ==========================================================================
+  - name: dim_author
+    description: |
+      Author dimension tracking historical changes to author metrics.
+      SCD Type 2 - maintains history with valid_from/valid_to/is_current.
+      Each version of an author gets a unique surrogate key.
+    config:
+      tags: ['dimension', 'reddit', 'author', 'scd-type-2']
+    columns:
+      - name: author_key
+        description: "Surrogate key (includes author + valid_from for versioning)"
+        tests:
+          - unique
+          - not_null
+
+      - name: author
+        description: "Natural key - Reddit username"
+        tests:
+          - not_null
+
+      - name: author_fullname
+        description: "Natural key - Full Reddit author ID"
+
+      - name: total_posts
+        description: "Total number of posts by author"
+        tests:
+          - not_null
+
+      - name: total_comments
+        description: "Total number of comments by author"
+        tests:
+          - not_null
+
+      - name: total_activity
+        description: "Total posts + comments"
+        tests:
+          - not_null
+
+      - name: total_score
+        description: "Combined score from posts and comments"
+        tests:
+          - not_null
+
+      - name: reputation_score
+        description: "Calculated reputation score (ML feature)"
+        tests:
+          - not_null
+
+      - name: reputation_tier
+        description: "Reputation category (Elite, High, Medium, Low, New)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Elite', 'High', 'Medium', 'Low', 'New']
+
+      - name: activity_type
+        description: "Primary activity type (Poster, Commenter, Balanced)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Poster', 'Commenter', 'Balanced', 'Unknown']
+
+      - name: valid_from
+        description: "Timestamp when this version became effective"
+        tests:
+          - not_null
+
+      - name: is_current
+        description: "True if this is the current/active version"
+        tests:
+          - not_null

@@ -1,0 +1,125 @@
+# Apache Polaris REST Catalog Configuration
+# Provides unified Iceberg table catalog for the lakehouse
+# See values-default.yaml for all available options
+
+# Single replica for development (increase for production with external DB)
+replicaCount: 1
+
+# Image configuration
+image:
+  repository: apache/polaris
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Service configuration
+service:
+  type: ClusterIP  # Internal access only
+  ports:
+    - name: polaris-http
+      port: 8181  # REST catalog API port
+
+# Management service for health checks and metrics
+managementService:
+  type: ClusterIP
+  ports:
+    - name: polaris-mgmt
+      port: 8182
+
+# Resource configuration for local development
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Persistence configuration - Using in-memory for development
+# Note: Data will not persist across pod restarts
+# For production, use relational-jdbc with PostgreSQL
+persistence:
+  type: in-memory
+
+# Storage credentials for MinIO
+# This configures Polaris to vend MinIO credentials to clients
+# Combined with AWS env vars, this should prevent STS calls
+storage:
+  secret:
+    name: polaris-storage-secret
+    awsAccessKeyId: aws-access-key-id
+    awsSecretAccessKey: aws-secret-access-key
+
+# Environment variables for S3 configuration and bootstrap
+extraEnv:
+  # MinIO S3 endpoint (same namespace - simplified DNS)
+  - name: AWS_S3_ENDPOINT
+    value: http://minio:9000
+  # Enable path-style access (required for MinIO)
+  - name: AWS_S3_PATH_STYLE_ACCESS
+    value: "true"
+  # Default region
+  - name: AWS_REGION
+    value: us-east-1
+  # Static AWS credentials (MinIO credentials)
+  # This prevents Polaris from trying to call AWS STS
+  - name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: polaris-storage-secret
+        key: aws-access-key-id
+  - name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: polaris-storage-secret
+        key: aws-secret-access-key
+  # Bootstrap credentials: from Kubernetes secret
+  # Format: "realm,principal-name,secret"
+  - name: POLARIS_BOOTSTRAP_CREDENTIALS
+    valueFrom:
+      secretKeyRef:
+        name: polaris-bootstrap-credentials
+        key: bootstrap-credentials
+
+# Realm configuration
+realmContext:
+  type: default
+  realms:
+    - lakehouse  # Default realm name matching our project
+
+# Authentication configuration
+authentication:
+  type: internal
+  tokenBroker:
+    type: rsa-key-pair
+    maxTokenGeneration: PT1H
+    # Keys will be auto-generated if secret not provided
+    # For production, create and reference a secret with persistent keys
+
+# Logging configuration
+logging:
+  level: INFO
+  console:
+    enabled: true
+    json: false
+  categories:
+    org.apache.polaris: INFO
+    org.apache.iceberg.rest: INFO
+
+# Metrics configuration
+metrics:
+  enabled: true
+  tags:
+    service: polaris
+    environment: development
+
+# ServiceMonitor for Prometheus (if available)
+serviceMonitor:
+  enabled: false  # Enable if Prometheus operator is installed
+
+# Ingress disabled (using port-forward for local dev)
+ingress:
+  enabled: false
+
+# Autoscaling disabled for development
+autoscaling:
+  enabled: false

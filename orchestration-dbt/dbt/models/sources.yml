@@ -1,0 +1,216 @@
+# ============================================================================
+# DBT Sources Configuration - Reddit Data
+# ============================================================================
+# This file defines raw Reddit data sources ingested by DLT via Dagster.
+# Data is stored in MinIO S3 as Iceberg tables, partitioned by subreddit.
+#
+# Structure:
+#   - Each subreddit has its own dataset (raw_worldnews, raw_economics, etc.)
+#   - Each dataset contains 3 tables: posts, comments, subreddit metadata
+#   - Staging models union across all subreddits
+#
+# Documentation: https://docs.getdbt.com/docs/building-a-dbt-project/using-sources
+# ============================================================================
+
+version: 2
+
+sources:
+  # ============================================================================
+  # Reddit - WorldNews Subreddit
+  # ============================================================================
+  - name: raw_worldnews
+    description: "Raw Reddit data from r/worldnews subreddit"
+    database: lakehouse
+    schema: raw_worldnews
+
+    # Freshness checks - data should be ingested hourly
+    freshness:
+      warn_after: {count: 2, period: hour}
+      error_after: {count: 4, period: hour}
+    loaded_at_field: "_dlt_load_time"
+
+    tables:
+      - name: reddit_worldnews_posts
+        description: "Top posts from r/worldnews"
+        columns:
+          - name: id
+            description: "Reddit post ID (unique)"
+            tests:
+              - unique
+              - not_null
+          - name: created_utc
+            description: "UTC timestamp when post was created"
+            tests:
+              - not_null
+          - name: score
+            description: "Net upvotes (upvotes - downvotes)"
+            tests:
+              - not_null
+
+      - name: reddit_worldnews_comments
+        description: "Top comments from r/worldnews posts"
+        columns:
+          - name: id
+            description: "Reddit comment ID (unique)"
+            tests:
+              - unique
+              - not_null
+          - name: link_id
+            description: "ID of the parent post (prefixed with t3_)"
+            tests:
+              - not_null
+          - name: created_utc
+            description: "UTC timestamp when comment was created"
+            tests:
+              - not_null
+
+      - name: reddit_worldnews_subreddit
+        description: "Metadata for r/worldnews subreddit"
+
+  # ============================================================================
+  # Reddit - Economics Subreddit
+  # ============================================================================
+  - name: raw_economics
+    description: "Raw Reddit data from r/economics subreddit"
+    database: lakehouse
+    schema: raw_economics
+
+    freshness:
+      warn_after: {count: 2, period: hour}
+      error_after: {count: 4, period: hour}
+    loaded_at_field: "_dlt_load_time"
+
+    tables:
+      - name: reddit_economics_posts
+        description: "Top posts from r/economics"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: created_utc
+            tests: [not_null]
+          - name: score
+            tests: [not_null]
+
+      - name: reddit_economics_comments
+        description: "Top comments from r/economics posts"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: link_id
+            tests: [not_null]
+          - name: created_utc
+            tests: [not_null]
+
+      - name: reddit_economics_subreddit
+        description: "Metadata for r/economics subreddit"
+
+  # ============================================================================
+  # Reddit - Finance Subreddit
+  # ============================================================================
+  - name: raw_finance
+    description: "Raw Reddit data from r/finance subreddit"
+    database: lakehouse
+    schema: raw_finance
+
+    freshness:
+      warn_after: {count: 2, period: hour}
+      error_after: {count: 4, period: hour}
+    loaded_at_field: "_dlt_load_time"
+
+    tables:
+      - name: reddit_finance_posts
+        description: "Top posts from r/finance"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: created_utc
+            tests: [not_null]
+          - name: score
+            tests: [not_null]
+
+      - name: reddit_finance_comments
+        description: "Top comments from r/finance posts"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: link_id
+            tests: [not_null]
+          - name: created_utc
+            tests: [not_null]
+
+      - name: reddit_finance_subreddit
+        description: "Metadata for r/finance subreddit"
+
+  # ============================================================================
+  # Reddit - WallStreetBets Subreddit
+  # ============================================================================
+  - name: raw_wallstreetbets
+    description: "Raw Reddit data from r/wallstreetbets subreddit"
+    database: lakehouse
+    schema: raw_wallstreetbets
+
+    freshness:
+      warn_after: {count: 2, period: hour}
+      error_after: {count: 4, period: hour}
+    loaded_at_field: "_dlt_load_time"
+
+    tables:
+      - name: reddit_wallstreetbets_posts
+        description: "Top posts from r/wallstreetbets"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: created_utc
+            tests: [not_null]
+          - name: score
+            tests: [not_null]
+
+      - name: reddit_wallstreetbets_comments
+        description: "Top comments from r/wallstreetbets posts"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: link_id
+            tests: [not_null]
+          - name: created_utc
+            tests: [not_null]
+
+      - name: reddit_wallstreetbets_subreddit
+        description: "Metadata for r/wallstreetbets subreddit"
+
+  # ============================================================================
+  # Reddit - Investing Subreddit
+  # ============================================================================
+  - name: raw_investing
+    description: "Raw Reddit data from r/investing subreddit"
+    database: lakehouse
+    schema: raw_investing
+
+    freshness:
+      warn_after: {count: 2, period: hour}
+      error_after: {count: 4, period: hour}
+    loaded_at_field: "_dlt_load_time"
+
+    tables:
+      - name: reddit_investing_posts
+        description: "Top posts from r/investing"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: created_utc
+            tests: [not_null]
+          - name: score
+            tests: [not_null]
+
+      - name: reddit_investing_comments
+        description: "Top comments from r/investing posts"
+        columns:
+          - name: id
+            tests: [unique, not_null]
+          - name: link_id
+            tests: [not_null]
+          - name: created_utc
+            tests: [not_null]
+
+      - name: reddit_investing_subreddit
+        description: "Metadata for r/investing subreddit"

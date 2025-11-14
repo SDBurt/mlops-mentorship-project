@@ -35,47 +35,51 @@ runLauncher:
       envConfigMaps: []
       envSecrets: []
 
-# Compute Log Manager - Store logs in Garage/S3
+# Compute Log Manager - Store logs in MinIO/S3
 # TODO (Phase 2): Enable S3 compute logs for lakehouse integration
 computeLogManager:
   type: NoOpComputeLogManager  # Default: logs not stored
-  # When ready to integrate with Garage, uncomment below:
+  # When ready to integrate with MinIO, uncomment below:
   # type: S3ComputeLogManager
   # config:
   #   s3ComputeLogManager:
   #     bucket: lakehouse-dagster-logs
   #     localDir: /tmp/dagster-logs
   #     prefix: compute-logs/
-  #     endpointUrl: http://garage.garage.svc.cluster.local:3900
+  #     endpointUrl: http://minio:9000  # Same namespace - simplified DNS
   #     useSsl: false
   #     # Access keys will be provided via envSecrets
 
-# User Code Deployments - enabled to provide workspace configuration
-# Note: Dagster requires workspace config. The example deployment will be scaled to 0 after install.
-# You'll replace this with your own DBT/Dagster code in Phase 2
+# User Code Deployments - orchestration-dagster with Iceberg integration
 dagster-user-deployments:
   enabled: true
   enableSubchart: true
   deployments:
-    - name: "dagster-user-code"
+    - name: "orchestration-dagster"
       image:
-        repository: "dagster/user-code-example"
-        tag: "1.11.15"
+        repository: "orchestration-dagster"
+        tag: "latest"
         pullPolicy: IfNotPresent
       port: 3030
+      envConfigMaps:
+        - name: dagster-user-code-env
+      envSecrets:
+        - name: dagster-user-code-secrets
       resources:
         requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          cpu: 500m
+          cpu: 200m
           memory: 512Mi
+        limits:
+          cpu: 1000m
+          memory: 2Gi
 
 # PostgreSQL - Internal database for Dagster metadata
+# Helm chart manages dagster-postgresql-secret automatically
+# Password set here, override in production via --set postgresql.postgresqlPassword=xxx
 postgresql:
   enabled: true
   postgresqlUsername: dagster
-  postgresqlPassword: dagster123  # TODO: Change for production
+  postgresqlPassword: "dagster-lakehouse-2025"  # Change for production
   postgresqlDatabase: dagster
   service:
     port: 5432
