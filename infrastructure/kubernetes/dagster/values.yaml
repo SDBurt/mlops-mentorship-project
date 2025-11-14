@@ -74,12 +74,12 @@ dagster-user-deployments:
           memory: 2Gi
 
 # PostgreSQL - Internal database for Dagster metadata
-# IMPORTANT: Password should be provided via Kubernetes Secret or Helm --set flag
-# See dagster/secrets.yaml.example for secret-based approach
+# Helm chart manages dagster-postgresql-secret automatically
+# Password set here, override in production via --set postgresql.postgresqlPassword=xxx
 postgresql:
   enabled: true
   postgresqlUsername: dagster
-  postgresqlPassword: "CHANGEME_DAGSTER_PASSWORD"  # Override via secret or --set flag
+  postgresqlPassword: "dagster-lakehouse-2025"  # Change for production
   postgresqlDatabase: dagster
   service:
     port: 5432
