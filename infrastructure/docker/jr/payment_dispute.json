@@ -1,0 +1,23 @@
+{
+  "event_id": "{{key "evt_" 1000000}}",
+  "event_type": "dispute.{{randoms "created|updated|closed"}}",
+  "provider": "{{randoms "stripe|braintree|adyen|checkout|square"}}",
+  "dispute_id": "{{key "dp_" 100000}}",
+  "charge_id": "{{key "ch_" 500000}}",
+  "customer_id": "{{key "cus_" 50000}}",
+  "amount": {{amount 1 5000 ""}},
+  "currency": "{{randoms "usd|eur|gbp|NULL|null"}}",
+  "status": "{{randoms "needs_response|under_review|won|lost|null"}}",
+  "reason": "{{randoms "fraudulent|unrecognized|duplicate|subscription_canceled|product_not_received|null|NULL"}}",
+  "evidence_due_by": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
+  "is_charge_refundable": "{{randoms "true|false|null|NULL"}}",
+  "merchant_id": "{{key "merch_" 1000}}",
+  "metadata": {
+    "case_number": "{{key "case_" 50000}}",
+    "customer_contacted": "{{randoms "true|false|null"}}",
+    "evidence_submitted": "{{randoms "true|false|null|NULL"}}"
+  },
+  "network_reason_code": "{{randoms "4853|4834|4863|null|NULL|"}}",
+  "created_at": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
+  "updated_at": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}"
+}

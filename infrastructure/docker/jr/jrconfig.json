@@ -1,0 +1,8 @@
+{
+  "global": {
+    "seed": -1,
+    "kafkaConfig": "./kafka.client.properties",
+    "schemaRegistry": false,
+    "autoCreate": false
+  }
+}
