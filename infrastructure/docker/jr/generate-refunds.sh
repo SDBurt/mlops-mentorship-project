@@ -1,20 +1,24 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+# Wait for Kafka to be ready
+echo "Waiting for Kafka broker to be ready..."
+until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-broker:29092 --list &>/dev/null; do
+    echo "Kafka not ready yet, waiting..."
+    sleep 2
+done
 
-echo "Generating payment refund events..."
-echo "Topic: payment_refunds"
+echo "Kafka is ready! Starting payment refund generation..."
+echo "Generating events to topic: payment_refunds"
 echo "Frequency: 2s"
-echo "Press Ctrl+C to stop"
-echo ""
 
+# Generate events continuously and pipe to Kafka
 jr run \
-  --jr_user_dir "$SCRIPT_DIR" \
-  --embedded "$(cat payment_refund.json)" \
-  --num 0 \
-  --frequency 2s \
-  --output kafka \
-  --topic payment_refunds \
-  --kafkaConfig kafka.client.properties
+    --jr_user_dir /home/jr-user/templates \
+    --embedded "$(cat /home/jr-user/templates/payment_refund.json)" \
+    --num 0 \
+    --frequency 2s \
+    --output stdout | \
+/opt/kafka/bin/kafka-console-producer.sh \
+    --bootstrap-server kafka-broker:29092 \
+    --topic payment_refunds

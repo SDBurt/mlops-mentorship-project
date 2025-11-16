@@ -1,6 +1,11 @@
 # Use Flink 1.20, as Flink 2.0 doesn't have a compatible Iceberg version yet.
 FROM flink:1.20-java17
 
+# Install curl and netcat for health checks and job submission
+USER root
+RUN apt-get update && apt-get install -y curl netcat-openbsd && rm -rf /var/lib/apt/lists/*
+USER flink
+
 # Add Iceberg connector + Hadoop libraries + AWS SDK
 # Unfortunately, the Iceberg Flink connector still requires Hadoop libraries
 RUN cd /opt/flink/lib/ && \
@@ -11,3 +16,9 @@ RUN cd /opt/flink/lib/ && \
 # Add Kafka connector
 RUN cd /opt/flink/lib/ && \
     curl -LO https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.4.0-1.20/flink-sql-connector-kafka-3.4.0-1.20.jar
+
+# Copy auto-submission script (need root for /opt/flink)
+USER root
+COPY flink/submit-streaming-jobs.sh /opt/flink/submit-streaming-jobs.sh
+RUN chmod +x /opt/flink/submit-streaming-jobs.sh
+USER flink

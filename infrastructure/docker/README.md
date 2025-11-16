@@ -11,10 +11,13 @@ This brings up a complete local lakehouse stack using Docker Compose.
 - **PostgreSQL** (for Dagster metadata)
 
 References:
-- Medium article: [Build a Data Lakehouse with Apache Iceberg, Polaris, Trino & MinIO](https://medium.com/@gilles.philippart/build-a-data-lakehouse-with-apache-iceberg-polaris-trino-minio-349c534ecd98)
+
+- Medium article one: [Build a Data Lakehouse with Apache Iceberg, Polaris, Trino & MinIO](https://medium.com/@gilles.philippart/build-a-data-lakehouse-with-apache-iceberg-polaris-trino-minio-349c534ecd98)
+- Medium article two: [Build a Streaming Data Lakehouse with Apache Flink, Kafka, Iceberg and Polaris](https://medium.com/@gilles.philippart/build-a-streaming-data-lakehouse-with-apache-flink-kafka-iceberg-and-polaris-473c47e04525)
 - Dagster Compose guide: [Dagster OSS Docker Compose](https://docs.dagster.io/deployment/oss/deployment-options/docker)
 
 ## Prereqs
+
 - Docker Desktop / Docker Engine + Compose v2
 - curl (and optionally jq)
 
@@ -31,6 +34,7 @@ cp infrastructure/docker/env.example infrastructure/docker/.env
 ```
 
 The `.env` file should contain:
+
 ```bash
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
@@ -54,10 +58,11 @@ docker compose -f infrastructure/docker/docker-compose.yml ps
 ```
 
 **Service URLs:**
-- Dagster UI: http://localhost:3000
-- Trino UI: http://localhost:8080
-- MinIO Console: http://localhost:9001 (admin/password)
-- Polaris: http://localhost:8181
+
+- Dagster UI: <http://localhost:3000>
+- Trino UI: <http://localhost:8080>
+- MinIO Console: <http://localhost:9001> (admin/password)
+- Polaris: <http://localhost:8181>
 
 ## Initialize Polaris (one-time)
 
@@ -68,6 +73,7 @@ bash infrastructure/docker/polaris/init-polaris.sh
 ```
 
 This streamlined script:
+
 - ✅ Waits for Polaris to be ready (checks OAuth endpoint)
 - ✅ Creates catalog `polariscatalog` with MinIO storage (`s3://warehouse`)
 - ✅ Sets up RBAC: creates `catalog_admin` and `data_engineer` roles
@@ -135,12 +141,13 @@ docker compose -f infrastructure/docker/docker-compose.yml down -v
 
 The stack includes the following Dagster components:
 
-- **dagster-webserver** – UI at http://localhost:3000
+- **dagster-webserver** – UI at <http://localhost:3000>
 - **dagster-daemon** – Background scheduler for running jobs
 - **dagster-user-code** – Your pipeline code (from `orchestration-dagster/`)
 - **postgres** – Metadata storage for Dagster
 
 **Prerequisites:**
+
 - Dockerfile must exist in `orchestration-dagster/` directory
 - User code must be properly configured (see `orchestration-dagster/README.md`)
 

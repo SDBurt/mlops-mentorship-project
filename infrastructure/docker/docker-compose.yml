@@ -71,8 +71,12 @@ services:
     networks:
       - local-iceberg-lakehouse
     depends_on:
-      - polaris
-      - minio
+      polaris:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      flink-jobmanager:
+        condition: service_started
     environment:
       AWS_ACCESS_KEY_ID: admin
       AWS_SECRET_ACCESS_KEY: password
@@ -275,6 +279,73 @@ services:
         condition: service_healthy
       dagster-user-code:
         condition: service_started
+
+  jr-charges:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-charges
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_started
+    restart: unless-stopped
+    profiles:
+      - generators
+
+  jr-refunds:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-refunds
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_started
+    restart: unless-stopped
+    profiles:
+      - generators
+    entrypoint: ["/usr/local/bin/generate-refunds.sh"]
+
+  jr-disputes:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-disputes
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_started
+    restart: unless-stopped
+    profiles:
+      - generators
+    entrypoint: ["/usr/local/bin/generate-disputes.sh"]
+
+  jr-subscriptions:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-subscriptions
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_started
+    restart: unless-stopped
+    profiles:
+      - generators
+    entrypoint: ["/usr/local/bin/generate-subscriptions.sh"]
 
 volumes:
   postgres-data:

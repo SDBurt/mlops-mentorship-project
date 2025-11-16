@@ -13,6 +13,7 @@ Principal → Principal Role → Catalog Role → Catalog Privileges
 ```
 
 **Key Concepts:**
+
 - **Principal**: A unique identity (user or service account)
 - **Principal Role**: A label granted to principals
 - **Catalog Role**: A label for catalogs that holds privileges
@@ -59,6 +60,7 @@ make init-polaris BOOTSTRAP_ID=polaris_admin BOOTSTRAP_SECRET=your_secret
 ```
 
 This script will:
+
 1. Create the `lakehouse` catalog
 2. Create a `dagster_user` service account principal
 3. Set up the permission chain (principal roles, catalog roles, privileges)
@@ -104,6 +106,7 @@ make polaris-test
 ```
 
 This will test:
+
 - REST API endpoint accessibility
 - OAuth token generation (if credentials are provided)
 - Authentication with bootstrap credentials
@@ -120,7 +123,7 @@ source set_pyiceberg_env.sh
 uv run dagster dev
 ```
 
-In the Dagster UI (http://localhost:3001), materialize the `reddit_posts` asset. It should now succeed!
+In the Dagster UI (<http://localhost:3001>), materialize the `reddit_posts` asset. It should now succeed!
 
 ## Manual Setup (Without Makefile)
 
@@ -200,16 +203,19 @@ The initialization script creates the following structure:
 Polaris supports granular privileges:
 
 ### Catalog Privileges
+
 - `CATALOG_MANAGE_CONTENT` - Full management (create/read/write/delete all entities)
 - `CATALOG_MANAGE_ACCESS` - Manage access control
 - `CATALOG_MANAGE_METADATA` - Manage catalog metadata
 
 ### Namespace Privileges
+
 - `NAMESPACE_CREATE` - Create tables/views in namespace
 - `NAMESPACE_LIST` - List tables/views
 - `NAMESPACE_READ_PROPERTIES` - Read namespace properties
 
 ### Table Privileges
+
 - `TABLE_CREATE` - Create tables
 - `TABLE_DROP` - Drop tables
 - `TABLE_READ_DATA` - Read table data
@@ -218,6 +224,7 @@ Polaris supports granular privileges:
 - `TABLE_WRITE_PROPERTIES` - Update table properties
 
 ### View Privileges
+
 - `VIEW_CREATE` - Create views
 - `VIEW_DROP` - Drop views
 - `VIEW_READ_PROPERTIES` - Read view properties
@@ -303,6 +310,7 @@ curl -X PUT "http://localhost:8181/api/management/v1/catalogs/lakehouse/catalog-
 **Cause**: The principal doesn't have the required privilege.
 
 **Solution**:
+
 1. Verify the principal exists: Check `infrastructure/kubernetes/polaris/.credentials/`
 2. Re-run RBAC setup: `make setup-polaris-rbac` (idempotent)
 3. Or re-run full initialization: `make init-polaris` (idempotent)
@@ -313,6 +321,7 @@ curl -X PUT "http://localhost:8181/api/management/v1/catalogs/lakehouse/catalog-
 **Cause**: Polaris is not accessible or port-forward is not running.
 
 **Solution**:
+
 ```bash
 # Check Polaris is running
 make polaris-status
@@ -335,6 +344,7 @@ make polaris-test
 **Cause**: The dagster_user credentials haven't been generated yet or were regenerated.
 
 **Solution**:
+
 1. Run `make init-polaris` to generate new credentials
 2. Source the credentials: `source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt`
 3. Update `orchestration-dagster/set_pyiceberg_env.sh` with the new credentials
@@ -345,6 +355,7 @@ make polaris-test
 **Cause**: The initialization script requires bootstrap credentials to authenticate.
 
 **Solution**:
+
 ```bash
 # Set environment variables
 export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
@@ -359,6 +370,7 @@ make init-polaris BOOTSTRAP_ID=polaris_admin BOOTSTRAP_SECRET=your_secret
 **Cause**: Namespaces can only be created by principals with proper privileges.
 
 **Solution**:
+
 1. Ensure RBAC is set up: `make setup-polaris-rbac`
 2. Namespaces can also be created via Trino:
 

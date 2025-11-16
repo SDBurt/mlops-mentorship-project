@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test docker-up docker-down docker-build docker-restart docker-status docker-logs jr-charges jr-refunds jr-disputes jr-subscriptions jr-all jr-create-topics jr-stop jr-help
+.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test docker-up docker-jr docker-down docker-build docker-restart docker-status docker-logs docker-polaris-init flink-submit-jobs flink-attach jr-charges jr-refunds jr-disputes jr-subscriptions jr-all jr-create-topics jr-stop jr-help
 
 # Variables
 NAMESPACE := lakehouse
@@ -77,12 +77,16 @@ help:
 	@echo "  make deploy-dagster-code    - Deploy user code (ConfigMap + scale deployment)"
 	@echo ""
 	@echo "Docker Compose (Local Streaming Stack):"
-	@echo "  make docker-up              - Start all services (Kafka, Flink, etc.)"
+	@echo "  make docker-up              - Start all services without JR generators"
+	@echo "  make docker-jr              - Start JR generator containers"
 	@echo "  make docker-down            - Stop and remove all containers"
 	@echo "  make docker-build           - Build/rebuild Flink image"
 	@echo "  make docker-restart         - Restart all services"
 	@echo "  make docker-status          - Show running containers"
 	@echo "  make docker-logs            - View logs from all containers"
+	@echo "  make docker-polaris-init    - Initialize Polaris warehouse (one-time setup)"
+	@echo "  make flink-submit-jobs      - Auto-submit streaming jobs (one-time setup)"
+	@echo "  make flink-attach           - Attach to Flink SQL client for queries"
 	@echo ""
 	@echo "JR Data Generation (Stripe-like Payment Events):"
 	@echo "  make jr-create-topics       - Create Kafka topics (run once after docker-up)"
@@ -103,10 +107,13 @@ help:
 	@echo "  6. make port-forward-start          # Access services locally"
 	@echo ""
 	@echo "Streaming Workflow (Docker Compose):"
-	@echo "  1. make docker-up                   # Start Kafka + Flink stack"
-	@echo "  2. make jr-create-topics            # Create Kafka topics"
-	@echo "  3. make jr-charges                  # Generate payment events"
-	@echo "  4. docker compose attach flink-sql-client  # Configure Flink pipeline"
+	@echo "  1. make docker-up                      # Start Kafka + Flink stack"
+	@echo "  2. make docker-polaris-init            # One-time Polaris setup"
+	@echo "  3. make docker-jr                      # Start JR generators"
+	@echo "  4. make jr-create-topics               # Create Kafka topics"
+	@echo "  5. make flink-submit-jobs              # Auto-submit streaming jobs (ONE TIME)"
+	@echo "     → Jobs persist across SQL sessions, recreate on cluster restart"
+	@echo "  6. make flink-attach                   # Attach to query data (optional)"
 	@echo ""
 
 # Check prerequisites
@@ -751,7 +758,7 @@ deploy-dagster-code:
 # DOCKER COMPOSE COMMANDS (Local Streaming Stack)
 ##################################################
 
-# Start all Docker Compose services
+# Start all Docker Compose services (without JR generators)
 docker-up:
 	@echo "Starting Docker Compose stack (Kafka, Flink, Polaris, MinIO, Trino, Dagster)..."
 	@cd $(DOCKER_DIR) && docker compose up -d --build
@@ -768,16 +775,38 @@ docker-up:
 	@echo "  Dagster:       http://localhost:3000"
 	@echo ""
 	@echo "Next steps:"
-	@echo "  1. Attach to Flink SQL client:"
-	@echo "     docker compose -f $(DOCKER_DIR)/docker-compose.yml attach flink-sql-client"
-	@echo "  2. Generate payment events:"
-	@echo "     make jr-charges"
+	@echo "  1. Initialize Polaris warehouse (one-time):"
+	@echo "     make docker-polaris-init"
+	@echo "  2. Start JR generators:"
+	@echo "     make docker-jr"
+	@echo "  3. Create Kafka topics:"
+	@echo "     make jr-create-topics"
+	@echo "  4. Submit streaming jobs (one-time, auto-recreates on restart):"
+	@echo "     make flink-submit-jobs"
+	@echo "  5. (Optional) Query data:"
+	@echo "     make flink-attach"
+	@echo ""
+
+# Start JR generator containers (requires Kafka to be running)
+docker-jr:
+	@echo "Starting JR generator containers..."
+	@cd $(DOCKER_DIR) && docker compose --profile generators up -d --build jr-charges jr-refunds jr-disputes jr-subscriptions
+	@echo ""
+	@echo "✓ JR generators started!"
+	@echo ""
+	@echo "Running generators:"
+	@echo "  - jr-charges (charges)"
+	@echo "  - jr-refunds (refunds)"
+	@echo "  - jr-disputes (disputes)"
+	@echo "  - jr-subscriptions (subscriptions)"
+	@echo ""
+	@echo "Note: Make sure Kafka broker is running (make docker-up)"
 	@echo ""
 
 # Stop and remove all Docker Compose services
 docker-down:
 	@echo "Stopping Docker Compose stack..."
-	@cd $(DOCKER_DIR) && docker compose down
+	@cd $(DOCKER_DIR) && docker compose --profile generators down
 	@echo "✓ Stack stopped"
 
 # Build/rebuild Docker images (especially Flink)
@@ -802,6 +831,53 @@ docker-status:
 docker-logs:
 	@echo "Viewing Docker Compose logs (Ctrl+C to exit)..."
 	@cd $(DOCKER_DIR) && docker compose logs -f
+
+# Initialize Polaris warehouse (Docker Compose setup)
+docker-polaris-init:
+	@echo "Initializing Polaris warehouse..."
+	@if ! docker ps | grep -q polaris; then \
+		echo "❌ Error: Polaris container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo "Running Polaris initialization script..."
+	@bash $(DOCKER_DIR)/polaris/init-polaris.sh
+	@echo ""
+	@echo "✓ Polaris warehouse initialized!"
+	@echo ""
+	@echo "Next step: make flink-submit-jobs"
+
+# Auto-submit streaming jobs (persistent, recreates on cluster restart)
+flink-submit-jobs:
+	@echo "Auto-submitting Flink streaming jobs..."
+	@if ! docker ps | grep -q flink-jobmanager; then \
+		echo "❌ Error: Flink JobManager not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@if ! docker ps | grep -q flink-sql-client; then \
+		echo "❌ Error: Flink SQL client container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@cd $(DOCKER_DIR) && docker compose exec -T flink-sql-client bash /opt/flink/submit-streaming-jobs.sh
+
+# Attach to Flink SQL client
+flink-attach:
+	@echo "Attaching to Flink SQL client..."
+	@if ! docker ps | grep -q flink-sql-client; then \
+		echo "❌ Error: Flink SQL client container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "TIP: To auto-submit streaming jobs instead of manual setup:"
+	@echo "  make flink-submit-jobs"
+	@echo ""
+	@echo "Jobs submitted via 'make flink-submit-jobs' persist across SQL sessions."
+	@echo "Manual catalog setup is only needed for ad-hoc queries."
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose exec -it flink-sql-client sql-client.sh
 
 ##################################################
 # JR DATA GENERATION COMMANDS (Payment Events)
