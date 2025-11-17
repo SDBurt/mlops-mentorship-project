@@ -29,6 +29,6 @@
   "risk_score": {{integer 0 100}},
   "risk_level": "{{randoms "low|medium|high|null"}}",
   "3ds_authenticated": "{{randoms "true|false|null|NULL"}}",
-  "created_at": "{{format_timestamp now "2006-01-02T15:04:05.000Z"}}",
-  "updated_at": "{{format_timestamp now "2006-01-02T15:04:05.000Z"}}"
+  "created_at": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
+  "updated_at": "{{format_timestamp now "2006-01-02 15:04:05.000"}}"
 }

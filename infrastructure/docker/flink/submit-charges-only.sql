@@ -60,8 +60,8 @@ CREATE TABLE IF NOT EXISTS kafka_catalog.payments_db.payment_charges (
     'properties.bootstrap.servers' = 'kafka-broker:29092',
     'properties.group.id' = 'flink-payment-charges-consumer',
     'format' = 'json',
-    'json.timestamp-format.standard' = 'ISO-8601',
-    'scan.startup.mode' = 'earliest-offset',
+    'json.timestamp-format.standard' = 'SQL',
+    'scan.startup.mode' = 'latest-offset',
     'topic' = 'payment_charges'
 );
 
@@ -104,4 +104,3 @@ CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_charges (
 -- Step 6: Submit streaming job
 INSERT INTO polaris_catalog.payments_db.payment_charges
     SELECT * FROM kafka_catalog.payments_db.payment_charges;
-

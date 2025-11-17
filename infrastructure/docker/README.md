@@ -83,6 +83,8 @@ This streamlined script:
 
 **Note:** The script is based on the [Medium article](https://medium.com/@gilles.philippart/build-a-data-lakehouse-with-apache-iceberg-polaris-trino-minio-349c534ecd98) and uses a more reliable readiness check.
 
+**Timestamp Format Note:** JR templates use SQL timestamp format (`2006-01-02 15:04:05.000`) for Flink compatibility. Ensure all templates follow this convention to avoid JSON deserialization errors.
+
 Verify initialization:
 
 ```bash

@@ -14,12 +14,14 @@ echo "Frequency: 10s (0.1 events/second)"
 echo "Total events: 100,000"
 
 # Generate events continuously and pipe to Kafka
+# Use --oneline to output compact JSON (one object per line)
 jr run \
-    --jr_user_dir /home/jr-user/templates \
     --embedded "$(cat /home/jr-user/templates/payment_dispute.json)" \
     --num 100000 \
     --frequency 10s \
-    --output stdout | \
+    --output stdout \
+    --oneline 2>/dev/null | \
+grep -v "^Elapsed\|^Data Generated\|^Throughput" | \
 /opt/kafka/bin/kafka-console-producer.sh \
     --bootstrap-server kafka-broker:29092 \
     --topic payment_disputes

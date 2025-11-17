@@ -16,6 +16,6 @@
     "original_order_id": "{{key "ord_" 200000}}",
     "support_ticket_id": "{{key "ticket_" 50000}}"
   },
-  "created_at": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
-  "updated_at": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}"
+  "created_at": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
+  "updated_at": "{{format_timestamp now "2006-01-02 15:04:05.000"}}"
 }

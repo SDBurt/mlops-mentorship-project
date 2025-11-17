@@ -286,15 +286,53 @@ make flink-submit-jobs
 
 ### Timestamp Deserialization Errors
 
-**Symptom:** Flink job keeps restarting with `JsonParseException`
+**Symptom:** Flink job keeps restarting with `JsonParseException: Fail to deserialize at field: created_at`
 
-**Solution:** Delete and recreate topic to clear old messages:
+**Root Cause:** JR templates must use SQL-compatible timestamp format for Flink to parse correctly.
 
+**Correct Format:** `"2006-01-02 15:04:05.000"` (SQL standard)
+**Incorrect Format:** `"2006-01-02T15:04:05.000Z"` (ISO-8601 with Z suffix)
+
+**Flink Configuration:**
+```sql
+'json.timestamp-format.standard' = 'SQL'
+```
+
+**Solution:**
+
+1. Verify JR templates use SQL timestamp format:
+```bash
+# Check timestamp format in templates
+grep "format_timestamp" infrastructure/docker/jr/payment_*.json
+# Should show: "2006-01-02 15:04:05.000"
+```
+
+2. If format is incorrect, update templates and rebuild containers:
+```bash
+# Update templates to use SQL format
+# Then rebuild JR containers
+docker compose build jr-charges jr-refunds jr-disputes jr-subscriptions
+```
+
+3. Delete and recreate topics to clear old messages:
 ```bash
 docker exec kafka-broker /opt/kafka/bin/kafka-topics.sh \
   --delete --topic payment_charges --bootstrap-server localhost:9092
 
 make jr-create-topics
+```
+
+4. Reset Kafka consumer offsets or use `'scan.startup.mode' = 'latest-offset'`:
+```bash
+docker exec kafka-broker /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server kafka-broker:29092 \
+  --group flink-payment-charges-consumer \
+  --reset-offsets --to-latest \
+  --topic payment_charges --execute
+```
+
+5. Resubmit Flink jobs:
+```bash
 make flink-submit-jobs
 ```
 

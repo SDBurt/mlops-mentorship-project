@@ -12,11 +12,11 @@
   "interval_count": {{integer 1 12}},
   "status": "{{randoms "active|past_due|canceled|unpaid|trialing|null"}}",
   "cancel_at_period_end": "{{randoms "true|false|null|NULL"}}",
-  "canceled_at": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
-  "trial_start": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
-  "trial_end": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
-  "current_period_start": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
-  "current_period_end": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
+  "canceled_at": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
+  "trial_start": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
+  "trial_end": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
+  "current_period_start": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
+  "current_period_end": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
   "payment_method_id": "{{key "pm_" 100000}}",
   "merchant_id": "{{key "merch_" 1000}}",
   "metadata": {
@@ -28,6 +28,6 @@
     "coupon_id": "{{key "coupon_" 500}}",
     "percent_off": {{integer 10 50}}
   },
-  "created_at": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}",
-  "updated_at": "{{format_timestamp now "2006-01-02T15:04:05Z07:00"}}"
+  "created_at": "{{format_timestamp now "2006-01-02 15:04:05.000"}}",
+  "updated_at": "{{format_timestamp now "2006-01-02 15:04:05.000"}}"
 }

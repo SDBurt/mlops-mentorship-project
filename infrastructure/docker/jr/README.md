@@ -224,7 +224,9 @@ Edit the JSON templates to add or modify fields. JR supports:
 - `{{integer min max}}` - Random integers
 - `{{amount min max ""}}` - Random decimal amounts
 - `{{email}}` - Random email addresses
-- `{{format_timestamp now "layout"}}` - Timestamps
+- `{{format_timestamp now "2006-01-02 15:04:05.000"}}` - SQL timestamp format (required for Flink)
+
+**Important:** Use SQL format `"2006-01-02 15:04:05.000"`, NOT ISO-8601 `"2006-01-02T15:04:05.000Z"` to ensure compatibility with Flink's JSON deserializer.
 
 See [JR documentation](https://github.com/ugol/jr) for full template syntax.
 
@@ -246,7 +248,7 @@ See [JR documentation](https://github.com/ugol/jr) for full template syntax.
   "card_last4": "4242",
   "card_country": "US",
   "risk_score": 25,
-  "created_at": "2025-01-13T12:34:56Z"
+  "created_at": "2025-01-13 12:34:56.000"
 }
 ```
 
@@ -276,6 +278,30 @@ CREATE TABLE kafka_catalog.payments_db.payment_charges (
 ```
 
 See [STREAMING_SETUP.md](../STREAMING_SETUP.md) for complete Flink pipeline configuration.
+
+## Important: Timestamp Format for Flink
+
+All JR templates use SQL-compatible timestamp format for seamless Flink integration:
+
+**Format:** `{{format_timestamp now "2006-01-02 15:04:05.000"}}`
+
+This generates timestamps like: `2025-11-17 05:56:32.345`
+
+**Why SQL format?**
+- Flink's JSON deserializer requires SQL timestamp format when using `'json.timestamp-format.standard' = 'SQL'`
+- ISO-8601 format with 'Z' suffix (`2006-01-02T15:04:05.000Z`) causes deserialization errors
+- All templates in this directory follow this convention
+
+**Flink Table Configuration:**
+```sql
+) WITH (
+    'connector' = 'kafka',
+    'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'format' = 'json',
+    'json.timestamp-format.standard' = 'SQL',  -- Required!
+    'topic' = 'payment_charges'
+);
+```
 
 ## References
 
