@@ -184,9 +184,10 @@ CREATE TABLE kafka_catalog.payments_db.payment_charges (
 ) WITH (
     'connector' = 'kafka',
     'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.group.id' = 'flink-payment-charges-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
-    'scan.startup.mode' = 'latest-offset',
+    'scan.startup.mode' = 'earliest-offset',
     'topic' = 'payment_charges'
 );
 
@@ -215,9 +216,10 @@ CREATE TABLE kafka_catalog.payments_db.payment_refunds (
 ) WITH (
     'connector' = 'kafka',
     'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.group.id' = 'flink-payment-refunds-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
-    'scan.startup.mode' = 'latest-offset',
+    'scan.startup.mode' = 'earliest-offset',
     'topic' = 'payment_refunds'
 );
 
@@ -248,9 +250,10 @@ CREATE TABLE kafka_catalog.payments_db.payment_disputes (
 ) WITH (
     'connector' = 'kafka',
     'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.group.id' = 'flink-payment-disputes-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
-    'scan.startup.mode' = 'latest-offset',
+    'scan.startup.mode' = 'earliest-offset',
     'topic' = 'payment_disputes'
 );
 
@@ -291,9 +294,10 @@ CREATE TABLE kafka_catalog.payments_db.payment_subscriptions (
 ) WITH (
     'connector' = 'kafka',
     'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.group.id' = 'flink-payment-subscriptions-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
-    'scan.startup.mode' = 'latest-offset',
+    'scan.startup.mode' = 'earliest-offset',
     'topic' = 'payment_subscriptions'
 );
 EOF

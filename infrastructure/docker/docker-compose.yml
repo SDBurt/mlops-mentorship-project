@@ -38,8 +38,27 @@ services:
       - polaris
       - minio
     environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: password
+      AWS_REGION: dummy-region
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE_ACCESS: "true"
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
+        # Configure checkpoint storage to use S3/MinIO
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        # Configure S3 filesystem (Hadoop S3A) for MinIO
+        s3.access-key: admin
+        s3.secret-key: password
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        # Hadoop S3A filesystem configuration
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: admin
+        fs.s3a.secret.key: password
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
 
   flink-taskmanager:
     build:
@@ -62,6 +81,20 @@ services:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 8
+        # Configure checkpoint storage to use S3/MinIO
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        # Configure S3 filesystem (Hadoop S3A) for MinIO
+        s3.access-key: admin
+        s3.secret-key: password
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        # Hadoop S3A filesystem configuration
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: admin
+        fs.s3a.secret.key: password
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
 
   flink-sql-client:
     build:
@@ -72,7 +105,7 @@ services:
       - local-iceberg-lakehouse
     depends_on:
       polaris:
-        condition: service_healthy
+        condition: service_started
       minio:
         condition: service_started
       flink-jobmanager:
@@ -86,6 +119,20 @@ services:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         rest.address: flink-jobmanager
+        # Configure checkpoint storage to use S3/MinIO
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        # Configure S3 filesystem (Hadoop S3A) for MinIO
+        s3.access-key: admin
+        s3.secret-key: password
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        # Hadoop S3A filesystem configuration
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: admin
+        fs.s3a.secret.key: password
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
     stdin_open: true
     tty: true
 
@@ -109,10 +156,11 @@ services:
       polaris.features.DROP_WITH_PURGE_ENABLED: "true"
       polaris.realm-context.realms: default-realm
     healthcheck:
-      test: ["CMD", "curl", "http://localhost:8181/healthcheck"]
-      interval: 5s
-      timeout: 10s
+      test: ["CMD-SHELL", "sh -c 'timeout 1 bash -c \"</dev/tcp/localhost/8182\"' 2>/dev/null || sh -c 'timeout 1 bash -c \"</dev/tcp/127.0.0.1/8182\"' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
       retries: 5
+      start_period: 50s
     networks:
       - local-iceberg-lakehouse
 

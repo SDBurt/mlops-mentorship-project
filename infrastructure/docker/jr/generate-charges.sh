@@ -10,14 +10,18 @@ done
 
 echo "Kafka is ready! Starting payment charge generation..."
 echo "Generating events to topic: payment_charges"
-echo "Frequency: 500ms (2 events/second)"
+echo "Frequency: 2s (0.5 events/second)"
+echo "Total events: 100,000"
 
 # Generate events continuously and pipe to Kafka
-jr run payment_charge \
-    --jr_user_dir /home/jr-user/templates \
-    --num 0 \
-    --frequency 500ms \
-    --output stdout | \
+# Use --embedded flag to read template from file, --oneline to output compact JSON (one object per line)
+jr run \
+    --embedded "$(cat /home/jr-user/templates/payment_charge.json)" \
+    --num 100000 \
+    --frequency 2s \
+    --output stdout \
+    --oneline 2>/dev/null | \
+grep -v "^Elapsed\|^Data Generated\|^Throughput" | \
 /opt/kafka/bin/kafka-console-producer.sh \
     --bootstrap-server kafka-broker:29092 \
     --topic payment_charges

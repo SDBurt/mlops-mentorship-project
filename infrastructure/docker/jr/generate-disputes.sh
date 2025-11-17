@@ -10,14 +10,15 @@ done
 
 echo "Kafka is ready! Starting payment dispute generation..."
 echo "Generating events to topic: payment_disputes"
-echo "Frequency: 5s"
+echo "Frequency: 10s (0.1 events/second)"
+echo "Total events: 100,000"
 
 # Generate events continuously and pipe to Kafka
 jr run \
     --jr_user_dir /home/jr-user/templates \
     --embedded "$(cat /home/jr-user/templates/payment_dispute.json)" \
-    --num 0 \
-    --frequency 5s \
+    --num 100000 \
+    --frequency 10s \
     --output stdout | \
 /opt/kafka/bin/kafka-console-producer.sh \
     --bootstrap-server kafka-broker:29092 \

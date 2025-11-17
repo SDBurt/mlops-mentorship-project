@@ -17,6 +17,15 @@ RUN cd /opt/flink/lib/ && \
 RUN cd /opt/flink/lib/ && \
     curl -LO https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.4.0-1.20/flink-sql-connector-kafka-3.4.0-1.20.jar
 
+# Add S3 filesystem plugin (required for Iceberg/Polaris to write to MinIO)
+# Plugins must be in their own subdirectory within /opt/flink/plugins/
+USER root
+RUN mkdir -p /opt/flink/plugins/s3-fs-hadoop && \
+    cd /opt/flink/plugins/s3-fs-hadoop && \
+    curl -LO https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/1.20.0/flink-s3-fs-hadoop-1.20.0.jar && \
+    chown -R flink:flink /opt/flink/plugins
+USER flink
+
 # Copy auto-submission script (need root for /opt/flink)
 USER root
 COPY flink/submit-streaming-jobs.sh /opt/flink/submit-streaming-jobs.sh
