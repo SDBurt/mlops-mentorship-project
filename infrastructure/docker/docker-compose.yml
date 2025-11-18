@@ -37,10 +37,12 @@ services:
     depends_on:
       - polaris
       - minio
+    env_file:
+      - .env
     environment:
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
-      AWS_REGION: dummy-region
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
       S3_ENDPOINT: http://minio:9000
       S3_PATH_STYLE_ACCESS: "true"
       FLINK_PROPERTIES: |
@@ -49,14 +51,14 @@ services:
         execution.checkpointing.storage: filesystem
         execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
         # Configure S3 filesystem (Hadoop S3A) for MinIO
-        s3.access-key: admin
-        s3.secret-key: password
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
         s3.endpoint: http://minio:9000
         s3.path-style-access: true
         # Hadoop S3A filesystem configuration
         fs.s3a.endpoint: http://minio:9000
-        fs.s3a.access.key: admin
-        fs.s3a.secret.key: password
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
         fs.s3a.path.style.access: true
         fs.s3a.connection.ssl.enabled: false
 
@@ -72,10 +74,12 @@ services:
       - minio
     deploy:
       replicas: 1
+    env_file:
+      - .env
     environment:
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
-      AWS_REGION: dummy-region
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
       S3_ENDPOINT: http://minio:9000
       S3_PATH_STYLE_ACCESS: "true"
       FLINK_PROPERTIES: |
@@ -85,14 +89,14 @@ services:
         execution.checkpointing.storage: filesystem
         execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
         # Configure S3 filesystem (Hadoop S3A) for MinIO
-        s3.access-key: admin
-        s3.secret-key: password
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
         s3.endpoint: http://minio:9000
         s3.path-style-access: true
         # Hadoop S3A filesystem configuration
         fs.s3a.endpoint: http://minio:9000
-        fs.s3a.access.key: admin
-        fs.s3a.secret.key: password
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
         fs.s3a.path.style.access: true
         fs.s3a.connection.ssl.enabled: false
 
@@ -100,7 +104,7 @@ services:
     build:
       context: .
       dockerfile: flink/Dockerfile
-    command: [ "sql-client.sh" ]
+    command: ["sql-client.sh"]
     networks:
       - local-iceberg-lakehouse
     depends_on:
@@ -110,12 +114,18 @@ services:
         condition: service_started
       flink-jobmanager:
         condition: service_started
+    env_file:
+      - .env
     environment:
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
-      AWS_REGION: dummy-region
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
       S3_ENDPOINT: http://minio:9000
       S3_PATH_STYLE_ACCESS: "true"
+      # Flink SQL job configuration (parameterized in SQL files)
+      POLARIS_URI: ${POLARIS_URI:-http://polaris:8181/api/catalog}
+      POLARIS_OAUTH_URI: ${POLARIS_OAUTH_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka-broker:29092}
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         rest.address: flink-jobmanager
@@ -123,14 +133,14 @@ services:
         execution.checkpointing.storage: filesystem
         execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
         # Configure S3 filesystem (Hadoop S3A) for MinIO
-        s3.access-key: admin
-        s3.secret-key: password
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
         s3.endpoint: http://minio:9000
         s3.path-style-access: true
         # Hadoop S3A filesystem configuration
         fs.s3a.endpoint: http://minio:9000
-        fs.s3a.access.key: admin
-        fs.s3a.secret.key: password
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
         fs.s3a.path.style.access: true
         fs.s3a.connection.ssl.enabled: false
     stdin_open: true
@@ -146,17 +156,24 @@ services:
     ports:
       - "8181:8181"
       - "8182:8182"
+    env_file:
+      - .env
     environment:
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
-      AWS_REGION: dummy-region
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_ENDPOINT_URL_STS: http://minio:9000
-      POLARIS_BOOTSTRAP_CREDENTIALS: default-realm,root,secret
+      POLARIS_BOOTSTRAP_CREDENTIALS: ${POLARIS_REALM},${POLARIS_USER},${POLARIS_PASSWORD}
       polaris.features.DROP_WITH_PURGE_ENABLED: "true"
-      polaris.realm-context.realms: default-realm
+      polaris.realm-context.realms: ${POLARIS_REALM}
     healthcheck:
-      test: ["CMD-SHELL", "sh -c 'timeout 1 bash -c \"</dev/tcp/localhost/8182\"' 2>/dev/null || sh -c 'timeout 1 bash -c \"</dev/tcp/127.0.0.1/8182\"' 2>/dev/null || exit 1"]
+      test:
+        - "CMD-SHELL"
+        - >
+          sh -c 'timeout 1 bash -c \"</dev/tcp/localhost/8182\"' 2>/dev/null ||
+          sh -c 'timeout 1 bash -c \"</dev/tcp/127.0.0.1/8182\"' 2>/dev/null ||
+          exit 1
       interval: 10s
       timeout: 5s
       retries: 5
@@ -180,13 +197,15 @@ services:
 
   minio:
     image: minio/minio:latest
+    env_file:
+      - .env
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_DOMAIN: minio
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
-      AWS_REGION: dummy-region
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -200,9 +219,13 @@ services:
     image: minio/mc:latest
     depends_on:
       - minio
+    env_file:
+      - .env
     entrypoint: >
       /bin/sh -c "
-      until (mc alias set minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      until (mc alias set minio http://minio:9000
+      ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}) do
+      echo '...waiting...' && sleep 1; done;
       mc rm -r --force minio/warehouse;
       mc mb minio/warehouse;
       mc anonymous set public minio/warehouse;
@@ -217,12 +240,14 @@ services:
 
   postgres:
     image: postgres:14
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: dagster
-      POSTGRES_PASSWORD: dagster
-      POSTGRES_DB: dagster
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dagster -d dagster"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -241,24 +266,24 @@ services:
     env_file:
       - .env
     environment:
-      DAGSTER_POSTGRES_USER: dagster
-      DAGSTER_POSTGRES_PASSWORD: dagster
-      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
       DAGSTER_CURRENT_IMAGE: dagster_user_code_image
       # PyIceberg / Polaris / MinIO for IO manager
       PYICEBERG_CATALOG__DEFAULT__URI: http://polaris:8181/api/catalog
       PYICEBERG_CATALOG__DEFAULT__WAREHOUSE: polariscatalog
       PYICEBERG_CATALOG__DEFAULT__TYPE: rest
-      PYICEBERG_CATALOG__DEFAULT__CREDENTIAL: root:secret
+      PYICEBERG_CATALOG__DEFAULT__CREDENTIAL: ${POLARIS_USER}:${POLARIS_PASSWORD}
       PYICEBERG_CATALOG__DEFAULT__SCOPE: PRINCIPAL_ROLE:ALL
       PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT: http://minio:9000
-      PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID: admin
-      PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY: password
+      PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS: "true"
       AWS_EC2_METADATA_DISABLED: "true"
       AWS_ENDPOINT_URL_S3: http://minio:9000
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     expose:
       - "3030"
     healthcheck:
@@ -290,10 +315,12 @@ services:
       - workspace.yaml
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
-      DAGSTER_POSTGRES_USER: dagster
-      DAGSTER_POSTGRES_PASSWORD: dagster
-      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dagster-io:/tmp/io_manager_storage
@@ -313,10 +340,12 @@ services:
       - dagster-daemon
       - run
     restart: on-failure
+    env_file:
+      - .env
     environment:
-      DAGSTER_POSTGRES_USER: dagster
-      DAGSTER_POSTGRES_PASSWORD: dagster
-      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dagster-io:/tmp/io_manager_storage

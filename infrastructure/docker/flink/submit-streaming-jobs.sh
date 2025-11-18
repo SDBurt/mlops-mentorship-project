@@ -11,6 +11,7 @@ echo ""
 
 # Configuration
 FLINK_JOBMANAGER="${FLINK_JOBMANAGER:-flink-jobmanager:8081}"
+KAFKA_BROKER="${KAFKA_BROKER:-kafka-broker:29092}"
 MAX_WAIT_SECONDS=120
 SLEEP_INTERVAL=5
 
@@ -34,10 +35,30 @@ fi
 
 # Wait for Kafka to be ready
 echo ""
-echo "Waiting for Kafka broker to be ready..."
+echo "Waiting for Kafka broker to be ready at ${KAFKA_BROKER}..."
 ELAPSED=0
+# Split host and port from KAFKA_BROKER
+KAFKA_HOST="${KAFKA_BROKER%:*}"
+KAFKA_PORT="${KAFKA_BROKER##*:}"
+
+# Function to check Kafka connectivity
+check_kafka_ready() {
+    if command -v nc > /dev/null 2>&1; then
+        # Use netcat if available
+        nc -z "$KAFKA_HOST" "$KAFKA_PORT" > /dev/null 2>&1
+    else
+        # Fallback to bash /dev/tcp (works in bash)
+        if command -v timeout > /dev/null 2>&1; then
+            timeout 1 bash -c "echo > /dev/tcp/$KAFKA_HOST/$KAFKA_PORT" > /dev/null 2>&1
+        else
+            # Last resort: try /dev/tcp without timeout (may hang)
+            (echo > /dev/tcp/$KAFKA_HOST/$KAFKA_PORT) > /dev/null 2>&1
+        fi
+    fi
+}
+
 while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
-    if nc -z kafka-broker 29092 > /dev/null 2>&1; then
+    if check_kafka_ready; then
         echo "✓ Kafka broker is ready"
         break
     fi
@@ -142,7 +163,7 @@ EOF
 fi
 
 # Add Kafka source table definitions for all event types
-cat >> "$SQL_FILE" <<'EOF'
+cat >> "$SQL_FILE" <<EOF
 
 -- Step 4: Create Kafka source tables for all payment event types
 
@@ -183,7 +204,7 @@ CREATE TABLE kafka_catalog.payments_db.payment_charges (
     WATERMARK FOR created_at AS created_at - INTERVAL '5' SECOND
 ) WITH (
     'connector' = 'kafka',
-    'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.bootstrap.servers' = '${KAFKA_BROKER}',
     'properties.group.id' = 'flink-payment-charges-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
@@ -215,7 +236,7 @@ CREATE TABLE kafka_catalog.payments_db.payment_refunds (
     WATERMARK FOR created_at AS created_at - INTERVAL '5' SECOND
 ) WITH (
     'connector' = 'kafka',
-    'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.bootstrap.servers' = '${KAFKA_BROKER}',
     'properties.group.id' = 'flink-payment-refunds-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
@@ -249,7 +270,7 @@ CREATE TABLE kafka_catalog.payments_db.payment_disputes (
     WATERMARK FOR created_at AS created_at - INTERVAL '5' SECOND
 ) WITH (
     'connector' = 'kafka',
-    'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.bootstrap.servers' = '${KAFKA_BROKER}',
     'properties.group.id' = 'flink-payment-disputes-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
@@ -293,7 +314,7 @@ CREATE TABLE kafka_catalog.payments_db.payment_subscriptions (
     WATERMARK FOR created_at AS created_at - INTERVAL '5' SECOND
 ) WITH (
     'connector' = 'kafka',
-    'properties.bootstrap.servers' = 'kafka-broker:29092',
+    'properties.bootstrap.servers' = '${KAFKA_BROKER}',
     'properties.group.id' = 'flink-payment-subscriptions-consumer',
     'format' = 'json',
     'json.timestamp-format.standard' = 'ISO-8601',
