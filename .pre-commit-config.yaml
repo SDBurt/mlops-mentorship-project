@@ -48,6 +48,10 @@ repos:
       - id: check-yaml
         args: ['--unsafe']  # Allow custom tags in YAML
       - id: check-json
+        exclude: |
+          (?x)^(
+            infrastructure/docker/jr/.*\.json$
+          )$
       - id: check-added-large-files
         args: ['--maxkb=1000']
       - id: check-merge-conflict

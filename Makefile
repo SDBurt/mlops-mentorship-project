@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test
+.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test docker-up docker-jr docker-down docker-build docker-restart docker-status docker-logs docker-polaris-init flink-submit-jobs flink-attach jr-charges jr-refunds jr-disputes jr-subscriptions jr-all jr-create-topics jr-stop jr-help
 
 # Variables
 NAMESPACE := lakehouse
@@ -13,6 +13,12 @@ TRINO_VALUES_MINIMAL := infrastructure/kubernetes/trino/values-minimal.yaml
 POLARIS_VALUES := infrastructure/kubernetes/polaris/values.yaml
 POLARIS_SECRETS := infrastructure/kubernetes/polaris/polaris-secrets.yaml
 POLARIS_REPO := infrastructure/helm/polaris
+
+# Docker Compose Variables
+DOCKER_DIR := infrastructure/docker
+DOCKER_COMPOSE := docker compose -f $(DOCKER_DIR)/docker-compose.yml
+JR_DIR := $(DOCKER_DIR)/jr
+JR_KAFKA_CONFIG := $(JR_DIR)/kafka.client.properties
 
 # Required secret files (checked before deployment)
 MINIO_SECRETS := infrastructure/kubernetes/minio/minio-secrets.yaml
@@ -70,6 +76,28 @@ help:
 	@echo "  make build-dagster-image    - Build orchestration-dagster Docker image"
 	@echo "  make deploy-dagster-code    - Deploy user code (ConfigMap + scale deployment)"
 	@echo ""
+	@echo "Docker Compose (Local Streaming Stack):"
+	@echo "  make docker-up              - Start all services without JR generators"
+	@echo "  make docker-jr              - Start JR generator containers"
+	@echo "  make docker-down            - Stop and remove all containers"
+	@echo "  make docker-build           - Build/rebuild Flink image"
+	@echo "  make docker-restart         - Restart all services"
+	@echo "  make docker-status          - Show running containers"
+	@echo "  make docker-logs            - View logs from all containers"
+	@echo "  make docker-polaris-init    - Initialize Polaris warehouse (one-time setup)"
+	@echo "  make flink-submit-jobs      - Auto-submit streaming jobs (one-time setup)"
+	@echo "  make flink-attach           - Attach to Flink SQL client for queries"
+	@echo ""
+	@echo "JR Data Generation (Stripe-like Payment Events):"
+	@echo "  make jr-create-topics       - Create Kafka topics (run once after docker-up)"
+	@echo "  make jr-charges             - Generate charge events (requires JR installed)"
+	@echo "  make jr-refunds             - Generate refund events"
+	@echo "  make jr-disputes            - Generate dispute events"
+	@echo "  make jr-subscriptions       - Generate subscription events"
+	@echo "  make jr-all                 - Generate all event types simultaneously"
+	@echo "  make jr-stop                - Stop all running JR processes"
+	@echo "  make jr-help                - Show JR installation and usage help"
+	@echo ""
 	@echo "Complete Workflow:"
 	@echo "  1. make setup                       # One command: setup repos and deploy everything"
 	@echo "  2. make build-dagster-image         # Build user code Docker image"
@@ -77,6 +105,15 @@ help:
 	@echo "  4. make init-polaris                # Initialize Polaris catalog"
 	@echo "  5. make configure-trino-polaris     # Connect Trino to Polaris"
 	@echo "  6. make port-forward-start          # Access services locally"
+	@echo ""
+	@echo "Streaming Workflow (Docker Compose):"
+	@echo "  1. make docker-up                      # Start Kafka + Flink stack"
+	@echo "  2. make docker-polaris-init            # One-time Polaris setup"
+	@echo "  3. make docker-jr                      # Start JR generators"
+	@echo "  4. make jr-create-topics               # Create Kafka topics"
+	@echo "  5. make flink-submit-jobs              # Auto-submit streaming jobs (ONE TIME)"
+	@echo "     → Jobs persist across SQL sessions, recreate on cluster restart"
+	@echo "  6. make flink-attach                   # Attach to query data (optional)"
 	@echo ""
 
 # Check prerequisites
@@ -716,3 +753,269 @@ deploy-dagster-code:
 	@echo "✓ Dagster user code deployed successfully!"
 	@echo ""
 	@echo "Deployment complete! Access Dagster at http://localhost:3001"
+
+##################################################
+# DOCKER COMPOSE COMMANDS (Local Streaming Stack)
+##################################################
+
+# Start all Docker Compose services (without JR generators)
+docker-up:
+	@echo "Starting Docker Compose stack (Kafka, Flink, Polaris, MinIO, Trino, Dagster)..."
+	@cd $(DOCKER_DIR) && docker compose up -d --build
+	@echo ""
+	@echo "✓ Stack started successfully!"
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Flink Web UI:  http://localhost:8081"
+	@echo "  Kafka Broker:  localhost:9092"
+	@echo "  Polaris API:   http://localhost:8181"
+	@echo "  MinIO Console: http://localhost:9001 (admin/password)"
+	@echo "  MinIO S3 API:  http://localhost:9000"
+	@echo "  Trino:         http://localhost:8080"
+	@echo "  Dagster:       http://localhost:3000"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Initialize Polaris warehouse (one-time):"
+	@echo "     make docker-polaris-init"
+	@echo "  2. Start JR generators:"
+	@echo "     make docker-jr"
+	@echo "  3. Create Kafka topics:"
+	@echo "     make jr-create-topics"
+	@echo "  4. Submit streaming jobs (one-time, auto-recreates on restart):"
+	@echo "     make flink-submit-jobs"
+	@echo "  5. (Optional) Query data:"
+	@echo "     make flink-attach"
+	@echo ""
+
+# Start JR generator containers (requires Kafka to be running)
+docker-jr:
+	@echo "Starting JR generator containers..."
+	@cd $(DOCKER_DIR) && docker compose --profile generators up -d --build jr-charges jr-refunds jr-disputes jr-subscriptions
+	@echo ""
+	@echo "✓ JR generators started!"
+	@echo ""
+	@echo "Running generators:"
+	@echo "  - jr-charges (charges)"
+	@echo "  - jr-refunds (refunds)"
+	@echo "  - jr-disputes (disputes)"
+	@echo "  - jr-subscriptions (subscriptions)"
+	@echo ""
+	@echo "Note: Make sure Kafka broker is running (make docker-up)"
+	@echo ""
+
+# Stop and remove all Docker Compose services
+docker-down:
+	@echo "Stopping Docker Compose stack..."
+	@cd $(DOCKER_DIR) && docker compose --profile generators down
+	@echo "✓ Stack stopped"
+
+# Build/rebuild Docker images (especially Flink)
+docker-build:
+	@echo "Building Docker images..."
+	@cd $(DOCKER_DIR) && docker compose build
+	@echo "✓ Images built"
+
+# Restart all Docker Compose services
+docker-restart:
+	@echo "Restarting Docker Compose stack..."
+	@cd $(DOCKER_DIR) && docker compose restart
+	@echo "✓ Stack restarted"
+
+# Show status of Docker Compose services
+docker-status:
+	@echo "Docker Compose Services Status:"
+	@echo "================================"
+	@cd $(DOCKER_DIR) && docker compose ps
+
+# View logs from all Docker Compose services
+docker-logs:
+	@echo "Viewing Docker Compose logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose logs -f
+
+# Initialize Polaris warehouse (Docker Compose setup)
+docker-polaris-init:
+	@echo "Initializing Polaris warehouse..."
+	@if ! docker ps | grep -q polaris; then \
+		echo "❌ Error: Polaris container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo "Running Polaris initialization script..."
+	@bash $(DOCKER_DIR)/polaris/init-polaris.sh
+	@echo ""
+	@echo "✓ Polaris warehouse initialized!"
+	@echo ""
+	@echo "Next step: make flink-submit-jobs"
+
+# Auto-submit streaming jobs (persistent, recreates on cluster restart)
+flink-submit-jobs:
+	@echo "Auto-submitting Flink streaming jobs..."
+	@if ! docker ps | grep -q flink-jobmanager; then \
+		echo "❌ Error: Flink JobManager not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@if ! docker ps | grep -q flink-sql-client; then \
+		echo "❌ Error: Flink SQL client container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@cd $(DOCKER_DIR) && docker compose exec -T flink-sql-client bash /opt/flink/submit-streaming-jobs.sh
+
+# Attach to Flink SQL client
+flink-attach:
+	@echo "Attaching to Flink SQL client..."
+	@if ! docker ps | grep -q flink-sql-client; then \
+		echo "❌ Error: Flink SQL client container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "TIP: To auto-submit streaming jobs instead of manual setup:"
+	@echo "  make flink-submit-jobs"
+	@echo ""
+	@echo "Jobs submitted via 'make flink-submit-jobs' persist across SQL sessions."
+	@echo "Manual catalog setup is only needed for ad-hoc queries."
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose exec -it flink-sql-client sql-client.sh
+
+##################################################
+# JR DATA GENERATION COMMANDS (Payment Events)
+##################################################
+
+# Generate payment charge events
+jr-charges:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found"; \
+		echo ""; \
+		echo "Install JR:"; \
+		echo "  brew install jr"; \
+		echo "  or: sudo snap install jrnd && sudo snap alias jrnd.jr jr"; \
+		echo ""; \
+		echo "Or see: make jr-help"; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-charges.sh
+
+# Generate payment refund events
+jr-refunds:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-refunds.sh
+
+# Generate payment dispute events
+jr-disputes:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-disputes.sh
+
+# Generate subscription events
+jr-subscriptions:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-subscriptions.sh
+
+# Generate all event types simultaneously (background processes)
+jr-all:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-all.sh
+
+# Create Kafka topics for payment events
+jr-create-topics:
+	@echo "Creating Kafka topics for payment events..."
+	@echo ""
+	@if ! docker ps | grep -q kafka-broker; then \
+		echo "❌ Error: Kafka broker not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo "Creating topic: payment_charges"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_charges \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo "Creating topic: payment_refunds"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_refunds \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo "Creating topic: payment_disputes"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_disputes \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo "Creating topic: payment_subscriptions"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_subscriptions \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo ""
+	@echo "✓ Topics created successfully"
+	@echo ""
+	@echo "List topics:"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+# Stop all running JR processes
+jr-stop:
+	@echo "Stopping all JR processes..."
+	@pkill -f "jr run" 2>/dev/null || echo "No JR processes found"
+	@echo "✓ All JR processes stopped"
+
+# Show JR installation and usage help
+jr-help:
+	@echo "JR - Random Data Generator"
+	@echo "=========================="
+	@echo ""
+	@echo "Installation:"
+	@echo "  macOS/Linux (Homebrew):"
+	@echo "    brew install jr"
+	@echo ""
+	@echo "  Manual installation:"
+	@echo "    See: https://github.com/ugol/jr"
+	@echo ""
+	@echo "Important: JR Configuration Fix"
+	@echo "================================"
+	@echo "After installing JR via Homebrew, delete the default config:"
+	@echo "  rm /opt/homebrew/etc/jr/jrconfig.json"
+	@echo ""
+	@echo "This prevents JSON Schema format conflicts with our setup."
+	@echo ""
+	@echo "Available Commands:"
+	@echo "  make jr-charges       - Generate charge events"
+	@echo "  make jr-refunds       - Generate refund events"
+	@echo "  make jr-disputes      - Generate dispute events"
+	@echo "  make jr-subscriptions - Generate subscription events"
+	@echo "  make jr-all           - Generate all events simultaneously"
+	@echo "  make jr-stop          - Stop all JR processes"
+	@echo ""
+	@echo "Event Templates Location:"
+	@echo "  $(JR_DIR)/"
+	@echo ""
+	@echo "Kafka Topics (created automatically):"
+	@echo "  - payment_charges"
+	@echo "  - payment_refunds"
+	@echo "  - payment_disputes"
+	@echo "  - payment_subscriptions"
+	@echo ""
+	@echo "View Kafka topics:"
+	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml exec kafka-broker \\"
+	@echo "    kafka-topics.sh --list --bootstrap-server localhost:9092"
+	@echo ""
+	@echo "Consume events (example):"
+	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml exec kafka-broker \\"
+	@echo "    kafka-console-consumer.sh --bootstrap-server localhost:9092 \\"
+	@echo "    --topic payment_charges --from-beginning"
