@@ -37,6 +37,7 @@ services:
     depends_on:
       - polaris
       - minio
+
     env_file:
       - .env
     environment:
