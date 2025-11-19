@@ -19,7 +19,7 @@ This project follows a deliberate progression that mirrors real-world platform d
 ### Phase 1-2: Data Foundation (Learn First)
 **Build the data pipeline infrastructure**
 - Deploy Kubernetes services (MinIO, Dagster, Trino)
-- Implement batch data ingestion
+- Implement streaming data ingestion (Kafka + Flink)
 - Create DBT transformations (Bronze → Silver → Gold)
 - Build dimensional models (star schema)
 - Master SQL, data modeling, and pipeline orchestration
@@ -58,19 +58,22 @@ This project follows a deliberate progression that mirrors real-world platform d
 ### Current Focus: Data Pipeline Foundation
 
 ```
-Data Sources
-    ↓
-[Meltano] - ELT Ingestion (Singer Taps/Targets)
-    ↓
-[MinIO S3] - Object Storage (Parquet files)
-    ↓
-[Apache Iceberg] - Table Format (ACID, Schema Evolution)
-    ↓
-[DBT] - Transformations (Bronze → Silver → Gold)
-    ↓
-[Trino] - Query Engine
-    ↓
-Analytics & BI
+JR Generators → Kafka Topics → Flink SQL
+                                  ↓
+                        ┌─────────┴─────────┐
+                        ↓                   ↓
+                  VALID (passes)      INVALID (fails)
+                        ↓                   ↓
+          polaris_catalog.payments_db   polaris_catalog.payments_db
+            .payment_charges           .quarantine_payment_charges
+            .payment_refunds           .quarantine_payment_refunds
+            .payment_disputes          .quarantine_payment_disputes
+            .payment_subscriptions     .quarantine_payment_subscriptions
+                        ↓                   ↓
+                   DBT Staging         Dagster Monitoring
+                  (Silver Layer)        (Alerts on spikes)
+                        ↓
+              <1% invalid data goal
 ```
 
 ### Future Goal: MLOps Platform
@@ -105,7 +108,8 @@ Data Pipeline (above)
 - **PostgreSQL**: Metadata storage (embedded in Dagster)
 
 **Data Platform**:
-- **Meltano**: ELT ingestion via Singer ecosystem (600+ connectors)
+- **Kafka**: Event streaming platform
+- **Flink**: Stream processing and validation
 - **Apache Iceberg**: Open table format (ACID, time travel, schema evolution)
 - **Apache Polaris**: REST catalog for Iceberg (unified metadata, governance)
 - **DBT**: SQL-based transformations (medallion architecture)
@@ -147,20 +151,20 @@ Data Pipeline (above)
 - [deploying-the-cluster.md](docs/guides/deploying-the-cluster.md) - Technical deployment reference
 
 ### Week 3-4: Data Pipeline Implementation
-**Status**: 🔄 In Progress
+**Status**: [x] Complete
 
 **Current Focus**:
-- [x] Set up DLT for data ingestion (Reddit source)
-- [x] Configure Dagster hourly ingestion schedule
-- [x] Configure DLT to write Iceberg tables to MinIO S3
-- [ ] Verify Iceberg table structure and partitioning
-- [ ] Expand DLT sources (additional data sources)
-- [ ] Configure Trino Iceberg catalog
-- [ ] Build DBT project structure
-- [ ] Implement Bronze layer (staging views)
-- [ ] Implement Silver layer (cleaned dimensions)
-- [ ] Implement Gold layer (star schema facts)
-- [ ] Test DBT transformations via Trino
+- [x] Set up Kafka and Flink for streaming ingestion
+- [x] Implement Flink SQL validation logic
+- [x] Configure Flink to write Iceberg tables to MinIO S3 via Polaris
+- [x] Verify Iceberg table structure and partitioning
+- [x] Implement Quarantine tables for invalid data
+- [x] Configure Trino Iceberg catalog
+- [x] Build DBT project structure
+- [x] Implement Bronze layer (staging views)
+- [x] Implement Silver layer (cleaned dimensions)
+- [x] Implement Gold layer (star schema facts)
+- [x] Test DBT transformations via Trino
 
 **Learning Goals**:
 - Master Iceberg table format and operations
@@ -179,15 +183,15 @@ Data Pipeline (above)
 - [Star Schema patterns](docs/topics/star-schema.md)
 
 ### Week 5-6: Orchestration & Data Quality
-**Status**: ⏳ Planned
+**Status**: [x] Complete
 
 **Planned Tasks**:
-- [ ] Create Dagster assets for DBT models
-- [ ] Set up daily refresh schedules
-- [ ] Implement data quality tests in DBT
-- [ ] Build Dagster sensors for data refreshes
-- [ ] Create monitoring dashboards
-- [ ] Set up alerting for pipeline failures
+- [x] Create Dagster assets for DBT models
+- [x] Set up daily refresh schedules
+- [x] Implement data quality tests in DBT
+- [x] Build Dagster sensors for data refreshes
+- [x] Create monitoring dashboards
+- [x] Set up alerting for pipeline failures
 
 **Learning Goals**:
 - Dagster asset-centric orchestration
@@ -362,6 +366,8 @@ make nuke         # Complete reset (irreversible)
 
 For a complete, hand-holding setup guide from scratch, see [GETTING-STARTED.md](docs/guides/GETTING-STARTED.md).
 
+For the streaming data pipeline setup (Kafka + Flink), see [streaming-setup.md](docs/guides/streaming-setup.md).
+
 ## Project Structure
 
 ```
@@ -382,6 +388,7 @@ For a complete, hand-holding setup guide from scratch, see [GETTING-STARTED.md](
 │   │   └── ... (more)
 │   ├── guides/                   # Step-by-step guides
 │   │   ├── GETTING-STARTED.md   # Complete setup guide
+│   │   ├── streaming-setup.md   # Streaming pipeline guide
 │   │   ├── deploying-the-cluster.md  # Technical reference
 │   │   ├── setup-polaris.md     # Polaris RBAC setup
 │   │   └── update-polaris.md    # Polaris updates
@@ -393,25 +400,30 @@ For a complete, hand-holding setup guide from scratch, see [GETTING-STARTED.md](
 │   │   ├── trino/              # Query engine
 │   │   ├── polaris/            # Polaris REST Catalog (Phase 3)
 │   │   └── namespace.yaml      # Single lakehouse namespace
-│   └── helm/                   # Local Helm charts
-│       └── minio/             # MinIO Helm chart
+│   ├── helm/                   # Local Helm charts
+│   │   └── minio/             # MinIO Helm chart
+│   └── docker/                 # Docker Compose stack (Streaming)
+│       ├── flink/
+│       ├── kafka/
+│       └── jr/
 │
-├── transformations/             # DBT transformations
+├── orchestration-dbt/             # DBT transformations
 │   └── dbt/
 │       ├── models/
 │       │   ├── sources.yml     # Raw data sources
-│       │   ├── bronze/         # Staging views
-│       │   ├── silver/         # Cleaned dimensions
-│       │   └── gold/           # Star schema facts
+│       │   ├── staging/        # Staging views (Bronze)
+│       │   ├── intermediate/   # Business logic (Silver)
+│       │   └── marts/          # Star schema facts (Gold)
 │       ├── dbt_project.yml
 │       └── profiles.yml        # Trino connection
 │
-├── orchestration/               # Dagster pipelines
-│   └── dagster/
-│       ├── assets/             # DBT assets, custom assets
-│       ├── jobs/               # Job definitions
-│       ├── schedules/          # Schedules
-│       └── sensors/            # Sensors (data triggers)
+├── orchestration-dagster/         # Dagster pipelines
+│   └── src/
+│       └── orchestration_dagster/
+│           ├── assets/         # DBT assets, custom assets
+│           ├── jobs/           # Job definitions
+│           ├── schedules/      # Schedules
+│           └── sensors/        # Sensors (data triggers)
 │
 ├── lakehouse/                   # Iceberg schemas & conventions
 │   ├── schemas/

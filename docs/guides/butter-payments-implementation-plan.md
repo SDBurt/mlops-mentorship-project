@@ -121,57 +121,39 @@ Payment Event Generated
 
 ### Phase 1: Streaming Foundation (Weeks 1-2)
 
-**Objective:** Establish Kafka + Flink streaming pipeline
+**Status**: ✅ Completed
 
-**Tasks:**
+**Objective**: Establish Kafka + Flink streaming pipeline
+
+**Tasks**:
 
 1. **Deploy Kafka to Kubernetes**
-   ```bash
-   # Using Bitnami Helm chart
-   helm repo add bitnami https://charts.bitnami.com/bitnami
-   helm install kafka bitnami/kafka -n lakehouse \
-     --set replicaCount=1 \
-     --set persistence.enabled=false
-   ```
+   - Deployed Bitnami Kafka via Docker Compose (for local dev)
+   - Configured topics for charges, refunds, disputes, subscriptions
 
 2. **Deploy Flink Cluster**
-   - Create custom Flink Docker image with Iceberg connector
-   - Deploy JobManager + TaskManager pods
-   - Configure Flink to access Polaris catalog
+   - Created custom Flink Docker image with Iceberg connector
+   - Deployed JobManager + TaskManager
+   - Configured Flink to access Polaris catalog
 
 3. **Create JR Payment Templates**
-   ```json
-   {
-     "event_id": "{{key \"evt_\" 1000000}}",
-     "type": "{{randoms \"charge.succeeded|charge.failed|refund.created\"}}",
-     "created": "{{timestamp now}}",
-     "data": {
-       "amount": {{amount 100 50000 ""}},
-       "currency": "{{randoms \"usd|cad|gbp|eur\"}}",
-       "customer_id": "{{key \"cus_\" 10000}}",
-       "payment_method": "{{randoms \"card|bank_account\"}}",
-       "failure_code": "{{randoms \"card_declined|insufficient_funds|expired_card|null\"}}",
-       "metadata": {
-         "merchant_id": "{{key \"merch_\" 5000}}"
-       }
-     }
-   }
-   ```
+   - Created templates for all 4 payment types
+   - Configured realistic data generation (nulls, invalid currencies)
 
 4. **Basic Flink SQL Pipeline**
-   - Create Kafka source table in Flink
-   - Create Iceberg sink table via Polaris
-   - Test: JR → Kafka → Flink → Iceberg Bronze
+   - Created Kafka source tables
+   - Created Iceberg sink tables via Polaris
+   - Implemented auto-submission script (`submit-streaming-jobs.sh`)
 
 **Success Criteria:**
-- [ ] Kafka accessible from Flink and external clients
-- [ ] Flink successfully writes to Iceberg via Polaris
-- [ ] JR generates 100+ events/sec to Kafka
-- [ ] Events queryable in Trino within 30 seconds
+- [x] Kafka accessible from Flink and external clients
+- [x] Flink successfully writes to Iceberg via Polaris
+- [x] JR generates 100+ events/sec to Kafka
+- [x] Events queryable in Trino within 30 seconds
 
 **Deliverables:**
-- Helm values for Kafka deployment
-- Flink Dockerfile with all connectors
+- Docker Compose stack for streaming
+- Flink SQL auto-submission script
 - JR payment template files
 - Basic architecture diagram
 
@@ -179,175 +161,49 @@ Payment Event Generated
 
 ### Phase 2: Upstream Validation (Weeks 3-4)
 
-**Objective:** Implement multi-layer validation catching data quality issues
+**Status**: ✅ Completed
 
-**Tasks:**
+**Objective**: Implement multi-layer validation catching data quality issues
+
+**Tasks**:
 
 1. **Flink Validation Layer (Layer 1)**
-   ```sql
-   -- Handle null variations
-   CREATE TABLE validated_payments AS
-   SELECT
-     event_id,
-     type,
-     created,
-     CASE
-       WHEN data.amount IS NULL OR data.amount <= 0 THEN NULL
-       WHEN data.amount > 1000000 THEN NULL
-       ELSE data.amount
-     END as amount_cents,
-
-     -- Normalize null strings
-     CASE
-       WHEN UPPER(data.currency) IN ('NULL', '') THEN NULL
-       ELSE UPPER(data.currency)
-     END as currency_code,
-
-     -- Normalize failure codes
-     CASE
-       WHEN data.failure_code IN ('null', 'NULL', '', 'None') THEN NULL
-       ELSE data.failure_code
-     END as normalized_failure_code,
-
-     -- Flag suspicious patterns
-     CASE
-       WHEN data.amount = 0 AND type = 'charge.succeeded' THEN true
-       WHEN data.customer_id IS NULL THEN true
-       ELSE false
-     END as validation_flag
-
-   FROM kafka_catalog.payment_events
-   WHERE UPPER(data.currency) IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY');
-   ```
+   - Implemented validation logic in Flink SQL INSERT statements
+   - **Null Normalization**: Converted 'null', 'NULL', '' to SQL NULL
+   - **Currency Validation**: Enforced whitelist (USD, CAD, GBP, EUR, JPY)
+   - **Amount Validation**: Enforced > 0 and <= 1,000,000
+   - **Stream Splitting**: Valid records → `payment_charges`, Invalid → `quarantine_payment_charges`
 
 2. **Create Quarantine Tables**
-   ```sql
-   CREATE TABLE quarantine_payments AS
-   SELECT
-     *,
-     CURRENT_TIMESTAMP as quarantine_timestamp,
-     CASE
-       WHEN data.currency NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY')
-         THEN 'INVALID_CURRENCY'
-       WHEN data.amount <= 0 THEN 'INVALID_AMOUNT'
-       WHEN data.customer_id IS NULL THEN 'MISSING_CUSTOMER'
-     END as rejection_reason
-   FROM kafka_catalog.payment_events
-   WHERE (data.currency NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY')
-      OR data.amount <= 0
-      OR data.customer_id IS NULL);
-   ```
+   - Created quarantine tables for all 4 event types
+   - Added `quarantine_timestamp` and `rejection_reason` columns
+   - Captures full record context for debugging
 
 3. **DBT Validation Layer (Layer 2)**
-   ```sql
-   -- models/silver/stg_payments.sql
-   {{ config(
-       materialized='incremental',
-       file_format='iceberg',
-       unique_key='event_id',
-       incremental_strategy='merge'
-   ) }}
-
-   WITH source AS (
-       SELECT * FROM {{ source('bronze', 'validated_payments') }}
-       {% if is_incremental() %}
-       WHERE created > (SELECT MAX(created) FROM {{ this }})
-       {% endif %}
-   ),
-
-   business_validated AS (
-       SELECT
-           *,
-           CASE
-               WHEN amount_cents IS NULL THEN 'INVALID_AMOUNT'
-               WHEN currency_code IS NULL THEN 'INVALID_CURRENCY'
-               WHEN type = 'charge.failed' AND normalized_failure_code IS NULL
-                   THEN 'MISSING_FAILURE_CODE'
-               WHEN amount_cents > 100000 AND type = 'charge.succeeded'
-                   THEN 'SUSPICIOUS_LARGE_AMOUNT'
-               ELSE NULL
-           END as validation_error
-       FROM source
-   )
-
-   SELECT * FROM business_validated
-   WHERE validation_error IS NULL
-   ```
+   - Created Staging models (Silver layer)
+   - Implemented business logic validation (e.g., suspicious patterns)
+   - Added `validation_flag` for records requiring review
 
 4. **DBT Data Quality Tests**
-   ```yaml
-   # models/silver/schema.yml
-   models:
-     - name: stg_payments
-       tests:
-         - dbt_expectations.expect_table_row_count_to_be_between:
-             min_value: 1000
-             max_value: 10000000
-       columns:
-         - name: event_id
-           tests:
-             - unique
-             - not_null
-         - name: currency_code
-           tests:
-             - accepted_values:
-                 values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY']
-         - name: amount_cents
-           tests:
-             - not_null
-             - dbt_utils.expression_is_true:
-                 expression: "> 0"
-             - dbt_utils.expression_is_true:
-                 expression: "<= 1000000"
-         - name: customer_id
-           tests:
-             - not_null
-             - relationships:
-                 to: ref('dim_customers')
-                 field: customer_id
-   ```
+   - Implemented `unique`, `not_null`, `accepted_values` tests
+   - Added custom expression tests for business rules
 
 5. **Dagster Monitoring Assets**
-   ```python
-   @asset(
-       group_name="data_quality",
-       compute_kind="trino"
-   )
-   def quarantine_monitor(context):
-       """Monitor quarantined records and alert on volume spikes"""
-       query = """
-       SELECT
-           rejection_reason,
-           COUNT(*) as count,
-           MIN(quarantine_timestamp) as first_seen,
-           MAX(quarantine_timestamp) as last_seen
-       FROM lakehouse.quarantine_payments
-       WHERE quarantine_timestamp > current_timestamp - INTERVAL '1' HOUR
-       GROUP BY rejection_reason
-       """
-
-       results = execute_trino_query(query)
-
-       for row in results:
-           if row['count'] > 100:
-               context.log.warning(
-                   f"High quarantine volume: {row['count']} {row['rejection_reason']} in last hour"
-               )
-
-       return results
-   ```
+   - `quarantine_charges_monitor`: Alerts on >100 invalid records/hour
+   - `quarantine_summary_monitor`: Aggregates quality metrics across all tables
+   - `validation_flag_monitor`: Tracks suspicious pattern rates
 
 **Success Criteria:**
-- [ ] <1% invalid data reaches Silver layer
-- [ ] All null variations handled correctly
-- [ ] Quarantine tables capture rejection reasons
-- [ ] DBT tests pass on all Silver models
-- [ ] Dagster alerts on quarantine spikes
+- [x] <1% invalid data reaches Silver layer
+- [x] All null variations handled correctly
+- [x] Quarantine tables capture rejection reasons
+- [x] DBT tests pass on all Silver models
+- [x] Dagster alerts on quarantine spikes
 
 **Deliverables:**
 - Flink validation SQL scripts
 - DBT Silver layer models with tests
-- Dagster monitoring dashboard
+- Dagster monitoring assets
 - Validation documentation explaining each layer
 
 ---
@@ -1468,8 +1324,8 @@ Payment Event Generated
 
 | Week | Phase | Key Deliverables | Status |
 |------|-------|------------------|--------|
-| 1-2 | Streaming Foundation | Kafka, Flink, JR pipeline | ⏳ Not Started |
-| 3-4 | Upstream Validation | Multi-layer validation, quarantine | ⏳ Not Started |
+| 1-2 | Streaming Foundation | Kafka, Flink, JR pipeline | ✅ Completed |
+| 3-4 | Upstream Validation | Multi-layer validation, quarantine | ✅ Completed |
 | 5-6 | Temporal Integration | Workflows, retry logic | ⏳ Not Started |
 | 7-8 | ML Simulation | Inference service, feature eng | ⏳ Not Started |
 | 9 | Multi-Provider | Schema normalization | ⏳ Not Started |

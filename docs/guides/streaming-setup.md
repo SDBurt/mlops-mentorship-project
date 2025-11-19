@@ -230,7 +230,75 @@ GROUP BY provider, status, reason
 ORDER BY dispute_count DESC;
 ```
 
+## Data Validation Strategy
+
+This pipeline implements a **3-Layer Validation Strategy** to ensure high data quality:
+
+### Layer 1: Flink Stream Validation (Real-Time)
+Validation happens immediately as data flows from Kafka to Iceberg.
+
+- **Null Normalization**: Converts `'null'`, `'NULL'`, `''` strings to SQL `NULL`.
+- **Currency Validation**: Only allows `USD`, `CAD`, `GBP`, `EUR`, `JPY`.
+- **Amount Validation**: Rejects negative amounts and amounts > $1,000,000.
+- **Stream Splitting**:
+  - **Valid Records** → `payment_charges` (Bronze Table)
+  - **Invalid Records** → `quarantine_payment_charges` (Quarantine Table)
+
+### Layer 2: DBT Business Validation (Batch)
+DBT models in the Silver layer apply complex business logic.
+
+- **Suspicious Patterns**: Flags records that are technically valid but suspicious (e.g., $0 successful charges).
+- **Referential Integrity**: Ensures `customer_id` exists in the customer dimension.
+- **Schema Enforcement**: Enforces strict data types and constraints.
+
+### Layer 3: Dagster Monitoring (Observability)
+Dagster assets monitor the health of the pipeline.
+
+- **Quarantine Monitor**: Alerts if quarantine volume exceeds 100 records/hour.
+- **Data Quality Score**: Calculates the percentage of valid vs. invalid records.
+- **Suspicious Flag Monitor**: Tracks the rate of flagged records in the Silver layer.
+
+## Quarantine Tables
+
+Invalid records are preserved in quarantine tables for analysis and debugging. They contain the original data plus:
+- `quarantine_timestamp`: When the record was rejected.
+- `rejection_reason`: Why it failed validation.
+
+**Querying Quarantine Data:**
+
+```sql
+-- Check rejection reasons
+SELECT rejection_reason, COUNT(*)
+FROM polaris_catalog.payments_db.quarantine_payment_charges
+GROUP BY rejection_reason;
+
+-- View recent invalid records
+SELECT *
+FROM polaris_catalog.payments_db.quarantine_payment_charges
+ORDER BY quarantine_timestamp DESC
+LIMIT 10;
+```
+
+**Rejection Reasons:**
+- `MISSING_CUSTOMER_ID`: Customer ID is null.
+- `INVALID_CURRENCY`: Currency not in whitelist.
+- `INVALID_AMOUNT_NEGATIVE`: Amount is <= 0.
+- `INVALID_AMOUNT_TOO_LARGE`: Amount is > $1,000,000.
+- `MISSING_CHARGE_ID`: Required reference missing (refunds/disputes).
+
 ## Monitoring & Debugging
+
+### Run Dagster Monitoring
+
+To check data quality alerts:
+
+```bash
+# Run the monitoring job
+cd orchestration-dagster
+dagster job execute -f src/orchestration_dagster/definitions.py -j payment_dq_monitoring_job
+```
+
+Check the Dagster UI (`http://localhost:3000`) for asset materializations and logs.
 
 ### View Flink Jobs
 
@@ -272,6 +340,15 @@ curl http://localhost:8181/api/catalog/v1/config | jq '.'
 ```
 
 ## Troubleshooting
+
+### High Quarantine Volume
+
+**Symptom:** Dagster alerts "HIGH QUARANTINE VOLUME".
+
+**Investigation:**
+1. Query the quarantine table to find the dominant `rejection_reason`.
+2. Check the source data in Kafka using `kafka-console-consumer`.
+3. If valid data is being rejected, update the validation logic in `infrastructure/docker/flink/submit-streaming-jobs.sh`.
 
 ### Jobs Not Running
 
