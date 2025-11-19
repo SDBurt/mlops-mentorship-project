@@ -329,7 +329,7 @@ if [ "$WAREHOUSE_EXISTS" = true ]; then
 
 -- Step 5: Create Iceberg sink tables (schema only, no data yet)
 
--- Charges Iceberg table
+-- Charges Validated table (with validation flag)
 CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_charges (
     event_id STRING,
     event_type STRING,
@@ -362,10 +362,49 @@ CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_charges (
     risk_level STRING,
     `3ds_authenticated` STRING,
     created_at TIMESTAMP(3),
-    updated_at TIMESTAMP(3)
+    updated_at TIMESTAMP(3),
+    validation_flag BOOLEAN  -- Flag for suspicious patterns
 );
 
--- Refunds Iceberg table
+-- Charges Quarantine table (invalid records)
+CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.quarantine_payment_charges (
+    event_id STRING,
+    event_type STRING,
+    provider STRING,
+    charge_id STRING,
+    customer_id STRING,
+    amount DECIMAL(10, 2),
+    currency STRING,
+    status STRING,
+    failure_code STRING,
+    failure_message STRING,
+    payment_method_id STRING,
+    payment_method_type STRING,
+    card_brand STRING,
+    card_last4 STRING,
+    card_exp_month INT,
+    card_exp_year INT,
+    card_country STRING,
+    billing_country STRING,
+    billing_postal_code STRING,
+    merchant_id STRING,
+    merchant_name STRING,
+    description STRING,
+    metadata ROW<
+        order_id STRING,
+        user_email STRING,
+        subscription_id STRING
+    >,
+    risk_score INT,
+    risk_level STRING,
+    `3ds_authenticated` STRING,
+    created_at TIMESTAMP(3),
+    updated_at TIMESTAMP(3),
+    quarantine_timestamp TIMESTAMP(3),  -- When record was quarantined
+    rejection_reason STRING             -- Why it was rejected
+);
+
+-- Refunds Validated table
 CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_refunds (
     event_id STRING,
     event_type STRING,
@@ -385,10 +424,36 @@ CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_refunds (
         support_ticket_id STRING
     >,
     created_at TIMESTAMP(3),
-    updated_at TIMESTAMP(3)
+    updated_at TIMESTAMP(3),
+    validation_flag BOOLEAN
 );
 
--- Disputes Iceberg table
+-- Refunds Quarantine table
+CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.quarantine_payment_refunds (
+    event_id STRING,
+    event_type STRING,
+    provider STRING,
+    refund_id STRING,
+    charge_id STRING,
+    customer_id STRING,
+    amount DECIMAL(10, 2),
+    currency STRING,
+    status STRING,
+    reason STRING,
+    failure_reason STRING,
+    merchant_id STRING,
+    metadata ROW<
+        refund_requested_by STRING,
+        original_order_id STRING,
+        support_ticket_id STRING
+    >,
+    created_at TIMESTAMP(3),
+    updated_at TIMESTAMP(3),
+    quarantine_timestamp TIMESTAMP(3),
+    rejection_reason STRING
+);
+
+-- Disputes Validated table
 CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_disputes (
     event_id STRING,
     event_type STRING,
@@ -410,10 +475,38 @@ CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_disputes (
     >,
     network_reason_code STRING,
     created_at TIMESTAMP(3),
-    updated_at TIMESTAMP(3)
+    updated_at TIMESTAMP(3),
+    validation_flag BOOLEAN
 );
 
--- Subscriptions Iceberg table
+-- Disputes Quarantine table
+CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.quarantine_payment_disputes (
+    event_id STRING,
+    event_type STRING,
+    provider STRING,
+    dispute_id STRING,
+    charge_id STRING,
+    customer_id STRING,
+    amount DECIMAL(10, 2),
+    currency STRING,
+    status STRING,
+    reason STRING,
+    evidence_due_by TIMESTAMP(3),
+    is_charge_refundable STRING,
+    merchant_id STRING,
+    metadata ROW<
+        case_number STRING,
+        customer_contacted STRING,
+        evidence_submitted STRING
+    >,
+    network_reason_code STRING,
+    created_at TIMESTAMP(3),
+    updated_at TIMESTAMP(3),
+    quarantine_timestamp TIMESTAMP(3),
+    rejection_reason STRING
+);
+
+-- Subscriptions Validated table
 CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_subscriptions (
     event_id STRING,
     event_type STRING,
@@ -445,23 +538,391 @@ CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.payment_subscriptions (
         percent_off INT
     >,
     created_at TIMESTAMP(3),
-    updated_at TIMESTAMP(3)
+    updated_at TIMESTAMP(3),
+    validation_flag BOOLEAN
 );
 
--- Step 6: Submit all streaming jobs as a single statement set
+-- Subscriptions Quarantine table
+CREATE TABLE IF NOT EXISTS polaris_catalog.payments_db.quarantine_payment_subscriptions (
+    event_id STRING,
+    event_type STRING,
+    provider STRING,
+    subscription_id STRING,
+    customer_id STRING,
+    plan_id STRING,
+    plan_name STRING,
+    amount DECIMAL(10, 2),
+    currency STRING,
+    `interval` STRING,
+    interval_count INT,
+    status STRING,
+    cancel_at_period_end STRING,
+    canceled_at TIMESTAMP(3),
+    trial_start TIMESTAMP(3),
+    trial_end TIMESTAMP(3),
+    current_period_start TIMESTAMP(3),
+    current_period_end TIMESTAMP(3),
+    payment_method_id STRING,
+    merchant_id STRING,
+    metadata ROW<
+        user_email STRING,
+        signup_source STRING,
+        promo_code STRING
+    >,
+    discount ROW<
+        coupon_id STRING,
+        percent_off INT
+    >,
+    created_at TIMESTAMP(3),
+    updated_at TIMESTAMP(3),
+    quarantine_timestamp TIMESTAMP(3),
+    rejection_reason STRING
+);
+
+-- Step 6: Submit all streaming jobs with validation logic
 EXECUTE STATEMENT SET
 BEGIN
+    -- VALID payment_charges (pass validation rules)
     INSERT INTO polaris_catalog.payments_db.payment_charges
-        SELECT * FROM kafka_catalog.payments_db.payment_charges;
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        charge_id,
+        customer_id,
+        -- Normalize null amounts and validate bounds
+        CASE
+            WHEN amount IS NULL OR amount <= 0 OR amount > 1000000.00 THEN NULL
+            ELSE amount
+        END as amount,
+        -- Normalize currency nulls and convert to uppercase
+        CASE
+            WHEN currency IS NULL OR UPPER(currency) IN ('NULL', '') THEN NULL
+            ELSE UPPER(currency)
+        END as currency,
+        status,
+        failure_code,
+        failure_message,
+        payment_method_id,
+        payment_method_type,
+        card_brand,
+        card_last4,
+        card_exp_month,
+        card_exp_year,
+        card_country,
+        billing_country,
+        billing_postal_code,
+        merchant_id,
+        merchant_name,
+        description,
+        metadata,
+        risk_score,
+        risk_level,
+        `3ds_authenticated`,
+        created_at,
+        updated_at,
+        -- Flag suspicious patterns
+        CASE
+            WHEN amount = 0 AND status = 'succeeded' THEN true
+            WHEN customer_id IS NULL THEN true
+            WHEN status = 'failed' AND failure_code IS NULL THEN true
+            ELSE false
+        END as validation_flag
+    FROM kafka_catalog.payments_db.payment_charges
+    WHERE
+        -- Only accept valid currency codes
+        (currency IS NULL OR UPPER(currency) IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        -- Amount must be positive and within bounds
+        AND (amount IS NULL OR (amount > 0 AND amount <= 1000000.00))
+        -- Customer ID must exist
+        AND customer_id IS NOT NULL;
 
+    -- QUARANTINE payment_charges (failed validation)
+    INSERT INTO polaris_catalog.payments_db.quarantine_payment_charges
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        charge_id,
+        customer_id,
+        amount,
+        currency,
+        status,
+        failure_code,
+        failure_message,
+        payment_method_id,
+        payment_method_type,
+        card_brand,
+        card_last4,
+        card_exp_month,
+        card_exp_year,
+        card_country,
+        billing_country,
+        billing_postal_code,
+        merchant_id,
+        merchant_name,
+        description,
+        metadata,
+        risk_score,
+        risk_level,
+        `3ds_authenticated`,
+        created_at,
+        updated_at,
+        CURRENT_TIMESTAMP as quarantine_timestamp,
+        -- Determine rejection reason
+        CASE
+            WHEN customer_id IS NULL THEN 'MISSING_CUSTOMER_ID'
+            WHEN currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY')
+                THEN 'INVALID_CURRENCY'
+            WHEN amount IS NOT NULL AND amount <= 0 THEN 'INVALID_AMOUNT_NEGATIVE'
+            WHEN amount IS NOT NULL AND amount > 1000000.00 THEN 'INVALID_AMOUNT_TOO_LARGE'
+            ELSE 'UNKNOWN_VALIDATION_FAILURE'
+        END as rejection_reason
+    FROM kafka_catalog.payments_db.payment_charges
+    WHERE
+        -- Reject if any validation rule fails
+        customer_id IS NULL
+        OR (currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        OR (amount IS NOT NULL AND (amount <= 0 OR amount > 1000000.00));
+
+    -- VALID payment_refunds
     INSERT INTO polaris_catalog.payments_db.payment_refunds
-        SELECT * FROM kafka_catalog.payments_db.payment_refunds;
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        refund_id,
+        charge_id,
+        customer_id,
+        CASE
+            WHEN amount IS NULL OR amount <= 0 OR amount > 1000000.00 THEN NULL
+            ELSE amount
+        END as amount,
+        CASE
+            WHEN currency IS NULL OR UPPER(currency) IN ('NULL', '') THEN NULL
+            ELSE UPPER(currency)
+        END as currency,
+        status,
+        reason,
+        failure_reason,
+        merchant_id,
+        metadata,
+        created_at,
+        updated_at,
+        CASE
+            WHEN amount = 0 THEN true
+            WHEN customer_id IS NULL THEN true
+            WHEN charge_id IS NULL THEN true
+            WHEN status = 'failed' AND failure_reason IS NULL THEN true
+            ELSE false
+        END as validation_flag
+    FROM kafka_catalog.payments_db.payment_refunds
+    WHERE
+        (currency IS NULL OR UPPER(currency) IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        AND (amount IS NULL OR (amount > 0 AND amount <= 1000000.00))
+        AND customer_id IS NOT NULL
+        AND charge_id IS NOT NULL;
 
+    -- QUARANTINE payment_refunds
+    INSERT INTO polaris_catalog.payments_db.quarantine_payment_refunds
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        refund_id,
+        charge_id,
+        customer_id,
+        amount,
+        currency,
+        status,
+        reason,
+        failure_reason,
+        merchant_id,
+        metadata,
+        created_at,
+        updated_at,
+        CURRENT_TIMESTAMP as quarantine_timestamp,
+        CASE
+            WHEN customer_id IS NULL THEN 'MISSING_CUSTOMER_ID'
+            WHEN charge_id IS NULL THEN 'MISSING_CHARGE_ID'
+            WHEN currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY')
+                THEN 'INVALID_CURRENCY'
+            WHEN amount IS NOT NULL AND amount <= 0 THEN 'INVALID_AMOUNT_NEGATIVE'
+            WHEN amount IS NOT NULL AND amount > 1000000.00 THEN 'INVALID_AMOUNT_TOO_LARGE'
+            ELSE 'UNKNOWN_VALIDATION_FAILURE'
+        END as rejection_reason
+    FROM kafka_catalog.payments_db.payment_refunds
+    WHERE
+        customer_id IS NULL
+        OR charge_id IS NULL
+        OR (currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        OR (amount IS NOT NULL AND (amount <= 0 OR amount > 1000000.00));
+
+    -- VALID payment_disputes
     INSERT INTO polaris_catalog.payments_db.payment_disputes
-        SELECT * FROM kafka_catalog.payments_db.payment_disputes;
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        dispute_id,
+        charge_id,
+        customer_id,
+        CASE
+            WHEN amount IS NULL OR amount <= 0 OR amount > 1000000.00 THEN NULL
+            ELSE amount
+        END as amount,
+        CASE
+            WHEN currency IS NULL OR UPPER(currency) IN ('NULL', '') THEN NULL
+            ELSE UPPER(currency)
+        END as currency,
+        status,
+        reason,
+        evidence_due_by,
+        is_charge_refundable,
+        merchant_id,
+        metadata,
+        network_reason_code,
+        created_at,
+        updated_at,
+        CASE
+            WHEN customer_id IS NULL THEN true
+            WHEN charge_id IS NULL THEN true
+            WHEN reason IS NULL THEN true
+            ELSE false
+        END as validation_flag
+    FROM kafka_catalog.payments_db.payment_disputes
+    WHERE
+        (currency IS NULL OR UPPER(currency) IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        AND (amount IS NULL OR (amount > 0 AND amount <= 1000000.00))
+        AND customer_id IS NOT NULL
+        AND charge_id IS NOT NULL;
 
+    -- QUARANTINE payment_disputes
+    INSERT INTO polaris_catalog.payments_db.quarantine_payment_disputes
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        dispute_id,
+        charge_id,
+        customer_id,
+        amount,
+        currency,
+        status,
+        reason,
+        evidence_due_by,
+        is_charge_refundable,
+        merchant_id,
+        metadata,
+        network_reason_code,
+        created_at,
+        updated_at,
+        CURRENT_TIMESTAMP as quarantine_timestamp,
+        CASE
+            WHEN customer_id IS NULL THEN 'MISSING_CUSTOMER_ID'
+            WHEN charge_id IS NULL THEN 'MISSING_CHARGE_ID'
+            WHEN currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY')
+                THEN 'INVALID_CURRENCY'
+            WHEN amount IS NOT NULL AND amount <= 0 THEN 'INVALID_AMOUNT_NEGATIVE'
+            WHEN amount IS NOT NULL AND amount > 1000000.00 THEN 'INVALID_AMOUNT_TOO_LARGE'
+            ELSE 'UNKNOWN_VALIDATION_FAILURE'
+        END as rejection_reason
+    FROM kafka_catalog.payments_db.payment_disputes
+    WHERE
+        customer_id IS NULL
+        OR charge_id IS NULL
+        OR (currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        OR (amount IS NOT NULL AND (amount <= 0 OR amount > 1000000.00));
+
+    -- VALID payment_subscriptions
     INSERT INTO polaris_catalog.payments_db.payment_subscriptions
-        SELECT * FROM kafka_catalog.payments_db.payment_subscriptions;
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        subscription_id,
+        customer_id,
+        plan_id,
+        plan_name,
+        CASE
+            WHEN amount IS NULL OR amount < 0 OR amount > 1000000.00 THEN NULL
+            ELSE amount
+        END as amount,
+        CASE
+            WHEN currency IS NULL OR UPPER(currency) IN ('NULL', '') THEN NULL
+            ELSE UPPER(currency)
+        END as currency,
+        `interval`,
+        interval_count,
+        status,
+        cancel_at_period_end,
+        canceled_at,
+        trial_start,
+        trial_end,
+        current_period_start,
+        current_period_end,
+        payment_method_id,
+        merchant_id,
+        metadata,
+        discount,
+        created_at,
+        updated_at,
+        CASE
+            WHEN customer_id IS NULL THEN true
+            WHEN plan_id IS NULL THEN true
+            WHEN `interval` IS NULL THEN true
+            ELSE false
+        END as validation_flag
+    FROM kafka_catalog.payments_db.payment_subscriptions
+    WHERE
+        (currency IS NULL OR UPPER(currency) IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        AND (amount IS NULL OR (amount >= 0 AND amount <= 1000000.00))
+        AND customer_id IS NOT NULL
+        AND plan_id IS NOT NULL;
+
+    -- QUARANTINE payment_subscriptions
+    INSERT INTO polaris_catalog.payments_db.quarantine_payment_subscriptions
+    SELECT
+        event_id,
+        event_type,
+        provider,
+        subscription_id,
+        customer_id,
+        plan_id,
+        plan_name,
+        amount,
+        currency,
+        `interval`,
+        interval_count,
+        status,
+        cancel_at_period_end,
+        canceled_at,
+        trial_start,
+        trial_end,
+        current_period_start,
+        current_period_end,
+        payment_method_id,
+        merchant_id,
+        metadata,
+        discount,
+        created_at,
+        updated_at,
+        CURRENT_TIMESTAMP as quarantine_timestamp,
+        CASE
+            WHEN customer_id IS NULL THEN 'MISSING_CUSTOMER_ID'
+            WHEN plan_id IS NULL THEN 'MISSING_PLAN_ID'
+            WHEN currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY')
+                THEN 'INVALID_CURRENCY'
+            WHEN amount IS NOT NULL AND amount < 0 THEN 'INVALID_AMOUNT_NEGATIVE'
+            WHEN amount IS NOT NULL AND amount > 1000000.00 THEN 'INVALID_AMOUNT_TOO_LARGE'
+            ELSE 'UNKNOWN_VALIDATION_FAILURE'
+        END as rejection_reason
+    FROM kafka_catalog.payments_db.payment_subscriptions
+    WHERE
+        customer_id IS NULL
+        OR plan_id IS NULL
+        OR (currency IS NOT NULL AND UPPER(currency) NOT IN ('USD', 'CAD', 'GBP', 'EUR', 'JPY'))
+        OR (amount IS NOT NULL AND (amount < 0 OR amount > 1000000.00));
 END;
 EOF
 fi
