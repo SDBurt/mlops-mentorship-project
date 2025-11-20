@@ -84,7 +84,7 @@ help:
 	@echo "  make docker-restart         - Restart all services"
 	@echo "  make docker-status          - Show running containers"
 	@echo "  make docker-logs            - View logs from all containers"
-	@echo "  make docker-polaris-init    - Initialize Polaris warehouse (one-time setup)"
+	@echo "  make docker-polaris-init    - Manually initialize Polaris (auto-runs on docker-up)"
 	@echo "  make flink-submit-jobs      - Auto-submit streaming jobs (one-time setup)"
 	@echo "  make flink-attach           - Attach to Flink SQL client for queries"
 	@echo ""
@@ -107,11 +107,11 @@ help:
 	@echo "  6. make port-forward-start          # Access services locally"
 	@echo ""
 	@echo "Streaming Workflow (Docker Compose):"
-	@echo "  1. make docker-up                      # Start Kafka + Flink stack"
-	@echo "  2. make docker-polaris-init            # One-time Polaris setup"
+	@echo "  1. make docker-up                      # Start Kafka + Flink stack (auto-submits jobs)"
+	@echo "  2. Polaris auto-initializes on docker-up (no manual step needed)"
 	@echo "  3. make docker-jr                      # Start JR generators"
 	@echo "  4. make jr-create-topics               # Create Kafka topics"
-	@echo "  5. make flink-submit-jobs              # Auto-submit streaming jobs (ONE TIME)"
+	@echo "  5. make flink-submit-jobs              # Check status of auto-submitted jobs"
 	@echo "     → Jobs persist across SQL sessions, recreate on cluster restart"
 	@echo "  6. make flink-attach                   # Attach to query data (optional)"
 	@echo ""
@@ -775,13 +775,12 @@ docker-up:
 	@echo "  Dagster:       http://localhost:3000"
 	@echo ""
 	@echo "Next steps:"
-	@echo "  1. Initialize Polaris warehouse (one-time):"
-	@echo "     make docker-polaris-init"
+	@echo "  1. Polaris auto-initializes on docker-up (no manual step needed)"
 	@echo "  2. Start JR generators:"
 	@echo "     make docker-jr"
 	@echo "  3. Create Kafka topics:"
 	@echo "     make jr-create-topics"
-	@echo "  4. Submit streaming jobs (one-time, auto-recreates on restart):"
+	@echo "  4. Check streaming job status (jobs auto-submit on start):"
 	@echo "     make flink-submit-jobs"
 	@echo "  5. (Optional) Query data:"
 	@echo "     make flink-attach"
@@ -821,11 +820,78 @@ docker-restart:
 	@cd $(DOCKER_DIR) && docker compose restart
 	@echo "✓ Stack restarted"
 
-# Show status of Docker Compose services
+# Show detailed status of Docker Compose services
 docker-status:
-	@echo "Docker Compose Services Status:"
-	@echo "================================"
+	@echo "=========================================="
+	@echo "   Docker Compose Services Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "----------------"
 	@cd $(DOCKER_DIR) && docker compose ps
+	@echo ""
+	@echo "Service URLs & Ports:"
+	@echo "---------------------"
+	@echo "  Kafka Broker:      localhost:9092"
+	@echo "  Flink Web UI:      http://localhost:8081"
+	@echo "  Polaris API:       http://localhost:8181"
+	@echo "  MinIO Console:     http://localhost:9001 (admin/password)"
+	@echo "  MinIO S3 API:      http://localhost:9000"
+	@echo "  Trino:             http://localhost:8080"
+	@echo "  Dagster:           http://localhost:3000"
+	@echo ""
+	@echo "Container Health:"
+	@echo "-----------------"
+	@cd $(DOCKER_DIR) && docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" | head -20
+	@echo ""
+	@echo "Resource Usage (if available):"
+	@echo "------------------------------"
+	@cd $(DOCKER_DIR) && docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" 2>/dev/null | head -15 || echo "  (Stats not available - containers may not be running)"
+	@echo ""
+	@echo "Quick Checks:"
+	@echo "-------------"
+	@if docker ps | grep -q "kafka-broker"; then \
+		echo "  ✓ Kafka broker is running"; \
+	else \
+		echo "  ✗ Kafka broker is not running"; \
+	fi
+	@if docker ps | grep -q "flink-jobmanager"; then \
+		echo "  ✓ Flink JobManager is running"; \
+	else \
+		echo "  ✗ Flink JobManager is not running"; \
+	fi
+	@if docker ps | grep -q "polaris"; then \
+		echo "  ✓ Polaris is running"; \
+	else \
+		echo "  ✗ Polaris is not running"; \
+	fi
+	@if docker ps | grep -q "minio"; then \
+		echo "  ✓ MinIO is running"; \
+	else \
+		echo "  ✗ MinIO is not running"; \
+	fi
+	@if docker ps | grep -q "trino"; then \
+		echo "  ✓ Trino is running"; \
+	else \
+		echo "  ✗ Trino is not running"; \
+	fi
+	@if docker ps | grep -q "dagster"; then \
+		echo "  ✓ Dagster is running"; \
+	else \
+		echo "  ✗ Dagster is not running"; \
+	fi
+	@if docker ps | grep -q "jr-"; then \
+		echo "  ✓ JR generators are running"; \
+	else \
+		echo "  ○ JR generators are not running (use 'make docker-jr' to start)"; \
+	fi
+	@echo ""
+	@echo "Useful Commands:"
+	@echo "  make docker-logs          - View logs from all containers"
+	@echo "  make docker-restart      - Restart all services"
+	@echo "  make docker-down         - Stop all services"
+	@echo "  make flink-submit-jobs   - Check Flink job status"
+	@echo "  make jr-create-topics    - Create Kafka topics"
 
 # View logs from all Docker Compose services
 docker-logs:
@@ -833,6 +899,8 @@ docker-logs:
 	@cd $(DOCKER_DIR) && docker compose logs -f
 
 # Initialize Polaris warehouse (Docker Compose setup)
+# Note: This now runs automatically via polaris-init service on docker-up
+# This target is kept for manual re-initialization if needed
 docker-polaris-init:
 	@echo "Initializing Polaris warehouse..."
 	@if ! docker ps | grep -q polaris; then \
@@ -841,26 +909,24 @@ docker-polaris-init:
 		exit 1; \
 	fi
 	@echo "Running Polaris initialization script..."
+	@echo "Note: Polaris initialization now runs automatically on docker-up"
+	@echo "      This manual command is for re-initialization if needed"
 	@bash $(DOCKER_DIR)/polaris/init-polaris.sh
 	@echo ""
 	@echo "✓ Polaris warehouse initialized!"
 	@echo ""
-	@echo "Next step: make flink-submit-jobs"
+	@echo "Next step: make flink-submit-jobs (to verify jobs started)"
 
-# Auto-submit streaming jobs (persistent, recreates on cluster restart)
+# Check status of auto-submitted streaming jobs
 flink-submit-jobs:
-	@echo "Auto-submitting Flink streaming jobs..."
-	@if ! docker ps | grep -q flink-jobmanager; then \
-		echo "❌ Error: Flink JobManager not running"; \
+	@echo "Checking Flink job submission status..."
+	@if ! docker ps -a | grep -q flink-job-submitter; then \
+		echo "❌ Error: Flink Job Submitter container not found"; \
 		echo "   Start Docker Compose first: make docker-up"; \
 		exit 1; \
 	fi
-	@if ! docker ps | grep -q flink-sql-client; then \
-		echo "❌ Error: Flink SQL client container not running"; \
-		echo "   Start Docker Compose first: make docker-up"; \
-		exit 1; \
-	fi
-	@cd $(DOCKER_DIR) && docker compose exec -T flink-sql-client bash /opt/flink/submit-streaming-jobs.sh
+	@echo "Tailing logs for flink-job-submitter..."
+	@cd $(DOCKER_DIR) && docker compose logs -f flink-job-submitter
 
 # Attach to Flink SQL client
 flink-attach:
@@ -871,10 +937,10 @@ flink-attach:
 		exit 1; \
 	fi
 	@echo ""
-	@echo "TIP: To auto-submit streaming jobs instead of manual setup:"
-	@echo "  make flink-submit-jobs"
+	@echo "TIP: Streaming jobs are auto-submitted on startup."
+	@echo "  Check status with: make flink-submit-jobs"
 	@echo ""
-	@echo "Jobs submitted via 'make flink-submit-jobs' persist across SQL sessions."
+	@echo "Jobs persist across SQL sessions."
 	@echo "Manual catalog setup is only needed for ad-hoc queries."
 	@echo ""
 	@cd $(DOCKER_DIR) && docker compose exec -it flink-sql-client sql-client.sh

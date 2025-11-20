@@ -348,7 +348,7 @@ curl http://localhost:8181/api/catalog/v1/config | jq '.'
 **Investigation:**
 1. Query the quarantine table to find the dominant `rejection_reason`.
 2. Check the source data in Kafka using `kafka-console-consumer`.
-3. If valid data is being rejected, update the validation logic in `infrastructure/docker/flink/submit-streaming-jobs.sh`.
+3. If valid data is being rejected, update the validation logic in `infrastructure/docker/flink/sql/03_jobs.sql`.
 
 ### Jobs Not Running
 

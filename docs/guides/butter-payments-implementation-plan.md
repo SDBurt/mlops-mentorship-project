@@ -143,7 +143,7 @@ Payment Event Generated
 4. **Basic Flink SQL Pipeline**
    - Created Kafka source tables
    - Created Iceberg sink tables via Polaris
-   - Implemented auto-submission script (`submit-streaming-jobs.sh`)
+   - Implemented auto-submission service (`flink-job-submitter`)
 
 **Success Criteria:**
 - [x] Kafka accessible from Flink and external clients

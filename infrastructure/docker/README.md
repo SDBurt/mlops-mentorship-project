@@ -64,15 +64,11 @@ docker compose -f infrastructure/docker/docker-compose.yml ps
 - MinIO Console: <http://localhost:9001> (admin/password)
 - Polaris: <http://localhost:8181>
 
-## Initialize Polaris (one-time)
+## Initialize Polaris (Automatic)
 
-**Important:** Polaris must be initialized before Dagster can create tables. Run this once after starting the stack:
+**Polaris initialization is now automatic!** The `polaris-init` service runs automatically when you start the stack with `make docker-up` or `docker compose up`.
 
-```bash
-bash infrastructure/docker/polaris/init-polaris.sh
-```
-
-This streamlined script:
+The initialization script:
 
 - ✅ Waits for Polaris to be ready (checks OAuth endpoint)
 - ✅ Creates catalog `polariscatalog` with MinIO storage (`s3://warehouse`)
