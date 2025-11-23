@@ -176,6 +176,8 @@ services:
       FLINK_JOBMANAGER: flink-jobmanager:8081
       KAFKA_BROKER: kafka-broker:29092
       POLARIS_HOST: polaris:8181
+      POLARIS_USER: ${POLARIS_USER}
+      POLARIS_PASSWORD: ${POLARIS_PASSWORD}
       # Flink properties for S3 access
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
@@ -443,6 +445,10 @@ services:
         condition: service_healthy
       dagster-user-code:
         condition: service_started
+
+  #####################################
+  # JR GENERATOR SERVICES
+  #####################################
 
   jr-charges:
     build:

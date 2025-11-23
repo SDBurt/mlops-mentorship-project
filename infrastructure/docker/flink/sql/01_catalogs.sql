@@ -9,7 +9,7 @@ CREATE CATALOG polaris_catalog WITH (
     'uri'='http://polaris:8181/api/catalog',
     'warehouse'='polariscatalog',
     'oauth2-server-uri'='http://polaris:8181/api/catalog/v1/oauth/tokens',
-    'credential'='root:secret',
+    'credential'='${POLARIS_USER}:${POLARIS_PASSWORD}',
     'scope'='PRINCIPAL_ROLE:ALL'
 );
 

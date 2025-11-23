@@ -13,6 +13,8 @@ echo ""
 FLINK_JOBMANAGER="${FLINK_JOBMANAGER:-flink-jobmanager:8081}"
 KAFKA_BROKER="${KAFKA_BROKER:-kafka-broker:29092}"
 POLARIS_HOST="${POLARIS_HOST:-polaris:8181}"
+POLARIS_USER="${POLARIS_USER:-root}"
+POLARIS_PASSWORD="${POLARIS_PASSWORD:-secret}"
 MAX_WAIT_SECONDS=120
 SLEEP_INTERVAL=5
 
@@ -61,7 +63,7 @@ echo "Waiting for Polaris at ${POLARIS_HOST}..."
 ELAPSED=0
 POLARIS_READY=false
 while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
-    if curl -s -u root:secret "http://${POLARIS_HOST}/api/catalog/v1/config" > /dev/null 2>&1; then
+    if curl -s -u "${POLARIS_USER}:${POLARIS_PASSWORD}" "http://${POLARIS_HOST}/api/catalog/v1/config" > /dev/null 2>&1; then
         echo "✓ Polaris is ready"
         POLARIS_READY=true
         break
@@ -82,7 +84,7 @@ else
         # Get access token
         TOKEN_RESPONSE=$(curl -s -X POST \
             "http://${POLARIS_HOST}/api/catalog/v1/oauth/tokens" \
-            -d "grant_type=client_credentials&client_id=root&client_secret=secret&scope=PRINCIPAL_ROLE:ALL" 2>/dev/null)
+            -d "grant_type=client_credentials&client_id=${POLARIS_USER}&client_secret=${POLARIS_PASSWORD}&scope=PRINCIPAL_ROLE:ALL" 2>/dev/null)
 
         if command -v jq >/dev/null 2>&1; then
             ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token // empty' 2>/dev/null)

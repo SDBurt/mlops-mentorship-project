@@ -25,7 +25,7 @@ CREATE CATALOG IF NOT EXISTS polaris_catalog WITH (
     'uri'='${POLARIS_URI}',
     'warehouse'='polariscatalog',
     'oauth2-server-uri'='${POLARIS_OAUTH_URI}',
-    'credential'='root:secret',
+    'credential'='${POLARIS_USER}:${POLARIS_PASSWORD}',
     'scope'='PRINCIPAL_ROLE:ALL'
 );
 

@@ -85,9 +85,10 @@ Verify initialization:
 
 ```bash
 # Get access token and list catalogs
+# Note: Using credentials from .env file (default: root:secret)
 ACCESS_TOKEN=$(curl -s -X POST \
   http://localhost:8181/api/catalog/v1/oauth/tokens \
-  -d 'grant_type=client_credentials&client_id=root&client_secret=secret&scope=PRINCIPAL_ROLE:ALL' \
+  -d "grant_type=client_credentials&client_id=${POLARIS_USER:-root}&client_secret=${POLARIS_PASSWORD:-secret}&scope=PRINCIPAL_ROLE:ALL" \
   | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
 
 curl -s -X GET http://localhost:8181/api/management/v1/catalogs \
