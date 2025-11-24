@@ -136,10 +136,24 @@ COMBINED_SQL="/tmp/combined_submission.sql"
 rm -f "$COMBINED_SQL"
 touch "$COMBINED_SQL"
 
+# Export variables for envsubst
+export POLARIS_USER
+export POLARIS_PASSWORD
+export KAFKA_BROKER
+
 for sql_file in /opt/flink/sql/*.sql; do
     if [ -f "$sql_file" ]; then
         echo "  Adding $sql_file..."
-        cat "$sql_file" >> "$COMBINED_SQL"
+        # Substitute environment variables in SQL files
+        if command -v envsubst >/dev/null 2>&1; then
+            envsubst < "$sql_file" >> "$COMBINED_SQL"
+        else
+            # Fallback to manual substitution if envsubst not available
+            sed -e "s/\${POLARIS_USER}/${POLARIS_USER}/g" \
+                -e "s/\${POLARIS_PASSWORD}/${POLARIS_PASSWORD}/g" \
+                -e "s/\${KAFKA_BOOTSTRAP_SERVERS}/${KAFKA_BROKER}/g" \
+                "$sql_file" >> "$COMBINED_SQL"
+        fi
         echo "" >> "$COMBINED_SQL" # Ensure newline between files
     fi
 done
