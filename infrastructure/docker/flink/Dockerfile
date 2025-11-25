@@ -28,9 +28,6 @@ USER flink
 
 # Copy auto-submission scripts (need root for /opt/flink)
 USER root
-COPY flink/submit-streaming-jobs.sh /opt/flink/submit-streaming-jobs.sh
-COPY flink/submit-charges-only.sh /opt/flink/submit-charges-only.sh
-COPY flink/submit-charges-only.sql /opt/flink/submit-charges-only.sql
-RUN chmod +x /opt/flink/submit-streaming-jobs.sh && \
-    chmod +x /opt/flink/submit-charges-only.sh
+COPY flink/entrypoint-submit.sh /opt/flink/entrypoint-submit.sh
+RUN chmod +x /opt/flink/entrypoint-submit.sh
 USER flink

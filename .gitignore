@@ -169,3 +169,5 @@ infrastructure/helm/
 # DBT generated/vendor directories
 **/dbt_packages/
 **/target/
+
+infrastructure/docker/superset

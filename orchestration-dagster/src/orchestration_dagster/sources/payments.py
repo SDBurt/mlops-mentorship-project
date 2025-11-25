@@ -15,9 +15,10 @@ Architecture:
 - Logs warnings when quarantine volume exceeds thresholds
 """
 
-from dagster import asset, AssetExecutionContext, MetadataValue
-from typing import Dict, List, Any
+from dagster import asset, AssetExecutionContext
+from typing import Dict, Any
 import time
+from ..resources.trino import TrinoResource
 
 
 @asset(
@@ -25,7 +26,10 @@ import time
     compute_kind="trino",
     description="Monitor quarantine_payment_charges for invalid records and alert on spikes"
 )
-def quarantine_charges_monitor(context: AssetExecutionContext, trino_resource) -> Dict[str, Any]:
+def quarantine_charges_monitor(
+    context: AssetExecutionContext,
+    trino_resource: TrinoResource
+) -> Dict[str, Any]:
     """
     Monitor quarantined charge events and alert on volume spikes.
 
@@ -42,7 +46,7 @@ def quarantine_charges_monitor(context: AssetExecutionContext, trino_resource) -
         COUNT(*) as count,
         MIN(quarantine_timestamp) as first_seen,
         MAX(quarantine_timestamp) as last_seen
-    FROM lakehouse.payments_db.quarantine_payment_charges
+    FROM iceberg.payments_db.quarantine_payment_charges
     WHERE quarantine_timestamp > current_timestamp - INTERVAL '1' HOUR
     GROUP BY rejection_reason
     ORDER BY count DESC
@@ -89,7 +93,10 @@ def quarantine_charges_monitor(context: AssetExecutionContext, trino_resource) -
     compute_kind="trino",
     description="Monitor all payment quarantine tables (charges, refunds, disputes, subscriptions)"
 )
-def quarantine_summary_monitor(context: AssetExecutionContext, trino_resource) -> Dict[str, Any]:
+def quarantine_summary_monitor(
+    context: AssetExecutionContext,
+    trino_resource: TrinoResource
+) -> Dict[str, Any]:
     """
     Aggregate monitor for all payment quarantine tables.
 
@@ -114,7 +121,7 @@ def quarantine_summary_monitor(context: AssetExecutionContext, trino_resource) -
         SELECT
             COUNT(*) as count,
             COUNT(DISTINCT rejection_reason) as unique_reasons
-        FROM lakehouse.payments_db.{table}
+        FROM iceberg.payments_db.{table}
         WHERE quarantine_timestamp > current_timestamp - INTERVAL '1' HOUR
         """
 
@@ -161,7 +168,10 @@ def quarantine_summary_monitor(context: AssetExecutionContext, trino_resource) -
     compute_kind="trino",
     description="Count validation flags in staging tables (suspicious patterns)"
 )
-def validation_flag_monitor(context: AssetExecutionContext, trino_resource) -> Dict[str, Any]:
+def validation_flag_monitor(
+    context: AssetExecutionContext,
+    trino_resource: TrinoResource
+) -> Dict[str, Any]:
     """
     Monitor validation_flag in staging tables.
 
@@ -175,25 +185,38 @@ def validation_flag_monitor(context: AssetExecutionContext, trino_resource) -> D
     SELECT
         COUNT(*) as total_records,
         SUM(CASE WHEN validation_flag = true THEN 1 ELSE 0 END) as flagged_records,
-        (SUM(CASE WHEN validation_flag = true THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) as flagged_percentage
-    FROM lakehouse.payments_db.payment_charges
+        COALESCE(
+            (SUM(CASE WHEN validation_flag = true THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0)),
+            0.0
+        ) as flagged_percentage
+    FROM iceberg.payments_db.payment_charges
     WHERE created_at > current_timestamp - INTERVAL '1' HOUR
     """
 
     context.log.info("Checking validation flags in payment_charges...")
     result = trino_resource.execute_query(query)
 
-    if result:
-        total = result[0]['total_records']
-        flagged = result[0]['flagged_records']
-        percentage = result[0]['flagged_percentage']
+    if result and len(result) > 0:
+        total = result[0].get('total_records', 0) or 0
+        flagged = result[0].get('flagged_records', 0) or 0
+        percentage_raw = result[0].get('flagged_percentage')
+
+        # Handle None percentage (shouldn't happen with COALESCE, but safety check)
+        if percentage_raw is None:
+            percentage = 0.0 if total == 0 else (flagged * 100.0 / total)
+        else:
+            # Ensure percentage is a float, not None
+            try:
+                percentage = float(percentage_raw)
+            except (TypeError, ValueError):
+                percentage = 0.0 if total == 0 else (flagged * 100.0 / total)
 
         context.log.info(
             f"Flagged records: {flagged}/{total} ({percentage:.2f}%)"
         )
 
-        # Alert if >5% of records are flagged
-        if percentage > 5.0:
+        # Alert if >5% of records are flagged (only if we have records)
+        if total > 0 and percentage > 5.0:
             context.log.warning(
                 f"HIGH SUSPICIOUS FLAG RATE: {percentage:.2f}% of charges flagged"
             )
@@ -201,8 +224,13 @@ def validation_flag_monitor(context: AssetExecutionContext, trino_resource) -> D
         return {
             'total_records': total,
             'flagged_records': flagged,
-            'flagged_percentage': percentage,
+            'flagged_percentage': float(percentage),
             'timestamp': time.time()
         }
 
-    return {'error': 'No data found'}
+    return {
+        'total_records': 0,
+        'flagged_records': 0,
+        'flagged_percentage': 0.0,
+        'timestamp': time.time()
+    }

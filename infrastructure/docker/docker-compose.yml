@@ -147,6 +147,53 @@ services:
     stdin_open: true
     tty: true
 
+  flink-job-submitter:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    container_name: flink-job-submitter
+    command: ["/opt/flink/entrypoint-submit.sh"]
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+      kafka-broker:
+        condition: service_started
+      polaris:
+        condition: service_started
+    volumes:
+      - ./flink/sql:/opt/flink/sql
+      - ./flink/entrypoint-submit.sh:/opt/flink/entrypoint-submit.sh
+    env_file:
+      - .env
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE_ACCESS: "true"
+      FLINK_JOBMANAGER: flink-jobmanager:8081
+      KAFKA_BROKER: kafka-broker:29092
+      POLARIS_HOST: polaris:8181
+      POLARIS_USER: ${POLARIS_USER}
+      POLARIS_PASSWORD: ${POLARIS_PASSWORD}
+      # Flink properties for S3 access
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.address: flink-jobmanager
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
+
   #####################################
   # LAKEHOUSE SERVICES
   #####################################
@@ -172,22 +219,61 @@ services:
       test:
         - "CMD-SHELL"
         - >
-          sh -c 'timeout 1 bash -c \"</dev/tcp/localhost/8182\"' 2>/dev/null ||
-          sh -c 'timeout 1 bash -c \"</dev/tcp/127.0.0.1/8182\"' 2>/dev/null ||
+          curl -f http://localhost:8181/api/catalog/v1/config >/dev/null 2>&1 ||
+          curl -f http://localhost:8182/health >/dev/null 2>&1 ||
+          timeout 1 bash -c "</dev/tcp/localhost/8182" 2>/dev/null ||
           exit 1
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 50s
+      start_period: 60s
     networks:
       - local-iceberg-lakehouse
+
+  polaris-init:
+    image: alpine:latest
+    container_name: polaris-init
+    depends_on:
+      polaris:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      POLARIS_URL: http://polaris:8181
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      MINIO_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+      MINIO_REGION: ${AWS_REGION}
+      CATALOG_NAME: polariscatalog
+      CLIENT_ID: ${POLARIS_USER}
+      CLIENT_SECRET: ${POLARIS_PASSWORD}
+      SCOPE: PRINCIPAL_ROLE:ALL
+    volumes:
+      - ./polaris/init-polaris.sh:/init-polaris.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache bash curl jq >/dev/null 2>&1
+        chmod +x /init-polaris.sh
+        /init-polaris.sh
+    networks:
+      - local-iceberg-lakehouse
+    restart: "no"
 
   trino:
     image: trinodb/trino:latest
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       TRINO_JVM_OPTS: -Xmx2G
+      # S3 credentials for MinIO access (used by iceberg.properties via ${ENV:...})
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # Polaris OAuth credentials (used by iceberg.properties via ${ENV:...})
+      # Format: username:password (constructed from POLARIS_USER:POLARIS_PASSWORD)
+      POLARIS_OAUTH_CREDENTIAL: ${POLARIS_USER}:${POLARIS_PASSWORD}
     volumes:
       - ./trino/catalog:/etc/trino/catalog
     depends_on:
@@ -285,6 +371,8 @@ services:
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # Trino connection for data quality monitoring
+      TRINO_HOST: trino
     expose:
       - "3030"
     healthcheck:
@@ -357,6 +445,10 @@ services:
         condition: service_healthy
       dagster-user-code:
         condition: service_started
+
+  #####################################
+  # JR GENERATOR SERVICES
+  #####################################
 
   jr-charges:
     build:

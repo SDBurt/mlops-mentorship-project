@@ -62,10 +62,12 @@ defs = Definitions(
         ),
 
         # Trino resource for data quality monitoring
+        # Host is configured via TRINO_HOST environment variable
+        # Defaults: "trino" in Kubernetes, "localhost" for local development
+        # Catalog name matches Trino catalog file: iceberg.properties -> catalog name "iceberg"
         "trino_resource": TrinoResource(
-            host="localhost",  # Change to "trino" when running in Kubernetes
             port=8080,
-            catalog="lakehouse",
+            catalog="iceberg",
             schema="payments_db",
             user="dagster"
         ),

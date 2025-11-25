@@ -47,6 +47,13 @@ Reddit API → PRAW → Dagster Assets → dagster-iceberg → Polaris Catalog
                                                               ↓
                                                     Single 'data' Namespace
                                           (organized by table naming conventions)
+
+Streaming Flow:
+JR Generators → Kafka → Flink SQL (Validation) → Polaris Catalog
+                                     ↓
+                               MinIO/S3 (Iceberg)
+                                     ↓
+                           DBT Transformations (Silver/Gold)
 ```
 
 **Data Layers:**
@@ -334,6 +341,23 @@ transformations/dbt/
 
 ## Important Patterns
 
+### Streaming Data Pipeline (Docker Compose)
+
+**Automated Job Submission:**
+- **`flink-job-submitter`**: A dedicated container that waits for services and submits SQL jobs automatically on startup.
+- **SQL Files**: Located in `infrastructure/docker/flink/sql/`:
+  - `01_catalogs.sql`: Catalog definitions
+  - `02_tables.sql`: Table definitions
+  - `03_jobs.sql`: Streaming INSERT jobs with validation logic
+- **Commands**:
+  - `make docker-up`: Starts the stack and submits jobs automatically.
+  - `make flink-submit-jobs`: Tails the logs of the submitter to verify success.
+
+**Validation Strategy:**
+- **Layer 1 (Flink)**: Real-time validation (nulls, currency, amounts) -> Splits into Valid/Quarantine tables.
+- **Layer 2 (DBT)**: Business logic validation in Silver layer.
+- **Layer 3 (Dagster)**: Monitoring assets for quarantine volume and data quality scores.
+
 ### Iceberg Table Creation (via Trino)
 
 ```sql
@@ -410,12 +434,13 @@ FROM {{ source('raw', 'customers') }}
 - Makefile automation
 - Comprehensive documentation
 
-**Phase 2 (Analytics):** 🔄 In Progress
+**Phase 2 (Analytics):** ✅ Complete
 - ✅ dagster-iceberg integration
 - ✅ PRAW Reddit data source
 - ✅ Dual backend support (Pandas + PyArrow)
-- ⏳ Verify end-to-end data flow
-- ⏳ DBT model implementation
+- ✅ Streaming pipeline (Kafka + Flink)
+- ✅ Upstream validation (Flink SQL)
+- ✅ DBT model implementation (Bronze/Silver/Gold)
 - ⏳ Superset deployment (optional)
 
 **Phase 3 (Governance):** Ready to Start

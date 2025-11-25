@@ -13,21 +13,21 @@ Usage:
 from dagster import ConfigurableResource
 from typing import List, Dict, Any
 from pydantic import Field
-import subprocess
-import json
+from trino.dbapi import connect
+import os
 
 
 class TrinoResource(ConfigurableResource):
     """
     Trino query resource for Dagster assets.
 
-    Executes SQL queries against Trino using the trino CLI.
+    Executes SQL queries against Trino using the trino Python client library.
     Returns results as list of dictionaries.
     """
 
     host: str = Field(
-        default="localhost",
-        description="Trino coordinator host"
+        default_factory=lambda: os.getenv("TRINO_HOST", "trino"),
+        description="Trino coordinator host (set TRINO_HOST env var, defaults to 'trino' in K8s, 'localhost' locally)"
     )
 
     port: int = Field(
@@ -36,8 +36,8 @@ class TrinoResource(ConfigurableResource):
     )
 
     catalog: str = Field(
-        default="lakehouse",
-        description="Default catalog to use"
+        default="iceberg",
+        description="Default catalog to use (matches Trino catalog file name)"
     )
 
     schema: str = Field(
@@ -67,42 +67,32 @@ class TrinoResource(ConfigurableResource):
             print(results[0]['count'])
         """
         try:
-            # Use trino CLI via subprocess
-            # In production, use trino-python-client library
-            cmd = [
-                'trino',
-                '--server', f'http://{self.host}:{self.port}',
-                '--catalog', self.catalog,
-                '--schema', self.schema,
-                '--user', self.user,
-                '--output-format', 'JSON',
-                '--execute', query
-            ]
+            # Use trino Python client library
+            with connect(
+                host=self.host,
+                port=self.port,
+                catalog=self.catalog,
+                schema=self.schema,
+                user=self.user,
+            ) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query)
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
-            )
+                # Get column names from cursor description
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
 
-            if result.returncode != 0:
-                raise RuntimeError(f"Trino query failed: {result.stderr}")
+                # Fetch all results and convert to list of dictionaries
+                rows = []
+                for row in cursor.fetchall():
+                    if columns:
+                        rows.append(dict(zip(columns, row)))
+                    else:
+                        # Fallback if no column names available
+                        rows.append(row[0] if len(row) == 1 else row)
 
-            # Parse JSON output (one JSON object per line)
-            rows = []
-            for line in result.stdout.strip().split('\n'):
-                if line:
-                    rows.append(json.loads(line))
+                cursor.close()
+                return rows
 
-            return rows
-
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Trino query timed out after 300 seconds")
-        except FileNotFoundError:
-            raise RuntimeError(
-                "trino CLI not found. Install with: pip install trino-cli"
-            )
         except Exception as e:
             raise RuntimeError(f"Trino query failed: {str(e)}")
 
@@ -111,30 +101,35 @@ class TrinoResource(ConfigurableResource):
         Execute a query and return raw output as string.
 
         Useful for simple queries where you just need the result text.
+        Returns the first column of the first row as a string.
 
         Args:
             query: SQL query string
 
         Returns:
-            Raw query output as string
+            Raw query output as string (first column of first row)
         """
-        cmd = [
-            'trino',
-            '--server', f'http://{self.host}:{self.port}',
-            '--catalog', self.catalog,
-            '--schema', self.schema,
-            '--user', self.user,
-            '--execute', query
-        ]
+        try:
+            # Use trino Python client library
+            with connect(
+                host=self.host,
+                port=self.port,
+                catalog=self.catalog,
+                schema=self.schema,
+                user=self.user,
+            ) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query)
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
+                # Get first row, first column
+                row = cursor.fetchone()
+                cursor.close()
 
-        if result.returncode != 0:
-            raise RuntimeError(f"Trino query failed: {result.stderr}")
+                if row is None:
+                    return ""
 
-        return result.stdout.strip()
+                # Return first column as string
+                return str(row[0]) if row else ""
+
+        except Exception as e:
+            raise RuntimeError(f"Trino query failed: {str(e)}")

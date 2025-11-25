@@ -64,15 +64,11 @@ docker compose -f infrastructure/docker/docker-compose.yml ps
 - MinIO Console: <http://localhost:9001> (admin/password)
 - Polaris: <http://localhost:8181>
 
-## Initialize Polaris (one-time)
+## Initialize Polaris (Automatic)
 
-**Important:** Polaris must be initialized before Dagster can create tables. Run this once after starting the stack:
+**Polaris initialization is now automatic!** The `polaris-init` service runs automatically when you start the stack with `make docker-up` or `docker compose up`.
 
-```bash
-bash infrastructure/docker/polaris/init-polaris.sh
-```
-
-This streamlined script:
+The initialization script:
 
 - ✅ Waits for Polaris to be ready (checks OAuth endpoint)
 - ✅ Creates catalog `polariscatalog` with MinIO storage (`s3://warehouse`)
@@ -89,9 +85,10 @@ Verify initialization:
 
 ```bash
 # Get access token and list catalogs
+# Note: Using credentials from .env file (default: root:secret)
 ACCESS_TOKEN=$(curl -s -X POST \
   http://localhost:8181/api/catalog/v1/oauth/tokens \
-  -d 'grant_type=client_credentials&client_id=root&client_secret=secret&scope=PRINCIPAL_ROLE:ALL' \
+  -d "grant_type=client_credentials&client_id=${POLARIS_USER:-root}&client_secret=${POLARIS_PASSWORD:-secret}&scope=PRINCIPAL_ROLE:ALL" \
   | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
 
 curl -s -X GET http://localhost:8181/api/management/v1/catalogs \
