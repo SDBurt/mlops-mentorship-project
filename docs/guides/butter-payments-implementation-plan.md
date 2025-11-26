@@ -1,5 +1,49 @@
 # Butter Payments Project Implementation Plan
 
+## Job Posting
+
+About Butter Payments:
+At Butter Payments, we’re on a mission to eliminate involuntary churn and make recurring payments seamless. Every year, billions of dollars are lost due to failed payments. Butter leverages machine learning, deep financial data partnerships, and behavioral insights to ensure the right payments go through at the right time—without friction. We're backed by world-class investors like Atomic, Norwest Venture Partners, SpringTride, Transpose Platform, and we're growing fast.
+
+The Problem Statement:
+You will work closely with Software Engineering, Machine Learning Engineers and Data Analysts. You help ingest, organize and enable Butter to continue to deliver value on the data we collect. We make sure it arrives in a timely manner, is organized and usable, and is of a high quality. Key to all the work Butter does.
+
+Problem Expanded:
+We ingest 3rd-party data from multiple payment providers, such as Stripe, clean it and normalize it for our schema and machine learning pipelines.
+
+We're seeking to build transformation and validation layers as far upstream as possible to ensure a smooth flow of data through our system. The transformation layer will make the data easier to work with for our reporting products and ML models, while the validation layer will ensure the data conforms to our expectations. For example: Is it null, NULL, or 'null'? Is 342 a valid country abbreviation code?
+
+As we expand our product offering and ingest data from additional companies and 3rd-party providers the complexity of the challenge will evolve over time, keeping the problem fresh.
+
+Scope:
+You'll get to architect our system and lay the foundation for the future from both a technology and a system design perspective.
+
+No longer will data show up without being tested and structured, as you'll create a system that checks its worst tendencies. You'll work closely with our ML and Eng team to ensure the design meets their requirements and that data properly flows through the system.
+
+Philosophies:
+- You strongly believe that action creates information.
+- You want to work on a small team and have lots of responsibility.
+- You look forward to being scrappy and enjoy overcoming challenges.
+
+Requirements:
+- 5+ years of experience delivering value through data at an early stage, high growth startup (ideally within the payments industry)
+- Prior experience with cloud environments such as AWS or GCP
+- Strong Data Modeling experience, and familiarity with different approaches (Intermediate and up)
+- Strong SQL skills
+- Strong Python skills
+- Prior experience with workflow orchestration tools (Prefectm, Airflow, Dagster)
+- Experience with distributed systems workflows (Temporal, AWS Step functions)
+- Experience with cloud OLAP providers and optimization (Snowflake, Redshift, BigQuery)
+- Experience with Kafka pub/sub patterns and data ingestion
+- Experience with data transformation patterns and common tools (dbt)
+$130,000 - $170,000 a year
+130,000-170,000 (CAD)
+We are focused on building a diverse and inclusive workforce. If you’re excited about this role, but do not meet 100% of the qualifications listed above, we encourage you to apply.
+--------
+Butter Payments is an Equal Opportunity Employer and considers applicants for employment without regard to race, color, religion, sex, orientation, national origin, age, disability, genetics or any other basis forbidden under federal, state, or local law. Butter considers all qualified applicants in accordance with the San Francisco Fair Chance Ordinance.
+
+## Details
+
 **Target Role:** Data Engineer at Butter Payments
 **Project Goal:** Transform existing lakehouse into streaming payment processing platform demonstrating upstream validation, real-time ingestion, and workflow orchestration capabilities.
 
@@ -568,18 +612,20 @@ Payment Event Generated
              value: "temporal-frontend.lakehouse.svc.cluster.local:7233"
    ```
 
+**Status**: In Progress
+
 **Success Criteria:**
-- [ ] Temporal workflows execute with retry logic
-- [ ] Failed payments retry with ML-driven delays
-- [ ] Workflows survive pod restarts (durable state)
-- [ ] Events flow: Temporal → Kafka → Flink → Iceberg
-- [ ] Temporal UI shows workflow history
+- [x] Temporal workflows execute with retry logic
+- [x] Failed payments retry with ML-driven delays
+- [x] Workflows survive pod restarts (durable state)
+- [ ] Events flow: Temporal → Kafka → Flink → Iceberg (needs integration testing)
+- [x] Temporal UI shows workflow history
 
 **Deliverables:**
-- Temporal workflow implementations
-- Worker deployment manifests
-- Architecture diagram showing Temporal's role
-- Documentation: When to use Temporal vs Dagster
+- [x] Temporal workflow implementations (`temporal/temporal/workflows/`)
+- [x] Worker deployment manifests (Docker Compose with `--profile temporal`)
+- [ ] Architecture diagram showing Temporal's role
+- [x] Documentation: `temporal/README.md`
 
 ---
 
@@ -1324,12 +1370,12 @@ Payment Event Generated
 
 | Week | Phase | Key Deliverables | Status |
 |------|-------|------------------|--------|
-| 1-2 | Streaming Foundation | Kafka, Flink, JR pipeline | ✅ Completed |
-| 3-4 | Upstream Validation | Multi-layer validation, quarantine | ✅ Completed |
-| 5-6 | Temporal Integration | Workflows, retry logic | ⏳ Not Started |
-| 7-8 | ML Simulation | Inference service, feature eng | ⏳ Not Started |
-| 9 | Multi-Provider | Schema normalization | ⏳ Not Started |
-| 10 | Documentation | README, blog, video | ⏳ Not Started |
+| 1-2 | Streaming Foundation | Kafka, Flink, JR pipeline | Completed |
+| 3-4 | Upstream Validation | Multi-layer validation, quarantine | Completed |
+| 5-6 | Temporal Integration | Workflows, retry logic | In Progress |
+| 7-8 | ML Simulation | Inference service, feature eng | Not Started |
+| 9 | Multi-Provider | Schema normalization | Not Started |
+| 10 | Documentation | README, blog, video | Not Started |
 
 ---
 

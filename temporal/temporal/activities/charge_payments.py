@@ -18,8 +18,17 @@ class ChargeResult:
 async def charge_payment(payment_data: dict) -> ChargeResult:
     """
     Simulates payment processing with realistic failure rates.
+
+    Works with normalized payment schema (amount_cents, provider_payment_id)
+    and falls back to legacy fields (amount, transaction_id) for compatibility.
     """
-    activity.logger.info(f"Processing charge for {payment_data.get('transaction_id')}")
+    # Get payment identifier (works with normalized and legacy schemas)
+    payment_id = payment_data.get(
+        'provider_payment_id',
+        payment_data.get('id', payment_data.get('transaction_id', 'unknown'))
+    )
+    provider = payment_data.get('provider', 'unknown')
+    activity.logger.info(f"Processing charge for {payment_id} [{provider}]")
 
     # Simulate 15% decline rate (realistic for subscription renewals)
     if random.random() < 0.15:
@@ -32,8 +41,11 @@ async def charge_payment(payment_data: dict) -> ChargeResult:
         ]
         raise PaymentDeclinedError(random.choice(failure_codes))
 
+    # Support both normalized (amount_cents) and legacy (amount) fields
+    amount = payment_data.get("amount_cents", payment_data.get("amount", 0))
+
     return ChargeResult(
         status="succeeded",
         charge_id=f"ch_{random.randint(1000000, 9999999)}",
-        amount_charged=payment_data["amount"]
+        amount_charged=amount
     )

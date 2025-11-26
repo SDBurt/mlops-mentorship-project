@@ -35,6 +35,7 @@ This is a **mentorship learning project** focused on building an end-to-end MLOp
 - **Ingestion**: dagster-iceberg with PRAW for Reddit data extraction
 - **Transformations**: DBT Core (SQL models) orchestrated by Dagster
 - **Query Engine**: Trino (distributed SQL over Iceberg)
+- **Workflow Orchestration**: Temporal (per-payment durable workflows)
 - **BI**: Apache Superset (Phase 2+)
 
 **Data Flow:**
@@ -48,12 +49,19 @@ Reddit API → PRAW → Dagster Assets → dagster-iceberg → Polaris Catalog
                                                     Single 'data' Namespace
                                           (organized by table naming conventions)
 
-Streaming Flow:
+Streaming Flow (Path A - JR Direct):
 JR Generators → Kafka → Flink SQL (Validation) → Polaris Catalog
                                      ↓
                                MinIO/S3 (Iceberg)
                                      ↓
                            DBT Transformations (Silver/Gold)
+
+Payment Workflow Flow (Path B - Temporal):
+Payment Generator → Temporal Workflow → Kafka → Flink → Iceberg
+                         |-- Fraud Check
+                         |-- Charge Payment
+                         |-- ML Retry Strategy
+                         |-- Emit to Kafka
 ```
 
 **Data Layers:**
@@ -196,6 +204,41 @@ SHOW TABLES FROM lakehouse.raw;
 SELECT COUNT(*) FROM lakehouse.raw.reddit_posts;
 ```
 
+### Temporal Payment Workflows
+
+**Local Development (Temporal CLI):**
+```bash
+# Terminal 1: Start Temporal dev server
+temporal server start-dev --db-filename temporal.db
+
+# Terminal 2: Start worker
+cd temporal
+uv sync
+uv run python -m temporal.worker
+
+# Terminal 3: Generate payments
+uv run python -m temporal.payment_generator --rate 2.0
+
+# View workflows at http://localhost:8233
+```
+
+**Docker Compose:**
+```bash
+cd infrastructure/docker
+
+# Start core services + Temporal
+docker compose up -d
+docker compose --profile temporal up -d
+
+# View Temporal UI at http://localhost:8233
+```
+
+**Run Tests:**
+```bash
+cd temporal
+uv run pytest tests/ -v
+```
+
 ## Key Architectural Decisions
 
 ### Polaris REST Catalog (Not Nessie)
@@ -237,6 +280,41 @@ resources={
 ```
 
 See `orchestration-dagster/BACKEND_COMPARISON.md` for detailed comparison.
+
+### Temporal for Per-Payment Workflows (Butter Payments Demo)
+
+**Temporal demonstrates the "per-payment approach, not batches" pattern:**
+- Each payment gets its own durable workflow instance
+- Workflows survive pod restarts and failures
+- Long timers (hours/days for retries) work without holding resources
+- Full visibility into payment lifecycle via Temporal UI
+
+**Project Location:** `temporal/`
+
+**Two Streaming Paths Coexist:**
+- **Path A (JR):** Direct to Kafka for Flink validation testing
+- **Path B (Temporal):** Full workflow orchestration with retries
+
+Both write to `payment_charges` Kafka topic. Use Docker Compose profiles:
+```bash
+docker compose --profile generators up -d  # JR only
+docker compose --profile temporal up -d    # Temporal only
+docker compose --profile generators --profile temporal up -d  # Both
+```
+
+**Workflow Activities:**
+1. **Fraud Check** - ML inference simulation, blocks high-risk transactions
+2. **Charge Payment** - Simulates 15% decline rate
+3. **ML Retry Strategy** - Determines delay and method based on failure code
+4. **Emit to Kafka** - Sends event for Flink validation
+
+**Environment Variables:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TEMPORAL_HOST` | `localhost:7233` | Temporal server address |
+| `TEMPORAL_TASK_QUEUE` | `payment-processing` | Task queue name |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka bootstrap servers |
+| `KAFKA_TOPIC_CHARGES` | `payment_charges` | Topic for charge events |
 
 ### Same-Namespace Service Communication
 
@@ -294,6 +372,7 @@ echo "base64-string" | base64 -d     # Decode to verify
 - `transformations/` - Analytics engineering (DBT models)
 - `lakehouse/` - Data architecture (Iceberg schemas, conventions)
 - `orchestration-dagster/` - Data engineering (Dagster + dagster-iceberg pipelines)
+- `temporal/` - Workflow orchestration (Temporal payment workflows - Butter Payments demo)
 - `analytics/` - BI/Analytics (Superset dashboards) - Phase 2+
 - `ml/` - ML engineering (Feast, Kubeflow, DVC) - Phase 4
 
@@ -337,6 +416,32 @@ transformations/dbt/
     ├── staging/            # Cleaned, typed data (stg_*)
     ├── intermediate/       # Business logic transformations (int_*)
     └── marts/              # Business-facing models (dim_*, fct_*)
+```
+
+### Temporal Project Structure
+
+```
+temporal/
+├── temporal/
+│   ├── config.py              # Environment-based configuration
+│   ├── worker.py              # Temporal worker entry point
+│   ├── payment_generator.py   # Workflow initiator with CLI args
+│   ├── workflows/
+│   │   ├── __init__.py
+│   │   └── payment_processing.py  # Main workflow
+│   └── activities/
+│       ├── __init__.py
+│       ├── fraud_check.py     # Fraud detection
+│       ├── charge_payments.py # Payment processing
+│       ├── retry_strategy.py  # ML-driven retry logic
+│       └── kafka_emitter.py   # Kafka event emission (dependency injection)
+├── tests/
+│   ├── conftest.py            # Test fixtures
+│   ├── test_activities.py     # Activity unit tests
+│   └── test_workflow.py       # Workflow integration tests
+├── Dockerfile
+├── pyproject.toml
+└── README.md
 ```
 
 ## Important Patterns
@@ -421,6 +526,70 @@ FROM {{ source('raw', 'customers') }}
 {% if is_incremental() %}
     WHERE updated_at > (SELECT MAX(valid_from) FROM {{ this }})
 {% endif %}
+```
+
+### Temporal Workflow Pattern
+
+```python
+from temporalio import workflow
+from temporalio.common import RetryPolicy
+from datetime import timedelta
+
+@workflow.defn
+class PaymentProcessingWorkflow:
+    @workflow.run
+    async def run(self, payment: PaymentInput) -> PaymentResult:
+        # 1. Fraud check (no retries - fail fast)
+        fraud_result = await workflow.execute_activity(
+            check_fraud,
+            payment,
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+        if fraud_result.is_fraudulent:
+            await workflow.execute_activity(emit_to_kafka, blocked_event)
+            return PaymentResult(status="blocked")
+
+        # 2. Charge payment (with retries)
+        retry_policy = RetryPolicy(
+            maximum_attempts=3,
+            initial_interval=timedelta(seconds=1),
+        )
+        charge_result = await workflow.execute_activity(
+            charge_payment,
+            payment,
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=retry_policy,
+        )
+
+        # 3. Emit result to Kafka
+        await workflow.execute_activity(emit_to_kafka, charge_result)
+        return PaymentResult(status=charge_result.status)
+```
+
+### Temporal Activity with Dependency Injection
+
+```python
+from temporalio import activity
+from temporal.config import config
+
+# Global producer with lazy initialization
+_producer_wrapper: KafkaProducerWrapper | None = None
+
+def get_producer() -> KafkaProducerWrapper:
+    global _producer_wrapper
+    if _producer_wrapper is None:
+        _producer_wrapper = KafkaProducerWrapper(config.kafka.bootstrap_servers)
+    return _producer_wrapper
+
+def set_producer(producer: KafkaProducerWrapper) -> None:
+    """For testing - inject mock producer"""
+    global _producer_wrapper
+    _producer_wrapper = producer
+
+@activity.defn
+async def emit_to_kafka(event: ChargeEvent) -> None:
+    producer = get_producer()
+    await producer.send_and_wait(config.kafka.topic_charges, event.to_dict())
 ```
 
 ## Current Phase Status
@@ -559,6 +728,48 @@ curl http://localhost:8181/api/catalog/v1/config
 3. Path style access: Must be `true` for MinIO
 4. Credentials match MinIO values.yaml
 
+### Temporal Workflow Not Starting
+
+**Check:**
+1. Temporal server running: `docker compose ps temporal`
+2. Worker connected: Check worker logs for "Worker started"
+3. Task queue match: Generator and worker must use same queue name
+4. Network connectivity: Worker must reach `TEMPORAL_HOST`
+
+**Fix:**
+```bash
+# Verify Temporal is running
+docker compose --profile temporal ps
+
+# Check worker logs
+docker compose logs temporal-worker
+
+# Restart worker
+docker compose restart temporal-worker
+```
+
+### Temporal Events Not Reaching Kafka
+
+**Check:**
+1. Kafka running: `docker compose ps kafka`
+2. Worker Kafka config: `KAFKA_BOOTSTRAP_SERVERS` correct
+3. Topic exists: Check Kafka UI or use kafka-topics command
+
+**Fix:**
+```bash
+# Check Kafka connectivity from worker
+docker compose exec temporal-worker python -c "
+from aiokafka import AIOKafkaProducer
+import asyncio
+async def test():
+    p = AIOKafkaProducer(bootstrap_servers='kafka:9092')
+    await p.start()
+    print('Kafka connection OK')
+    await p.stop()
+asyncio.run(test())
+"
+```
+
 ## References
 
 **Setup & Deployment:**
@@ -581,3 +792,7 @@ curl http://localhost:8181/api/catalog/v1/config
 - [docs/topics/polaris-rest-catalog.md](docs/topics/polaris-rest-catalog.md)
 - [docs/topics/dagster.md](docs/topics/dagster.md)
 - [docs/topics/apache-iceberg.md](docs/topics/apache-iceberg.md)
+
+**Temporal (Butter Payments Demo):**
+- [temporal/README.md](temporal/README.md) - Temporal quick start and architecture
+- [docs/guides/butter-payments-implementation-plan.md](docs/guides/butter-payments-implementation-plan.md) - Implementation plan

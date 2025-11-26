@@ -1,14 +1,20 @@
 # temporal/workflows/payment_processing.py
+"""
+Payment processing workflow.
+
+Orchestrates individual payment processing with ML-driven retry logic.
+Works with normalized payment data from any provider (Stripe, Square, Braintree).
+"""
 from datetime import timedelta
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-import uuid
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from temporal.activities import (
-        check_fraud, charge_payment, get_retry_strategy, emit_to_kafka
+        check_fraud, charge_payment, get_retry_strategy, emit_to_kafka,
     )
-    from temporal.activities.charge_payment import PaymentDeclinedError
+
 
 @workflow.defn
 class PaymentProcessingWorkflow:
@@ -20,11 +26,18 @@ class PaymentProcessingWorkflow:
     - Durable state across retries
     - Long-running timers (hours/days) without holding resources
     - Full visibility into payment lifecycle
+    - Provider-agnostic processing (Stripe, Square, Braintree)
     """
 
     @workflow.run
     async def run(self, payment_request: dict) -> dict:
-        workflow.logger.info(f"Starting payment workflow: {payment_request.get('transaction_id')}")
+        # Get payment identifier (works with normalized and legacy schemas)
+        payment_id = payment_request.get(
+            'provider_payment_id',
+            payment_request.get('id', payment_request.get('transaction_id', 'unknown'))
+        )
+        provider = payment_request.get('provider', 'unknown')
+        workflow.logger.info(f"Starting payment workflow: {payment_id} [{provider}]")
 
         # Step 1: Fraud check (no retries - immediate decision)
         fraud_result = await workflow.execute_activity(
@@ -36,6 +49,7 @@ class PaymentProcessingWorkflow:
         if not fraud_result.is_safe:
             event = self._create_event("charge.blocked", payment_request, {
                 "fraud_score": fraud_result.risk_score,
+                "risk_level": fraud_result.risk_level,
                 "block_reasons": fraud_result.reasons
             })
             await self._emit_event("payment_charges", event)
@@ -66,20 +80,27 @@ class PaymentProcessingWorkflow:
                 await self._emit_event("payment_charges", event)
                 return event
 
-            except PaymentDeclinedError as e:
-                workflow.logger.warning(f"Payment declined: {e.code}")
+            except ActivityError as e:
+                # Extract the failure code from the wrapped exception
+                # ActivityError wraps the original PaymentDeclinedError
+                failure_code = "unknown"
+                if e.cause and isinstance(e.cause, ApplicationError):
+                    # The message contains the decline reason
+                    failure_code = e.cause.message.replace("Payment declined: ", "")
+
+                workflow.logger.warning(f"Payment declined: {failure_code}")
 
                 # Get ML-driven retry strategy
                 strategy = await workflow.execute_activity(
                     get_retry_strategy,
-                    args=[payment_request, e.code, attempt],
+                    args=[payment_request, failure_code, attempt],
                     start_to_close_timeout=timedelta(seconds=10),
                 )
 
                 if not strategy.should_retry:
                     # Final failure
                     event = self._create_event("charge.failed", payment_request, {
-                        "failure_code": e.code,
+                        "failure_code": failure_code,
                         "attempts": attempt,
                         "final_strategy": strategy.method
                     })
@@ -99,11 +120,27 @@ class PaymentProcessingWorkflow:
         return event
 
     def _create_event(self, event_type: str, payment: dict, data: dict) -> dict:
+        """Create a payment event with provider information."""
+        # Extract key fields for event (exclude raw_provider_data to reduce payload)
+        event_data = {
+            "provider": payment.get("provider", "unknown"),
+            "provider_payment_id": payment.get(
+                "provider_payment_id",
+                payment.get("id", "unknown")
+            ),
+            "amount_cents": payment.get("amount_cents", payment.get("amount", 0)),
+            "currency": payment.get("currency", "USD"),
+            "customer_id": payment.get("customer_id", payment.get("customer", "")),
+            "customer_name": payment.get("customer_name", ""),
+            "merchant_name": payment.get("merchant_name", ""),
+            **data
+        }
         return {
-            "event_id": f"evt_{uuid.uuid4().hex[:12]}",
+            "event_id": f"evt_{workflow.uuid4().hex[:12]}",
             "type": event_type,
+            "provider": payment.get("provider", "unknown"),
             "created_at": workflow.now().isoformat(),
-            "data": {**payment, **data}
+            "data": event_data
         }
 
     async def _emit_event(self, topic: str, event: dict) -> None:

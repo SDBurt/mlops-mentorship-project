@@ -517,9 +517,105 @@ services:
       - generators
     entrypoint: ["/usr/local/bin/generate-subscriptions.sh"]
 
+  #####################################
+  # TEMPORAL SERVICES (Workflow Orchestration)
+  #####################################
+
+  temporal-postgresql:
+    image: postgres:15
+    container_name: temporal-postgresql
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD}  # pragma: allowlist secret
+      POSTGRES_DB: ${TEMPORAL_POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TEMPORAL_POSTGRES_USER} -d ${TEMPORAL_POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - temporal
+
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: temporal
+    depends_on:
+      temporal-postgresql:
+        condition: service_healthy
+    ports:
+      - "7233:7233"
+    env_file:
+      - .env
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=${TEMPORAL_POSTGRES_USER}
+      - POSTGRES_PWD=${TEMPORAL_POSTGRES_PASSWORD}  # pragma: allowlist secret
+      - POSTGRES_SEEDS=temporal-postgresql
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - temporal
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: temporal-ui
+    depends_on:
+      - temporal
+    ports:
+      - "8233:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - temporal
+
+  temporal-worker:
+    build:
+      context: ../../temporal
+      dockerfile: Dockerfile
+    container_name: temporal-worker
+    depends_on:
+      - temporal
+      - kafka-broker
+    environment:
+      TEMPORAL_HOST: temporal:7233
+      KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - temporal
+
+  payment-generator:
+    build:
+      context: ../../temporal
+      dockerfile: Dockerfile
+    container_name: payment-generator
+    command: ["uv", "run", "python", "-m", "temporal.payment_generator", "--rate", "0.5"]
+    depends_on:
+      - temporal
+      - temporal-worker
+    environment:
+      TEMPORAL_HOST: temporal:7233
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - temporal
+
 volumes:
   postgres-data:
   dagster-io:
+  temporal-postgres-data:
 
 networks:
   local-iceberg-lakehouse:
