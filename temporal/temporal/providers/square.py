@@ -11,7 +11,9 @@ import random
 import string
 from datetime import datetime
 
-from temporal.providers.base import PaymentProvider, NormalizedPayment, Provider
+from temporal.providers.base import (
+    PaymentProvider, NormalizedPayment, FailedPaymentEvent, FailureCode, Provider
+)
 
 
 class SquareProvider(PaymentProvider):
@@ -70,10 +72,66 @@ class SquareProvider(PaymentProvider):
         chars = string.ascii_uppercase + string.digits
         return ''.join(random.choices(chars, k=length))
 
+    # Square failure codes with realistic distribution
+    FAILURE_CODES = [
+        ("GENERIC_DECLINE", 35),
+        ("INSUFFICIENT_FUNDS", 25),
+        ("CARD_EXPIRED", 15),
+        ("CVV_FAILURE", 10),
+        ("INVALID_ACCOUNT", 8),
+        ("TRANSACTION_LIMIT", 5),
+        ("VOICE_FAILURE", 2),
+    ]
+
+    FAILURE_MESSAGES = {
+        "GENERIC_DECLINE": "Card declined by issuer.",
+        "INSUFFICIENT_FUNDS": "Insufficient funds in account.",
+        "CARD_EXPIRED": "Card has expired.",
+        "CVV_FAILURE": "CVV verification failed.",
+        "INVALID_ACCOUNT": "Invalid card number.",
+        "TRANSACTION_LIMIT": "Transaction exceeds card limit.",
+        "VOICE_FAILURE": "Voice authorization required.",
+    }
+
     def generate_payment(self) -> NormalizedPayment:
         """Generate a Square Payment and normalize it."""
         square_payment = self._generate_square_payment()
         return self._normalize(square_payment)
+
+    def generate_failed_payment(self, failure_code: str | None = None) -> FailedPaymentEvent:
+        """
+        Generate a failed payment event from Square.
+
+        Args:
+            failure_code: Optional specific failure code. If None, randomly selected.
+
+        Returns:
+            FailedPaymentEvent with Square-specific failure details
+        """
+        payment = self.generate_payment()
+
+        if failure_code is None:
+            codes = []
+            for code, weight in self.FAILURE_CODES:
+                codes.extend([code] * weight)
+            failure_code = random.choice(codes)
+
+        normalized_failure = FailureCode.SQUARE_MAPPING.get(
+            failure_code, FailureCode.CARD_DECLINED
+        )
+
+        original_charge_id = self._generate_id()
+
+        return FailedPaymentEvent(
+            payment=payment,
+            failure_code=normalized_failure,
+            failure_message=self.FAILURE_MESSAGES.get(
+                failure_code, "Payment declined."
+            ),
+            failure_timestamp=datetime.utcnow().isoformat() + "Z",
+            original_charge_id=original_charge_id,
+            retry_count=0,
+        )
 
     def _generate_square_payment(self) -> dict:
         """Generate raw Square Payment object."""

@@ -1,8 +1,8 @@
 # temporal/worker.py
 """
-Temporal worker for payment processing workflows.
+Temporal worker for payment recovery workflows.
 
-Registers the PaymentProcessingWorkflow and its activities,
+Registers the PaymentRecoveryWorkflow and its activities,
 then listens on the configured task queue.
 """
 import asyncio
@@ -11,9 +11,14 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from temporal.config import config
-from temporal.workflows.payment_processing import PaymentProcessingWorkflow
+from temporal.workflows.payment_recovery import PaymentRecoveryWorkflow
 from temporal.activities import (
-    check_fraud, charge_payment, get_retry_strategy, emit_to_kafka
+    validate_event,
+    normalize_event,
+    enrich_payment_context,
+    predict_retry_strategy,
+    execute_provider_retry,
+    emit_to_kafka,
 )
 
 
@@ -25,12 +30,14 @@ async def main():
     worker = Worker(
         client,
         task_queue=config.temporal.task_queue,
-        workflows=[PaymentProcessingWorkflow],
+        workflows=[PaymentRecoveryWorkflow],
         activities=[
-            check_fraud,
-            charge_payment,
-            get_retry_strategy,
-            emit_to_kafka
+            validate_event,
+            normalize_event,
+            enrich_payment_context,
+            predict_retry_strategy,
+            execute_provider_retry,
+            emit_to_kafka,
         ],
     )
 

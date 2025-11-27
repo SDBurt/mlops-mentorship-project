@@ -12,7 +12,9 @@ import string
 from datetime import datetime
 from decimal import Decimal
 
-from temporal.providers.base import PaymentProvider, NormalizedPayment, Provider
+from temporal.providers.base import (
+    PaymentProvider, NormalizedPayment, FailedPaymentEvent, FailureCode, Provider
+)
 
 
 class BraintreeProvider(PaymentProvider):
@@ -60,10 +62,69 @@ class BraintreeProvider(PaymentProvider):
         chars = string.ascii_lowercase + string.digits
         return ''.join(random.choices(chars, k=length))
 
+    # Braintree processor response codes with realistic distribution
+    FAILURE_CODES = [
+        ("2000", 35),  # Do Not Honor
+        ("2001", 25),  # Insufficient Funds
+        ("2004", 15),  # Expired Card
+        ("2010", 8),   # Card Issuer Declined CVV
+        ("2005", 7),   # Invalid Account
+        ("2046", 5),   # Declined
+        ("2047", 3),   # Call Issuer
+        ("2014", 2),   # Processor Declined
+    ]
+
+    FAILURE_MESSAGES = {
+        "2000": "Do Not Honor - Contact card issuer.",
+        "2001": "Insufficient Funds.",
+        "2004": "Expired Card.",
+        "2010": "Card Issuer Declined CVV.",
+        "2005": "Invalid Card Number.",
+        "2046": "Declined.",
+        "2047": "Call Issuer. Possible Lost/Stolen Card.",
+        "2014": "Processor Declined.",
+    }
+
     def generate_payment(self) -> NormalizedPayment:
         """Generate a Braintree Transaction and normalize it."""
         braintree_txn = self._generate_braintree_transaction()
         return self._normalize(braintree_txn)
+
+    def generate_failed_payment(self, failure_code: str | None = None) -> FailedPaymentEvent:
+        """
+        Generate a failed payment event from Braintree.
+
+        Args:
+            failure_code: Optional specific failure code (processor response code).
+                         If None, randomly selected.
+
+        Returns:
+            FailedPaymentEvent with Braintree-specific failure details
+        """
+        payment = self.generate_payment()
+
+        if failure_code is None:
+            codes = []
+            for code, weight in self.FAILURE_CODES:
+                codes.extend([code] * weight)
+            failure_code = random.choice(codes)
+
+        normalized_failure = FailureCode.BRAINTREE_MAPPING.get(
+            failure_code, FailureCode.CARD_DECLINED
+        )
+
+        original_charge_id = self._generate_id()
+
+        return FailedPaymentEvent(
+            payment=payment,
+            failure_code=normalized_failure,
+            failure_message=self.FAILURE_MESSAGES.get(
+                failure_code, "Transaction declined."
+            ),
+            failure_timestamp=datetime.utcnow().isoformat() + "Z",
+            original_charge_id=original_charge_id,
+            retry_count=0,
+        )
 
     def _generate_braintree_transaction(self) -> dict:
         """Generate raw Braintree Transaction object."""

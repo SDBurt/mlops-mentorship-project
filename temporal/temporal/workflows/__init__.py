@@ -1,6 +1,8 @@
 # temporal/workflows/__init__.py
-"""Temporal workflow definitions for payment processing."""
+"""Temporal workflow definitions for payment recovery (Butter Payments model)."""
 
-from temporal.workflows.payment_processing import PaymentProcessingWorkflow
+from temporal.workflows.payment_recovery import PaymentRecoveryWorkflow
 
-__all__ = ["PaymentProcessingWorkflow"]
+__all__ = [
+    "PaymentRecoveryWorkflow",
+]

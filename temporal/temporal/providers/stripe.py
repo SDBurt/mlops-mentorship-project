@@ -12,7 +12,9 @@ import string
 import time
 from datetime import datetime
 
-from temporal.providers.base import PaymentProvider, NormalizedPayment, Provider
+from temporal.providers.base import (
+    PaymentProvider, NormalizedPayment, FailedPaymentEvent, FailureCode, Provider
+)
 
 
 class StripeProvider(PaymentProvider):
@@ -71,6 +73,27 @@ class StripeProvider(PaymentProvider):
         chars = string.ascii_letters + string.digits
         return f"{prefix}_{''.join(random.choices(chars, k=length))}"
 
+    # Stripe failure codes with realistic distribution
+    FAILURE_CODES = [
+        ("card_declined", 35),        # Most common
+        ("insufficient_funds", 25),   # Common for subscriptions
+        ("expired_card", 15),         # Card needs update
+        ("processing_error", 10),     # Temporary issues
+        ("incorrect_cvc", 8),         # User error
+        ("fraudulent", 4),            # Fraud detection
+        ("invalid_account", 3),       # Account issues
+    ]
+
+    FAILURE_MESSAGES = {
+        "card_declined": "Your card was declined.",
+        "insufficient_funds": "Your card has insufficient funds.",
+        "expired_card": "Your card has expired.",
+        "processing_error": "An error occurred while processing your card.",
+        "incorrect_cvc": "Your card's security code is incorrect.",
+        "fraudulent": "Your card was declined for security reasons.",
+        "invalid_account": "Your card number is incorrect.",
+    }
+
     def generate_payment(self) -> NormalizedPayment:
         """Generate a Stripe PaymentIntent and normalize it."""
         # Generate raw Stripe data
@@ -78,6 +101,46 @@ class StripeProvider(PaymentProvider):
 
         # Normalize to common schema
         return self._normalize(stripe_payment)
+
+    def generate_failed_payment(self, failure_code: str | None = None) -> FailedPaymentEvent:
+        """
+        Generate a failed payment event from Stripe.
+
+        Args:
+            failure_code: Optional specific failure code. If None, randomly selected
+                         based on realistic distribution.
+
+        Returns:
+            FailedPaymentEvent with Stripe-specific failure details
+        """
+        # Generate the base payment
+        payment = self.generate_payment()
+
+        # Select failure code if not provided
+        if failure_code is None:
+            codes = []
+            for code, weight in self.FAILURE_CODES:
+                codes.extend([code] * weight)
+            failure_code = random.choice(codes)
+
+        # Normalize failure code
+        normalized_failure = FailureCode.STRIPE_MAPPING.get(
+            failure_code, FailureCode.CARD_DECLINED
+        )
+
+        # Generate charge ID for the failed attempt
+        original_charge_id = self._generate_id("ch")
+
+        return FailedPaymentEvent(
+            payment=payment,
+            failure_code=normalized_failure,
+            failure_message=self.FAILURE_MESSAGES.get(
+                failure_code, "Your payment was declined."
+            ),
+            failure_timestamp=datetime.utcnow().isoformat() + "Z",
+            original_charge_id=original_charge_id,
+            retry_count=0,
+        )
 
     def _generate_stripe_payment(self) -> dict:
         """Generate raw Stripe PaymentIntent object."""

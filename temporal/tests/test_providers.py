@@ -2,11 +2,18 @@
 """
 Unit tests for payment providers.
 
-Tests that each provider generates valid NormalizedPayment objects
-with correct field mappings and realistic data.
+Tests that each provider generates valid NormalizedPayment and FailedPaymentEvent
+objects with correct field mappings and realistic data.
 """
 import pytest
-from temporal.providers import generate_payment, Provider, NormalizedPayment
+from temporal.providers import (
+    generate_payment,
+    generate_failed_payment,
+    Provider,
+    NormalizedPayment,
+    FailedPaymentEvent,
+    FailureCode,
+)
 from temporal.providers.stripe import StripeProvider
 from temporal.providers.square import SquareProvider
 from temporal.providers.braintree import BraintreeProvider
@@ -320,3 +327,160 @@ class TestNormalizedPaymentEdgeCases:
         assert result["customer_id"] == ""
         assert result["billing_address"] == {}
         assert result["fraud_signals"] == {}
+
+
+class TestFailedPaymentEventGeneration:
+    """Tests for failed payment event generation."""
+
+    def test_stripe_generates_failed_event(self):
+        """Stripe should generate valid FailedPaymentEvent."""
+        provider = StripeProvider()
+        event = provider.generate_failed_payment()
+
+        assert isinstance(event, FailedPaymentEvent)
+        assert isinstance(event.payment, NormalizedPayment)
+        assert event.payment.provider == "stripe"
+        assert event.failure_code in [
+            FailureCode.CARD_DECLINED,
+            FailureCode.INSUFFICIENT_FUNDS,
+            FailureCode.EXPIRED_CARD,
+            FailureCode.INCORRECT_CVC,
+            FailureCode.PROCESSING_ERROR,
+            FailureCode.FRAUD_SUSPECTED,
+            FailureCode.INVALID_ACCOUNT,
+        ]
+        assert len(event.failure_message) > 0
+        assert event.original_charge_id.startswith("ch_")
+        assert event.retry_count == 0
+
+    def test_square_generates_failed_event(self):
+        """Square should generate valid FailedPaymentEvent."""
+        provider = SquareProvider()
+        event = provider.generate_failed_payment()
+
+        assert isinstance(event, FailedPaymentEvent)
+        assert event.payment.provider == "square"
+        assert event.failure_code is not None
+        assert event.retry_count == 0
+
+    def test_braintree_generates_failed_event(self):
+        """Braintree should generate valid FailedPaymentEvent."""
+        provider = BraintreeProvider()
+        event = provider.generate_failed_payment()
+
+        assert isinstance(event, FailedPaymentEvent)
+        assert event.payment.provider == "braintree"
+        assert event.failure_code is not None
+        assert event.retry_count == 0
+
+    def test_specific_failure_code(self):
+        """Should honor specific failure code request."""
+        provider = StripeProvider()
+        event = provider.generate_failed_payment("insufficient_funds")
+
+        assert event.failure_code == FailureCode.INSUFFICIENT_FUNDS
+
+    def test_to_dict_includes_all_fields(self):
+        """FailedPaymentEvent.to_dict should include all fields."""
+        provider = StripeProvider()
+        event = provider.generate_failed_payment()
+        result = event.to_dict()
+
+        assert "payment" in result
+        assert "failure_code" in result
+        assert "failure_message" in result
+        assert "failure_timestamp" in result
+        assert "original_charge_id" in result
+        assert "retry_count" in result
+
+
+class TestGenerateFailedPayment:
+    """Tests for the generate_failed_payment factory function."""
+
+    def test_generates_from_specific_provider(self):
+        """Should generate failed payment from specified provider."""
+        stripe_event = generate_failed_payment(Provider.STRIPE)
+        assert stripe_event.payment.provider == "stripe"
+
+        square_event = generate_failed_payment(Provider.SQUARE)
+        assert square_event.payment.provider == "square"
+
+        braintree_event = generate_failed_payment(Provider.BRAINTREE)
+        assert braintree_event.payment.provider == "braintree"
+
+    def test_generates_random_provider(self):
+        """Should generate failed payments from random providers."""
+        providers_seen = set()
+
+        for _ in range(100):
+            event = generate_failed_payment()
+            providers_seen.add(event.payment.provider)
+
+        assert "stripe" in providers_seen
+        assert "square" in providers_seen
+        assert "braintree" in providers_seen
+
+    def test_all_providers_return_failed_event(self):
+        """All providers should return FailedPaymentEvent objects."""
+        for provider in Provider:
+            event = generate_failed_payment(provider)
+            assert isinstance(event, FailedPaymentEvent)
+            assert event.payment.provider == provider.value
+
+    def test_failure_codes_have_realistic_distribution(self):
+        """Failure codes should follow realistic distribution."""
+        failure_codes = {}
+
+        for _ in range(500):
+            event = generate_failed_payment(Provider.STRIPE)
+            code = event.failure_code
+            failure_codes[code] = failure_codes.get(code, 0) + 1
+
+        # card_declined and insufficient_funds should be most common
+        assert failure_codes.get(FailureCode.CARD_DECLINED, 0) > 50
+        assert failure_codes.get(FailureCode.INSUFFICIENT_FUNDS, 0) > 50
+
+
+class TestFailureCodeMapping:
+    """Tests for failure code mapping across providers."""
+
+    def test_stripe_failure_codes_normalized(self):
+        """Stripe failure codes should be normalized."""
+        provider = StripeProvider()
+
+        # Generate multiple events to see different failure codes
+        codes_seen = set()
+        for _ in range(100):
+            event = provider.generate_failed_payment()
+            codes_seen.add(event.failure_code)
+
+        # All codes should be from the normalized set
+        valid_codes = set(FailureCode.STRIPE_MAPPING.values())
+        for code in codes_seen:
+            assert code in valid_codes
+
+    def test_square_failure_codes_normalized(self):
+        """Square failure codes should be normalized."""
+        provider = SquareProvider()
+
+        codes_seen = set()
+        for _ in range(100):
+            event = provider.generate_failed_payment()
+            codes_seen.add(event.failure_code)
+
+        valid_codes = set(FailureCode.SQUARE_MAPPING.values())
+        for code in codes_seen:
+            assert code in valid_codes
+
+    def test_braintree_failure_codes_normalized(self):
+        """Braintree failure codes should be normalized."""
+        provider = BraintreeProvider()
+
+        codes_seen = set()
+        for _ in range(100):
+            event = provider.generate_failed_payment()
+            codes_seen.add(event.failure_code)
+
+        valid_codes = set(FailureCode.BRAINTREE_MAPPING.values())
+        for code in codes_seen:
+            assert code in valid_codes

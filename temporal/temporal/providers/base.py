@@ -75,18 +75,112 @@ class NormalizedPayment:
         return asdict(self)
 
 
+@dataclass
+class FailedPaymentEvent:
+    """
+    A failed payment event that triggers the recovery workflow.
+
+    This represents a webhook event from a payment provider indicating
+    that a payment has failed and needs recovery attempts.
+    """
+    # The original payment that failed
+    payment: NormalizedPayment
+
+    # Failure details
+    failure_code: str  # "card_declined", "insufficient_funds", "expired_card", etc.
+    failure_message: str
+    failure_timestamp: str  # ISO 8601
+
+    # Original charge that failed
+    original_charge_id: str
+
+    # Retry tracking
+    retry_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for workflow input."""
+        result = asdict(self)
+        # Flatten payment into the result for easier access
+        result["payment"] = self.payment.to_dict()
+        return result
+
+
+# Common failure codes across providers
+class FailureCode:
+    """Standard failure codes normalized across providers."""
+    CARD_DECLINED = "card_declined"
+    INSUFFICIENT_FUNDS = "insufficient_funds"
+    EXPIRED_CARD = "expired_card"
+    INCORRECT_CVC = "incorrect_cvc"
+    PROCESSING_ERROR = "processing_error"
+    INVALID_ACCOUNT = "invalid_account"
+    CARD_NOT_SUPPORTED = "card_not_supported"
+    CURRENCY_NOT_SUPPORTED = "currency_not_supported"
+    DUPLICATE_TRANSACTION = "duplicate_transaction"
+    FRAUD_SUSPECTED = "fraud_suspected"
+
+    # Map provider-specific codes to normalized codes
+    STRIPE_MAPPING = {
+        "card_declined": CARD_DECLINED,
+        "insufficient_funds": INSUFFICIENT_FUNDS,
+        "expired_card": EXPIRED_CARD,
+        "incorrect_cvc": INCORRECT_CVC,
+        "processing_error": PROCESSING_ERROR,
+        "invalid_account": INVALID_ACCOUNT,
+        "card_not_supported": CARD_NOT_SUPPORTED,
+        "currency_not_supported": CURRENCY_NOT_SUPPORTED,
+        "duplicate_transaction": DUPLICATE_TRANSACTION,
+        "fraudulent": FRAUD_SUSPECTED,
+    }
+
+    SQUARE_MAPPING = {
+        "GENERIC_DECLINE": CARD_DECLINED,
+        "INSUFFICIENT_FUNDS": INSUFFICIENT_FUNDS,
+        "CARD_EXPIRED": EXPIRED_CARD,
+        "CVV_FAILURE": INCORRECT_CVC,
+        "INVALID_ACCOUNT": INVALID_ACCOUNT,
+        "TRANSACTION_LIMIT": CARD_DECLINED,
+        "VOICE_FAILURE": PROCESSING_ERROR,
+    }
+
+    BRAINTREE_MAPPING = {
+        "2000": CARD_DECLINED,  # Do Not Honor
+        "2001": INSUFFICIENT_FUNDS,
+        "2004": EXPIRED_CARD,
+        "2010": INCORRECT_CVC,  # Card Issuer Declined CVV
+        "2005": INVALID_ACCOUNT,
+        "2014": PROCESSING_ERROR,
+        "2046": CARD_DECLINED,  # Declined
+        "2047": CARD_DECLINED,  # Call Issuer
+    }
+
+
 class PaymentProvider(ABC):
     """
     Abstract base class for payment provider implementations.
 
     Each provider must implement:
     - generate_payment(): Create synthetic payment data
+    - generate_failed_payment(): Create synthetic failed payment event
     - get_provider_name(): Return the provider identifier
     """
 
     @abstractmethod
     def generate_payment(self) -> NormalizedPayment:
         """Generate a synthetic payment in normalized format."""
+        pass
+
+    @abstractmethod
+    def generate_failed_payment(self, failure_code: str | None = None) -> FailedPaymentEvent:
+        """
+        Generate a synthetic failed payment event.
+
+        Args:
+            failure_code: Optional specific failure code. If None, randomly selected.
+
+        Returns:
+            FailedPaymentEvent ready for recovery workflow
+        """
         pass
 
     @abstractmethod
