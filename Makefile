@@ -1137,7 +1137,7 @@ pipeline-up:
 	@sleep 3
 	@echo ""
 	@echo "Starting Normalizer..."
-	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d normalizer
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
 	@sleep 2
 	@echo ""
 	@echo "=========================================="
@@ -1313,7 +1313,7 @@ normalizer-build:
 normalizer-up: gateway-up
 	@echo ""
 	@echo "Starting Normalizer..."
-	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d normalizer
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
 	@echo ""
 	@echo "Normalizer started!"
 	@echo ""
