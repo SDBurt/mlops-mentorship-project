@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class WebhookStatus(str, Enum):
@@ -28,6 +28,8 @@ class WebhookResult(BaseModel):
 class DLQPayload(BaseModel):
     """Payload structure for dead letter queue entries."""
 
+    model_config = ConfigDict(ser_json_timedelta="iso8601")
+
     provider: str = Field(..., description="Payment provider name (stripe, square, etc.)")
     raw_payload: str = Field(..., description="Original raw payload as JSON string")
     raw_headers: dict[str, str] = Field(
@@ -41,5 +43,6 @@ class DLQPayload(BaseModel):
     )
     retry_count: int = Field(default=0, description="Number of processing retry attempts")
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    @field_serializer("received_at")
+    def serialize_datetime(self, value: datetime) -> str:
+        return value.isoformat()
