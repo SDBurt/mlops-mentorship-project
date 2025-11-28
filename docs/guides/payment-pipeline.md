@@ -24,10 +24,10 @@ The architecture consists of three primary systems, each with a focused responsi
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
 │  Webhooks ──► GATEWAY ──► Kafka ──► NORMALIZER ──► Kafka ──► ORCHESTRATOR        │
-│               (Ingest)     (raw)     (Flink)    (normalized)   (Temporal)        │
+│               (FastAPI)    (raw)     (Python)   (normalized)   (Temporal)        │
 │                  │                      │                          │             │
 │                  ▼                      ▼                          ▼             │
-│              [DLQ Topic]          [Quarantine]              [Iceberg Bronze]     │
+│              [DLQ Topic]          [DLQ Topic]              [Iceberg Bronze]      │
 │                                                                    │             │
 │                                                                    ▼             │
 │                                                    ┌───────────────────────────┐ │
@@ -42,8 +42,8 @@ The architecture consists of three primary systems, each with a focused responsi
 
 | System | Name | Technology | Responsibility |
 |--------|------|------------|----------------|
-| System 1 | **Gateway** | FastAPI | Webhook reception, structure validation, Kafka production |
-| System 2 | **Normalizer** | Apache Flink | Extended validation, schema normalization, stream processing |
+| System 1 | **Gateway** | FastAPI + aiokafka | Webhook reception, signature verification, Kafka production |
+| System 2 | **Normalizer** | Python + aiokafka | Content validation, schema normalization, DLQ routing |
 | System 3 | **Orchestrator** | Temporal + Kafka Consumer | Per-event workflow execution, ML integration, lake persistence |
 | Support | **Inference** | FastAPI | Mock ML service for retry strategy and fraud scoring |
 | Support | **Analytics** | Dagster + DBT | Batch transformations, Silver/Gold layer management |
@@ -95,29 +95,29 @@ payment-pipeline/
 │   │   └── tests/
 │   │       └── test_webhooks.py
 │   │
-│   ├── normalizer/                       # Flink stream processing
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   ├── src/
+│   ├── normalizer/                       # Python Kafka consumer
+│   │   ├── Dockerfile.normalizer
+│   │   ├── src/normalizer/
 │   │   │   ├── __init__.py
-│   │   │   ├── jobs/
-│   │   │   │   ├── stripe_normalizer.py  # Stripe → unified schema
-│   │   │   │   └── square_normalizer.py  # Square → unified schema
+│   │   │   ├── main.py                   # Async Kafka consumer loop
+│   │   │   ├── config.py                 # Pydantic settings
 │   │   │   ├── validators/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── base.py               # ValidationError, ValidationResult
 │   │   │   │   ├── currency.py           # ISO 4217 validation
 │   │   │   │   ├── nulls.py              # Null normalization
-│   │   │   │   └── amounts.py            # Amount bounds checking
+│   │   │   │   └── amount.py             # Amount bounds checking
 │   │   │   ├── transformers/
-│   │   │   │   ├── stripe.py             # Stripe schema mapping
-│   │   │   │   └── square.py             # Square schema mapping
-│   │   │   └── config.py
-│   │   ├── sql/                          # Flink SQL definitions (alternative)
-│   │   │   ├── stripe_source.sql
-│   │   │   ├── square_source.sql
-│   │   │   └── normalized_sink.sql
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── base.py               # UnifiedPaymentEvent schema
+│   │   │   │   └── stripe.py             # StripeTransformer
+│   │   │   └── handlers/
+│   │   │       ├── __init__.py
+│   │   │       └── stripe.py             # StripeHandler, ProcessingResult
 │   │   └── tests/
-│   │       ├── test_validators.py
-│   │       └── test_transformers.py
+│   │       ├── test_normalizer_validators.py
+│   │       ├── test_normalizer_transformers.py
+│   │       └── test_normalizer_handlers.py
 │   │
 │   ├── orchestrator/                     # Temporal workflows
 │   │   ├── Dockerfile
@@ -280,29 +280,36 @@ The gateway performs only structure validation, not semantic validation. This ke
 
 ---
 
-### Normalizer Service (Flink)
+### Normalizer Service (Python)
 
-The Normalizer is an Apache Flink application that consumes from provider-specific topics, applies extended validation, transforms events to a unified schema, and publishes to a normalized topic.
+The Normalizer is a Python async Kafka consumer (aiokafka) that consumes from provider-specific topics, applies content validation, transforms events to a unified schema, and publishes to a normalized topic.
+
+**Why Python over Flink?**
+- Aligns with Butter Payments tech stack (Python, Kafka, Temporal - no Flink mentioned)
+- Temporal best practices recommend validating upstream, not in workflows
+- Simpler deployment and debugging for validation logic
+- Industry standard (Stripe, Square use similar patterns)
 
 **Responsibilities:**
 
-1. Consume events from all provider raw topics
-2. Apply extended validation rules:
-   - Null normalization (convert `'null'`, `'NULL'`, `''` to actual null)
-   - Currency code validation (ISO 4217 three-letter codes)
-   - Amount bounds checking (positive, within reasonable limits)
-   - Timestamp parsing and standardization (ISO 8601 UTC)
-3. Transform provider-specific schemas to a unified schema
+1. Consume events from all provider raw topics (async Kafka consumer)
+2. Apply content validation rules:
+   - Null normalization (convert `'null'`, `'NULL'`, `''`, `'None'` to Python None)
+   - Currency code validation (ISO 4217, 20 supported currencies)
+   - Amount bounds checking (0 to $1M)
+   - Required field validation (event_id, event_type, data.object)
+3. Transform provider-specific schemas to `UnifiedPaymentEvent`
 4. Add metadata (processing timestamp, schema version, source provider)
 5. Publish valid events to `payments.normalized`
-6. Route validation failures to quarantine topic with failure reason
+6. Route validation failures to DLQ with structured error details
 
 **Kafka Topics:**
 
 | Direction | Topic | Purpose |
 |-----------|-------|---------|
-| Consume | `payments.stripe.raw` | Raw Stripe events |
-| Consume | `payments.square.raw` | Raw Square events |
+| Consume | `webhooks.stripe.payment_intent` | Raw payment intent events |
+| Consume | `webhooks.stripe.charge` | Raw charge events |
+| Consume | `webhooks.stripe.refund` | Raw refund events |
 | Produce | `payments.normalized` | Unified schema events |
 | Produce | `payments.validation.dlq` | Validation failures |
 
@@ -333,7 +340,7 @@ The Normalizer is an Apache Flink application that consumes from provider-specif
 
 **Key Design Decisions:**
 
-Flink provides exactly-once semantics when configured with checkpointing and Kafka transactions. This ensures no duplicate events in the normalized topic even during failures. The unified schema is designed to be provider-agnostic while retaining enough detail for analytics and ML. Provider-specific fields that don't map to the unified schema are preserved in the `metadata` JSON field.
+The Python consumer uses aiokafka with idempotent producer settings (`enable_idempotence=True`) to prevent duplicate events. The unified schema is designed to be provider-agnostic while retaining enough detail for analytics and ML. Provider-specific fields that don't map to the unified schema are preserved in the `metadata` JSON field. The DLQ payload includes the original event, validation errors with field paths and error codes, and Kafka offset information for debugging.
 
 ---
 

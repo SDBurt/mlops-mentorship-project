@@ -98,14 +98,30 @@ help:
 	@echo "  make jr-stop                - Stop all running JR processes"
 	@echo "  make jr-help                - Show JR installation and usage help"
 	@echo ""
+	@echo "Payment Pipeline (Full Ingestion):"
+	@echo "  make pipeline-up            - Start full pipeline (Kafka + Gateway + Normalizer)"
+	@echo "  make pipeline-down          - Stop full pipeline"
+	@echo "  make pipeline-status        - Show all pipeline component status"
+	@echo "  make pipeline-logs          - View all pipeline logs"
+	@echo ""
 	@echo "Payment Gateway (Webhook Receiver):"
 	@echo "  make gateway-up             - Start payment gateway with Kafka"
 	@echo "  make gateway-down           - Stop payment gateway"
 	@echo "  make gateway-logs           - View payment gateway logs"
 	@echo "  make gateway-simulator      - Start webhook simulator (continuous traffic)"
+	@echo "  make simulator-stop         - Stop webhook simulator"
+	@echo "  make simulator-logs         - View simulator logs"
 	@echo "  make gateway-build          - Build payment gateway Docker image"
 	@echo "  make gateway-test           - Run payment gateway unit tests"
 	@echo "  make gateway-status         - Show payment gateway status"
+	@echo ""
+	@echo "Normalizer (Python Kafka Consumer):"
+	@echo "  make normalizer-up          - Start normalizer with gateway"
+	@echo "  make normalizer-down        - Stop normalizer"
+	@echo "  make normalizer-logs        - View normalizer logs"
+	@echo "  make normalizer-build       - Build normalizer Docker image"
+	@echo "  make normalizer-status      - Show normalizer status"
+	@echo "  make normalizer-counts      - Show message counts per topic"
 	@echo ""
 	@echo "Complete Workflow:"
 	@echo "  1. make setup                       # One command: setup repos and deploy everything"
@@ -1096,11 +1112,76 @@ jr-help:
 	@echo "    --topic payment_charges --from-beginning"
 
 ##################################################
-# PAYMENT GATEWAY COMMANDS (Webhook Receiver)
+# PAYMENT PIPELINE COMMANDS (Full Ingestion)
 ##################################################
 
-# Payment Gateway Variables
+# Payment Pipeline Variables
 PAYMENT_PIPELINE_DIR := payment-pipeline
+
+# Start full payment pipeline (Kafka + Gateway + Normalizer)
+pipeline-up:
+	@echo "=========================================="
+	@echo "   Starting Payment Pipeline"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components:"
+	@echo "  - Kafka Broker (message queue)"
+	@echo "  - Payment Gateway (webhook receiver)"
+	@echo "  - Normalizer (validation & transformation)"
+	@echo ""
+	@echo "Starting Kafka..."
+	@cd $(DOCKER_DIR) && docker compose up -d kafka-broker
+	@echo "Waiting for Kafka to be ready..."
+	@sleep 5
+	@echo ""
+	@echo "Starting Gateway..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d payment-gateway
+	@sleep 3
+	@echo ""
+	@echo "Starting Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
+	@sleep 2
+	@echo ""
+	@echo "=========================================="
+	@echo "   Payment Pipeline Started!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Services:"
+	@echo "  Gateway API:     http://localhost:8000"
+	@echo "  Gateway Health:  http://localhost:8000/health"
+	@echo "  Kafka Broker:    localhost:9092"
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "  Input:   webhooks.stripe.payment_intent"
+	@echo "           webhooks.stripe.charge"
+	@echo "           webhooks.stripe.refund"
+	@echo "  Output:  payments.normalized"
+	@echo "  DLQ:     payments.validation.dlq"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start simulator:  make gateway-simulator"
+	@echo "  2. View logs:        make pipeline-logs"
+	@echo "  3. Check status:     make pipeline-status"
+	@echo "  4. View counts:      make normalizer-counts"
+
+# Stop full payment pipeline
+pipeline-down:
+	@echo "Stopping Payment Pipeline..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile simulator stop \
+		normalizer payment-gateway webhook-simulator kafka-broker 2>/dev/null || true
+	@echo "Payment Pipeline stopped"
+
+# Show all pipeline component status
+pipeline-status: gateway-status normalizer-status
+
+# View all pipeline logs
+pipeline-logs:
+	@echo "Viewing Pipeline logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer logs -f kafka-broker payment-gateway normalizer
+
+##################################################
+# PAYMENT GATEWAY COMMANDS (Webhook Receiver)
+##################################################
 
 # Start payment gateway with Kafka (using gateway profile)
 gateway-up:
@@ -1142,15 +1223,22 @@ gateway-simulator:
 	@echo ""
 	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator up -d webhook-simulator
 	@echo ""
-	@echo "✓ Webhook Simulator started!"
+	@echo "Webhook Simulator started! Generating webhooks at 2/sec for 5 minutes"
 	@echo ""
-	@echo "Simulator is generating webhooks at 2 events/sec for 5 minutes"
-	@echo ""
-	@echo "View simulator logs:"
-	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml logs -f webhook-simulator"
-	@echo ""
-	@echo "Stop simulator:"
-	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml stop webhook-simulator"
+	@echo "Commands:"
+	@echo "  make simulator-stop   - Stop simulator"
+	@echo "  make simulator-logs   - View simulator logs"
+
+# Stop webhook simulator
+simulator-stop:
+	@echo "Stopping Webhook Simulator..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop webhook-simulator
+	@echo "Webhook Simulator stopped"
+
+# View webhook simulator logs
+simulator-logs:
+	@echo "Viewing Simulator logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator logs -f webhook-simulator
 
 # Build payment gateway Docker image
 gateway-build:
@@ -1219,3 +1307,113 @@ gateway-status:
 	@echo "  make gateway-logs        - View logs"
 	@echo "  make gateway-simulator   - Start traffic generator"
 	@echo "  make gateway-test-send   - Send single test webhook"
+
+##################################################
+# NORMALIZER (Python Kafka Consumer)
+##################################################
+
+# Build normalizer Docker image
+normalizer-build:
+	@echo "Building Normalizer Docker image..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer build normalizer
+	@echo "Normalizer image built"
+
+# Start normalizer with gateway
+normalizer-up: gateway-up
+	@echo ""
+	@echo "Starting Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
+	@echo ""
+	@echo "Normalizer started!"
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Gateway API:      http://localhost:8000"
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "  Input:   webhooks.stripe.payment_intent"
+	@echo "           webhooks.stripe.charge"
+	@echo "           webhooks.stripe.refund"
+	@echo "  Output:  payments.normalized"
+	@echo "  DLQ:     payments.validation.dlq"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start simulator:  make gateway-simulator"
+	@echo "  2. View logs:        make normalizer-logs"
+	@echo "  3. Check status:     make normalizer-status"
+
+# Stop normalizer
+normalizer-down:
+	@echo "Stopping Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer stop normalizer
+	@echo "Normalizer stopped"
+
+# View normalizer logs
+normalizer-logs:
+	@echo "Viewing Normalizer logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer logs -f normalizer
+
+# Show normalizer status
+normalizer-status:
+	@echo "=========================================="
+	@echo "   Normalizer Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q payment-normalizer; then \
+		echo "  [OK] Normalizer: running"; \
+	else \
+		echo "  [--] Normalizer: not running"; \
+	fi
+	@if docker ps | grep -q payment-gateway; then \
+		echo "  [OK] Gateway: running"; \
+	else \
+		echo "  [--] Gateway: not running"; \
+	fi
+	@if docker ps | grep -q kafka-broker; then \
+		echo "  [OK] Kafka: running"; \
+	else \
+		echo "  [--] Kafka: not running"; \
+	fi
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "-------------"
+	@if docker ps | grep -q kafka-broker; then \
+		docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+			/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092 2>/dev/null | grep -E "(payments\.|webhooks\.)" || echo "  No payment topics found"; \
+	else \
+		echo "  Kafka not running"; \
+	fi
+	@echo ""
+	@echo "Commands:"
+	@echo "  make normalizer-up      - Start normalizer with gateway"
+	@echo "  make normalizer-logs    - View normalizer logs"
+	@echo "  make normalizer-counts  - Show message counts"
+	@echo "  make normalizer-down    - Stop normalizer"
+
+# Check normalized message counts
+normalizer-counts:
+	@echo "Kafka Topic Message Counts:"
+	@echo "==========================="
+	@if docker ps | grep -q kafka-broker; then \
+		echo ""; \
+		echo "Input Topics:"; \
+		for topic in webhooks.stripe.payment_intent webhooks.stripe.charge webhooks.stripe.refund; do \
+			count=$$(docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+				/opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+				--broker-list localhost:9092 --topic $$topic --time -1 2>/dev/null | \
+				awk -F: '{sum += $$3} END {print sum}' 2>/dev/null || echo "0"); \
+			printf "  %-35s %s messages\n" "$$topic:" "$$count"; \
+		done; \
+		echo ""; \
+		echo "Output Topics:"; \
+		for topic in payments.normalized payments.validation.dlq; do \
+			count=$$(docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+				/opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+				--broker-list localhost:9092 --topic $$topic --time -1 2>/dev/null | \
+				awk -F: '{sum += $$3} END {print sum}' 2>/dev/null || echo "0"); \
+			printf "  %-35s %s messages\n" "$$topic:" "$$count"; \
+		done; \
+	else \
+		echo "Kafka not running"; \
+	fi
