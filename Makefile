@@ -109,6 +109,8 @@ help:
 	@echo "  make gateway-down           - Stop payment gateway"
 	@echo "  make gateway-logs           - View payment gateway logs"
 	@echo "  make gateway-simulator      - Start webhook simulator (continuous traffic)"
+	@echo "  make simulator-stop         - Stop webhook simulator"
+	@echo "  make simulator-logs         - View simulator logs"
 	@echo "  make gateway-build          - Build payment gateway Docker image"
 	@echo "  make gateway-test           - Run payment gateway unit tests"
 	@echo "  make gateway-status         - Show payment gateway status"
@@ -1221,15 +1223,22 @@ gateway-simulator:
 	@echo ""
 	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator up -d webhook-simulator
 	@echo ""
-	@echo "✓ Webhook Simulator started!"
+	@echo "Webhook Simulator started! Generating webhooks at 2/sec for 5 minutes"
 	@echo ""
-	@echo "Simulator is generating webhooks at 2 events/sec for 5 minutes"
-	@echo ""
-	@echo "View simulator logs:"
-	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml logs -f webhook-simulator"
-	@echo ""
-	@echo "Stop simulator:"
-	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml stop webhook-simulator"
+	@echo "Commands:"
+	@echo "  make simulator-stop   - Stop simulator"
+	@echo "  make simulator-logs   - View simulator logs"
+
+# Stop webhook simulator
+simulator-stop:
+	@echo "Stopping Webhook Simulator..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop webhook-simulator
+	@echo "Webhook Simulator stopped"
+
+# View webhook simulator logs
+simulator-logs:
+	@echo "Viewing Simulator logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator logs -f webhook-simulator
 
 # Build payment gateway Docker image
 gateway-build:
