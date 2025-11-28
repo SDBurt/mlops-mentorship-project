@@ -573,6 +573,33 @@ services:
     profiles:
       - simulator
 
+  #####################################
+  # NORMALIZER SERVICE (Python)
+  #####################################
+
+  normalizer:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile.normalizer
+    container_name: payment-normalizer
+    environment:
+      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      NORMALIZER_KAFKA_CONSUMER_GROUP: normalizer-group
+      NORMALIZER_INPUT_TOPICS: webhooks.stripe.payment_intent,webhooks.stripe.charge,webhooks.stripe.refund
+      NORMALIZER_OUTPUT_TOPIC: payments.normalized
+      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
+      NORMALIZER_LOG_LEVEL: INFO
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      payment-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - normalizer
+
 volumes:
   postgres-data:
   dagster-io:

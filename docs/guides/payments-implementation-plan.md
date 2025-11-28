@@ -167,12 +167,13 @@ Payment Event Generated
 
 **Tasks**:
 
-1. **Flink Validation Layer (Layer 1)**
-   - Implemented validation logic in Flink SQL INSERT statements
-   - **Null Normalization**: Converted 'null', 'NULL', '' to SQL NULL
-   - **Currency Validation**: Enforced whitelist (USD, CAD, GBP, EUR, JPY)
-   - **Amount Validation**: Enforced > 0 and <= 1,000,000
-   - **Stream Splitting**: Valid records → `payment_charges`, Invalid → `quarantine_payment_charges`
+1. **Python Normalizer (Layer 1)**
+   - Implemented Python async Kafka consumer (aiokafka)
+   - **Null Normalization**: Converted 'null', 'NULL', '', 'None' to Python None
+   - **Currency Validation**: ISO 4217 whitelist (20 supported currencies)
+   - **Amount Validation**: Enforced >= 0 and <= 100,000,000 cents ($1M)
+   - **Stream Splitting**: Valid records → `payments.normalized`, Invalid → `payments.validation.dlq`
+   - **UnifiedPaymentEvent**: Provider-agnostic Pydantic schema with field validation
 
 2. **Create Quarantine Tables**
    - Created quarantine tables for all 4 event types
@@ -196,15 +197,17 @@ Payment Event Generated
 **Success Criteria:**
 - [x] <1% invalid data reaches Silver layer
 - [x] All null variations handled correctly
-- [x] Quarantine tables capture rejection reasons
+- [x] DLQ captures validation errors with structured payloads
 - [x] DBT tests pass on all Silver models
 - [x] Dagster alerts on quarantine spikes
 
 **Deliverables:**
-- Flink validation SQL scripts
+- Python normalizer service (`src/normalizer/`)
+- Validators: currency.py, amount.py, nulls.py
+- Transformers: UnifiedPaymentEvent, StripeTransformer
+- 98 unit tests for normalizer
 - DBT Silver layer models with tests
 - Dagster monitoring assets
-- Validation documentation explaining each layer
 
 ---
 

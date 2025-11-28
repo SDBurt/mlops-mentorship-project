@@ -30,7 +30,7 @@ dev = [
 simulator = "simulator.main:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/payment_gateway", "simulator"]
+packages = ["src/payment_gateway", "src/normalizer", "simulator"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

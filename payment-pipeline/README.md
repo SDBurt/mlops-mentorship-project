@@ -1,30 +1,51 @@
-# Payment Gateway
+# Payment Pipeline
 
-Webhook gateway service for receiving, validating, and publishing payment provider webhooks to Kafka.
+End-to-end payment event processing pipeline with webhook ingestion, validation, and normalization.
 
 ## Overview
 
-This service is part of the payment pipeline architecture (System 1 - Gateway). It:
+This project implements the first two systems of the payment processing pipeline:
 
-1. Receives HTTP POST webhooks from payment providers (starting with Stripe)
-2. Verifies webhook signatures (HMAC-SHA256)
-3. Validates payload structure using Pydantic models
-4. Publishes valid events to provider-specific Kafka topics
-5. Routes invalid payloads to a dead letter queue (DLQ)
+| System | Component | Description |
+|--------|-----------|-------------|
+| **System 1** | Gateway | Receives webhooks, verifies signatures, publishes to Kafka |
+| **System 2** | Normalizer | Validates events, transforms to unified schema, routes to DLQ |
 
 ## Architecture
 
 ```
-Payment Provider --> Gateway (FastAPI) --> Kafka Topics
-       |                   |
-       |                   +--> webhooks.stripe.payment_intent
-       |                   +--> webhooks.stripe.charge
-       |                   +--> webhooks.dlq (invalid payloads)
-       |
-Simulator (for testing)
+Payment Provider (Stripe)
+         |
+         v
++------------------+     +-------------------+     +------------------+
+|     Gateway      | --> |    Normalizer     | --> |    Temporal      |
+|    (FastAPI)     |     | (Kafka Consumer)  |     |   (Workflows)    |
++------------------+     +-------------------+     +------------------+
+         |                        |
+         v                        v
+  webhooks.stripe.*        payments.normalized
+                           payments.validation.dlq
 ```
 
 ## Quick Start
+
+### Using Make (Recommended)
+
+```bash
+# From the kubernetes/ directory
+
+# Start gateway + normalizer
+make normalizer-up
+
+# Start webhook simulator
+make gateway-simulator
+
+# View normalizer logs
+make normalizer-logs
+
+# Check message counts
+make normalizer-counts
+```
 
 ### Local Development
 
@@ -35,45 +56,125 @@ pip install -e ".[dev]"
 # Run the gateway
 uvicorn payment_gateway.main:app --reload --port 8000
 
-# In another terminal, send a test webhook
-python -m simulator.main send --type payment_intent.succeeded
+# Run the normalizer (requires Kafka)
+python -m normalizer.main
 ```
 
-### Docker
+### Docker Compose
 
 ```bash
 # From infrastructure/docker directory
-docker compose up payment-gateway
-
-# With simulator
-docker compose --profile simulator up
+docker compose --profile gateway --profile normalizer up -d
 ```
 
-## API Endpoints
+---
+
+## System 1: Gateway
+
+The gateway receives HTTP webhooks from payment providers, verifies signatures, and publishes to Kafka.
+
+### Features
+
+- HMAC-SHA256 signature verification
+- Pydantic v2 models with discriminated unions
+- Per-event-type Kafka topics
+- Dead letter queue for invalid payloads
+- Retry logic with exponential backoff
+
+### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
 | `/webhooks/stripe/` | POST | Stripe webhook receiver |
 
-## Kafka Topics
-
-| Topic | Description |
-|-------|-------------|
-| `webhooks.stripe.payment_intent` | Payment intent events |
-| `webhooks.stripe.charge` | Charge events |
-| `webhooks.stripe.refund` | Refund events |
-| `webhooks.dlq` | Invalid payloads |
-
-## Configuration
-
-Environment variables:
+### Gateway Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KAFKA_BOOTSTRAP_SERVERS` | `kafka-broker:29092` | Kafka bootstrap servers |
 | `STRIPE_WEBHOOK_SECRET` | Required | Stripe webhook signing secret |
-| `DEBUG` | `false` | Enable debug mode |
+| `LOG_LEVEL` | `INFO` | Log level |
+
+---
+
+## System 2: Normalizer
+
+The normalizer consumes raw webhook events, validates content, transforms to a unified schema, and routes invalid events to a DLQ.
+
+### Features
+
+- ISO 4217 currency validation (20 supported currencies)
+- Amount bounds checking (0 to $1M)
+- Null string normalization ("null", "", "None" -> None)
+- Provider-agnostic unified event schema
+- Structured DLQ payloads with error details
+
+### Unified Event Schema
+
+```python
+UnifiedPaymentEvent:
+    event_id: str           # "stripe:evt_xxx"
+    provider: str           # "stripe"
+    provider_event_id: str  # "evt_xxx"
+    event_type: str         # "payment.succeeded" (normalized)
+    merchant_id: str | None
+    customer_id: str | None
+    amount_cents: int       # Non-negative
+    currency: str           # Uppercase ISO 4217
+    payment_method_type: str | None
+    card_brand: str | None
+    card_last_four: str | None
+    status: str
+    failure_code: str | None
+    failure_message: str | None
+    metadata: dict
+    provider_created_at: datetime
+    processed_at: datetime
+    schema_version: int     # 1
+```
+
+### Normalizer Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NORMALIZER_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka bootstrap servers |
+| `NORMALIZER_KAFKA_CONSUMER_GROUP` | `normalizer-group` | Consumer group ID |
+| `NORMALIZER_INPUT_TOPICS` | See below | Comma-separated input topics |
+| `NORMALIZER_OUTPUT_TOPIC` | `payments.normalized` | Normalized events topic |
+| `NORMALIZER_DLQ_TOPIC` | `payments.validation.dlq` | Dead letter queue topic |
+| `NORMALIZER_LOG_LEVEL` | `INFO` | Log level |
+
+Default input topics: `webhooks.stripe.payment_intent,webhooks.stripe.charge,webhooks.stripe.refund`
+
+### Validation Error Codes
+
+| Code | Description |
+|------|-------------|
+| `INVALID_JSON` | Payload is not valid JSON |
+| `MISSING_EVENT_ID` | Event ID is required |
+| `MISSING_EVENT_TYPE` | Event type is required |
+| `MISSING_DATA_OBJECT` | data.object is required |
+| `MISSING_OBJECT_ID` | data.object.id is required |
+| `INVALID_AMOUNT` | Amount is missing or invalid |
+| `INVALID_AMOUNT_NEGATIVE` | Amount cannot be negative |
+| `INVALID_AMOUNT_TOO_LARGE` | Amount exceeds maximum ($1M) |
+| `INVALID_CURRENCY` | Currency is missing or unsupported |
+
+---
+
+## Kafka Topics
+
+| Topic | Producer | Consumer | Description |
+|-------|----------|----------|-------------|
+| `webhooks.stripe.payment_intent` | Gateway | Normalizer | Raw payment intent events |
+| `webhooks.stripe.charge` | Gateway | Normalizer | Raw charge events |
+| `webhooks.stripe.refund` | Gateway | Normalizer | Raw refund events |
+| `webhooks.dlq` | Gateway | - | Gateway validation failures |
+| `payments.normalized` | Normalizer | Temporal | Normalized payment events |
+| `payments.validation.dlq` | Normalizer | - | Normalizer validation failures |
+
+---
 
 ## Simulator CLI
 
@@ -88,14 +189,7 @@ python -m simulator.main generate --rate 5 --duration 60
 python -m simulator.main send --type payment_intent.succeeded --invalid-signature
 ```
 
-## Adding New Providers
-
-1. Create `src/payment_gateway/providers/<provider>/` directory
-2. Implement provider-specific Pydantic models in `models.py`
-3. Implement signature verification in `validator.py`
-4. Create FastAPI router in `router.py`
-5. Register router in `main.py`
-6. Add Kafka topics configuration
+---
 
 ## Testing
 
@@ -104,8 +198,62 @@ python -m simulator.main send --type payment_intent.succeeded --invalid-signatur
 pytest
 
 # Run with coverage
-pytest --cov=payment_gateway
+pytest --cov=payment_gateway --cov=normalizer
 
 # Run only unit tests
 pytest tests/unit/
+
+# Run normalizer tests only
+pytest tests/unit/test_normalizer_*.py -v
 ```
+
+---
+
+## Project Structure
+
+```
+payment-pipeline/
+├── src/
+│   ├── payment_gateway/       # System 1: Gateway
+│   │   ├── main.py           # FastAPI app
+│   │   ├── core/             # Exceptions, config
+│   │   └── providers/
+│   │       └── stripe/       # Stripe models, validator, router
+│   │
+│   └── normalizer/           # System 2: Normalizer
+│       ├── main.py           # Kafka consumer loop
+│       ├── config.py         # Settings
+│       ├── validators/       # Currency, amount, null validation
+│       ├── transformers/     # UnifiedPaymentEvent, StripeTransformer
+│       └── handlers/         # StripeHandler
+│
+├── simulator/                # Webhook simulator CLI
+├── tests/
+│   ├── unit/
+│   │   ├── test_stripe_*.py           # Gateway tests
+│   │   └── test_normalizer_*.py       # Normalizer tests
+│   └── integration/
+├── Dockerfile                # Gateway image
+├── Dockerfile.normalizer     # Normalizer image
+└── pyproject.toml
+```
+
+---
+
+## Adding New Providers
+
+### Gateway
+
+1. Create `src/payment_gateway/providers/<provider>/` directory
+2. Implement provider-specific Pydantic models in `models.py`
+3. Implement signature verification in `validator.py`
+4. Create FastAPI router in `router.py`
+5. Register router in `main.py`
+
+### Normalizer
+
+1. Create `src/normalizer/transformers/<provider>.py`
+2. Implement `<Provider>Transformer` class with `transform()` method
+3. Create `src/normalizer/handlers/<provider>.py`
+4. Implement `<Provider>Handler` class with `process()` method
+5. Register handler in `main.py:_get_handler()`

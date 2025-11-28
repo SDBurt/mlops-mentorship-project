@@ -107,6 +107,14 @@ help:
 	@echo "  make gateway-test           - Run payment gateway unit tests"
 	@echo "  make gateway-status         - Show payment gateway status"
 	@echo ""
+	@echo "Normalizer (Python Kafka Consumer):"
+	@echo "  make normalizer-up          - Start normalizer with gateway"
+	@echo "  make normalizer-down        - Stop normalizer"
+	@echo "  make normalizer-logs        - View normalizer logs"
+	@echo "  make normalizer-build       - Build normalizer Docker image"
+	@echo "  make normalizer-status      - Show normalizer status"
+	@echo "  make normalizer-counts      - Show message counts per topic"
+	@echo ""
 	@echo "Complete Workflow:"
 	@echo "  1. make setup                       # One command: setup repos and deploy everything"
 	@echo "  2. make build-dagster-image         # Build user code Docker image"
@@ -1219,3 +1227,113 @@ gateway-status:
 	@echo "  make gateway-logs        - View logs"
 	@echo "  make gateway-simulator   - Start traffic generator"
 	@echo "  make gateway-test-send   - Send single test webhook"
+
+##################################################
+# NORMALIZER (Python Kafka Consumer)
+##################################################
+
+# Build normalizer Docker image
+normalizer-build:
+	@echo "Building Normalizer Docker image..."
+	@cd $(DOCKER_DIR) && docker compose build normalizer
+	@echo "Normalizer image built"
+
+# Start normalizer with gateway
+normalizer-up: gateway-up
+	@echo ""
+	@echo "Starting Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d normalizer
+	@echo ""
+	@echo "Normalizer started!"
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Gateway API:      http://localhost:8000"
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "  Input:   webhooks.stripe.payment_intent"
+	@echo "           webhooks.stripe.charge"
+	@echo "           webhooks.stripe.refund"
+	@echo "  Output:  payments.normalized"
+	@echo "  DLQ:     payments.validation.dlq"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start simulator:  make gateway-simulator"
+	@echo "  2. View logs:        make normalizer-logs"
+	@echo "  3. Check status:     make normalizer-status"
+
+# Stop normalizer
+normalizer-down:
+	@echo "Stopping Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile normalizer stop normalizer
+	@echo "Normalizer stopped"
+
+# View normalizer logs
+normalizer-logs:
+	@echo "Viewing Normalizer logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose logs -f normalizer
+
+# Show normalizer status
+normalizer-status:
+	@echo "=========================================="
+	@echo "   Normalizer Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q payment-normalizer; then \
+		echo "  [OK] Normalizer: running"; \
+	else \
+		echo "  [--] Normalizer: not running"; \
+	fi
+	@if docker ps | grep -q payment-gateway; then \
+		echo "  [OK] Gateway: running"; \
+	else \
+		echo "  [--] Gateway: not running"; \
+	fi
+	@if docker ps | grep -q kafka-broker; then \
+		echo "  [OK] Kafka: running"; \
+	else \
+		echo "  [--] Kafka: not running"; \
+	fi
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "-------------"
+	@if docker ps | grep -q kafka-broker; then \
+		docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+			/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092 2>/dev/null | grep -E "(payments\.|webhooks\.)" || echo "  No payment topics found"; \
+	else \
+		echo "  Kafka not running"; \
+	fi
+	@echo ""
+	@echo "Commands:"
+	@echo "  make normalizer-up      - Start normalizer with gateway"
+	@echo "  make normalizer-logs    - View normalizer logs"
+	@echo "  make normalizer-counts  - Show message counts"
+	@echo "  make normalizer-down    - Stop normalizer"
+
+# Check normalized message counts
+normalizer-counts:
+	@echo "Kafka Topic Message Counts:"
+	@echo "==========================="
+	@if docker ps | grep -q kafka-broker; then \
+		echo ""; \
+		echo "Input Topics:"; \
+		for topic in webhooks.stripe.payment_intent webhooks.stripe.charge webhooks.stripe.refund; do \
+			count=$$(docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+				/opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+				--broker-list localhost:9092 --topic $$topic --time -1 2>/dev/null | \
+				awk -F: '{sum += $$3} END {print sum}' 2>/dev/null || echo "0"); \
+			printf "  %-35s %s messages\n" "$$topic:" "$$count"; \
+		done; \
+		echo ""; \
+		echo "Output Topics:"; \
+		for topic in payments.normalized payments.validation.dlq; do \
+			count=$$(docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+				/opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+				--broker-list localhost:9092 --topic $$topic --time -1 2>/dev/null | \
+				awk -F: '{sum += $$3} END {print sum}' 2>/dev/null || echo "0"); \
+			printf "  %-35s %s messages\n" "$$topic:" "$$count"; \
+		done; \
+	else \
+		echo "Kafka not running"; \
+	fi
