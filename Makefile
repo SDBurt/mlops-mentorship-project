@@ -98,6 +98,12 @@ help:
 	@echo "  make jr-stop                - Stop all running JR processes"
 	@echo "  make jr-help                - Show JR installation and usage help"
 	@echo ""
+	@echo "Payment Pipeline (Full Ingestion):"
+	@echo "  make pipeline-up            - Start full pipeline (Kafka + Gateway + Normalizer)"
+	@echo "  make pipeline-down          - Stop full pipeline"
+	@echo "  make pipeline-status        - Show all pipeline component status"
+	@echo "  make pipeline-logs          - View all pipeline logs"
+	@echo ""
 	@echo "Payment Gateway (Webhook Receiver):"
 	@echo "  make gateway-up             - Start payment gateway with Kafka"
 	@echo "  make gateway-down           - Stop payment gateway"
@@ -1104,11 +1110,76 @@ jr-help:
 	@echo "    --topic payment_charges --from-beginning"
 
 ##################################################
-# PAYMENT GATEWAY COMMANDS (Webhook Receiver)
+# PAYMENT PIPELINE COMMANDS (Full Ingestion)
 ##################################################
 
-# Payment Gateway Variables
+# Payment Pipeline Variables
 PAYMENT_PIPELINE_DIR := payment-pipeline
+
+# Start full payment pipeline (Kafka + Gateway + Normalizer)
+pipeline-up:
+	@echo "=========================================="
+	@echo "   Starting Payment Pipeline"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components:"
+	@echo "  - Kafka Broker (message queue)"
+	@echo "  - Payment Gateway (webhook receiver)"
+	@echo "  - Normalizer (validation & transformation)"
+	@echo ""
+	@echo "Starting Kafka..."
+	@cd $(DOCKER_DIR) && docker compose up -d kafka-broker
+	@echo "Waiting for Kafka to be ready..."
+	@sleep 5
+	@echo ""
+	@echo "Starting Gateway..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d payment-gateway
+	@sleep 3
+	@echo ""
+	@echo "Starting Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d normalizer
+	@sleep 2
+	@echo ""
+	@echo "=========================================="
+	@echo "   Payment Pipeline Started!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Services:"
+	@echo "  Gateway API:     http://localhost:8000"
+	@echo "  Gateway Health:  http://localhost:8000/health"
+	@echo "  Kafka Broker:    localhost:9092"
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "  Input:   webhooks.stripe.payment_intent"
+	@echo "           webhooks.stripe.charge"
+	@echo "           webhooks.stripe.refund"
+	@echo "  Output:  payments.normalized"
+	@echo "  DLQ:     payments.validation.dlq"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start simulator:  make gateway-simulator"
+	@echo "  2. View logs:        make pipeline-logs"
+	@echo "  3. Check status:     make pipeline-status"
+	@echo "  4. View counts:      make normalizer-counts"
+
+# Stop full payment pipeline
+pipeline-down:
+	@echo "Stopping Payment Pipeline..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile simulator stop \
+		normalizer payment-gateway webhook-simulator kafka-broker 2>/dev/null || true
+	@echo "Payment Pipeline stopped"
+
+# Show all pipeline component status
+pipeline-status: gateway-status normalizer-status
+
+# View all pipeline logs
+pipeline-logs:
+	@echo "Viewing Pipeline logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer logs -f kafka-broker payment-gateway normalizer
+
+##################################################
+# PAYMENT GATEWAY COMMANDS (Webhook Receiver)
+##################################################
 
 # Start payment gateway with Kafka (using gateway profile)
 gateway-up:
