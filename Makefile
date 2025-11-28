@@ -1335,13 +1335,13 @@ normalizer-up: gateway-up
 # Stop normalizer
 normalizer-down:
 	@echo "Stopping Normalizer..."
-	@cd $(DOCKER_DIR) && docker compose --profile normalizer stop normalizer
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer stop normalizer
 	@echo "Normalizer stopped"
 
 # View normalizer logs
 normalizer-logs:
 	@echo "Viewing Normalizer logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose logs -f normalizer
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer logs -f normalizer
 
 # Show normalizer status
 normalizer-status:
