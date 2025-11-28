@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test docker-up docker-jr docker-down docker-build docker-restart docker-status docker-logs docker-polaris-init flink-submit-jobs flink-attach jr-charges jr-refunds jr-disputes jr-subscriptions jr-all jr-create-topics jr-stop jr-help
+.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test docker-up docker-jr docker-down docker-build docker-restart docker-status docker-logs docker-polaris-init flink-submit-jobs flink-attach jr-charges jr-refunds jr-disputes jr-subscriptions jr-all jr-create-topics jr-stop jr-help gateway-up gateway-down gateway-logs gateway-simulator gateway-build gateway-test gateway-status gateway-test-send
 
 # Variables
 NAMESPACE := lakehouse
@@ -97,6 +97,15 @@ help:
 	@echo "  make jr-all                 - Generate all event types simultaneously"
 	@echo "  make jr-stop                - Stop all running JR processes"
 	@echo "  make jr-help                - Show JR installation and usage help"
+	@echo ""
+	@echo "Payment Gateway (Webhook Receiver):"
+	@echo "  make gateway-up             - Start payment gateway with Kafka"
+	@echo "  make gateway-down           - Stop payment gateway"
+	@echo "  make gateway-logs           - View payment gateway logs"
+	@echo "  make gateway-simulator      - Start webhook simulator (continuous traffic)"
+	@echo "  make gateway-build          - Build payment gateway Docker image"
+	@echo "  make gateway-test           - Run payment gateway unit tests"
+	@echo "  make gateway-status         - Show payment gateway status"
 	@echo ""
 	@echo "Complete Workflow:"
 	@echo "  1. make setup                       # One command: setup repos and deploy everything"
@@ -258,7 +267,7 @@ generate-user-secrets:
 		REDDIT_AGENT=$$(grep 'REDDIT_USER_AGENT:' $(DAGSTER_USER_SECRETS) | awk -F'"' '{print $$2}'); \
 	else \
 		REDDIT_ID="REPLACE_WITH_REDDIT_CLIENT_ID"; \
-		REDDIT_SECRET="REPLACE_WITH_REDDIT_CLIENT_SECRET"; \
+		REDDIT_SECRET="REPLACE_WITH_REDDIT_CLIENT_SECRET"; \  # pragma: allowlist secret
 		REDDIT_AGENT="REPLACE_WITH_REDDIT_USER_AGENT"; \
 	fi; \
 	sed -e "s|POLARIS_CLIENT_ID:.*|POLARIS_CLIENT_ID: \"$$POLARIS_CLIENT_ID\"|" \
@@ -1085,3 +1094,128 @@ jr-help:
 	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml exec kafka-broker \\"
 	@echo "    kafka-console-consumer.sh --bootstrap-server localhost:9092 \\"
 	@echo "    --topic payment_charges --from-beginning"
+
+##################################################
+# PAYMENT GATEWAY COMMANDS (Webhook Receiver)
+##################################################
+
+# Payment Gateway Variables
+PAYMENT_PIPELINE_DIR := payment-pipeline
+
+# Start payment gateway with Kafka (using gateway profile)
+gateway-up:
+	@echo "Starting Payment Gateway with Kafka..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d kafka-broker payment-gateway
+	@echo ""
+	@echo "Waiting for services to be healthy..."
+	@sleep 5
+	@echo ""
+	@echo "✓ Payment Gateway started!"
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Gateway API:     http://localhost:8000"
+	@echo "  Gateway Health:  http://localhost:8000/health"
+	@echo "  Kafka Broker:    localhost:9092"
+	@echo ""
+	@echo "Webhook Endpoints:"
+	@echo "  Stripe:  POST http://localhost:8000/webhooks/stripe/"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Send test webhook:     make gateway-test-send"
+	@echo "  2. Start simulator:       make gateway-simulator"
+	@echo "  3. View logs:             make gateway-logs"
+
+# Stop payment gateway
+gateway-down:
+	@echo "Stopping Payment Gateway..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop payment-gateway webhook-simulator
+	@echo "✓ Payment Gateway stopped"
+
+# View payment gateway logs
+gateway-logs:
+	@echo "Viewing Payment Gateway logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose logs -f payment-gateway
+
+# Start webhook simulator (continuous traffic)
+gateway-simulator:
+	@echo "Starting Webhook Simulator..."
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator up -d webhook-simulator
+	@echo ""
+	@echo "✓ Webhook Simulator started!"
+	@echo ""
+	@echo "Simulator is generating webhooks at 2 events/sec for 5 minutes"
+	@echo ""
+	@echo "View simulator logs:"
+	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml logs -f webhook-simulator"
+	@echo ""
+	@echo "Stop simulator:"
+	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml stop webhook-simulator"
+
+# Build payment gateway Docker image
+gateway-build:
+	@echo "Building Payment Gateway Docker image..."
+	@cd $(PAYMENT_PIPELINE_DIR) && docker build -t payment-gateway:latest .
+	@echo "✓ Payment Gateway image built: payment-gateway:latest"
+
+# Run payment gateway unit tests
+gateway-test:
+	@echo "Running Payment Gateway unit tests..."
+	@cd $(PAYMENT_PIPELINE_DIR) && pip install -e ".[dev]" -q && pytest tests/ -v
+	@echo "✓ Tests completed"
+
+# Send a single test webhook
+gateway-test-send:
+	@echo "Sending test webhook to gateway..."
+	@if ! docker ps | grep -q payment-gateway; then \
+		echo "❌ Error: Payment Gateway not running"; \
+		echo "   Start it first: make gateway-up"; \
+		exit 1; \
+	fi
+	@cd $(PAYMENT_PIPELINE_DIR) && pip install -e . -q && \
+		python -m simulator.main send --type payment_intent.succeeded
+	@echo ""
+	@echo "✓ Test webhook sent!"
+
+# Show payment gateway status
+gateway-status:
+	@echo "=========================================="
+	@echo "   Payment Gateway Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q payment-gateway; then \
+		echo "  ✓ Payment Gateway: running"; \
+		docker ps --filter "name=payment-gateway" --format "    {{.Status}}  {{.Ports}}"; \
+	else \
+		echo "  ✗ Payment Gateway: not running"; \
+	fi
+	@if docker ps | grep -q webhook-simulator; then \
+		echo "  ✓ Webhook Simulator: running"; \
+	else \
+		echo "  ○ Webhook Simulator: not running"; \
+	fi
+	@echo ""
+	@echo "Health Check:"
+	@echo "-------------"
+	@if docker ps | grep -q payment-gateway; then \
+		curl -s http://localhost:8000/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "  Gateway not responding"; \
+	else \
+		echo "  Gateway not running"; \
+	fi
+	@echo ""
+	@echo "Kafka Topics (webhooks.*):"
+	@echo "--------------------------"
+	@if docker ps | grep -q kafka-broker; then \
+		docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+			/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092 2>/dev/null | grep "webhooks" || echo "  No webhook topics found"; \
+	else \
+		echo "  Kafka not running"; \
+	fi
+	@echo ""
+	@echo "Commands:"
+	@echo "  make gateway-up          - Start gateway"
+	@echo "  make gateway-logs        - View logs"
+	@echo "  make gateway-simulator   - Start traffic generator"
+	@echo "  make gateway-test-send   - Send single test webhook"
