@@ -1315,7 +1315,7 @@ gateway-status:
 # Build normalizer Docker image
 normalizer-build:
 	@echo "Building Normalizer Docker image..."
-	@cd $(DOCKER_DIR) && docker compose build normalizer
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer build normalizer
 	@echo "Normalizer image built"
 
 # Start normalizer with gateway
