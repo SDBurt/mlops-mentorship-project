@@ -1,3 +1,11 @@
+"""
+Dagster Definitions for Payment Pipeline
+
+Central configuration for all Dagster assets, resources, and jobs.
+Orchestrates payment event ingestion from PostgreSQL to Iceberg,
+DBT transformations, and data quality monitoring.
+"""
+
 from dagster import (
     Definitions,
     AssetSelection,
@@ -5,31 +13,38 @@ from dagster import (
     ScheduleDefinition,
     DefaultScheduleStatus,
 )
+from dagster_dbt import DbtCliResource
 
 from .resources.iceberg import create_iceberg_io_manager
 from .resources.trino import TrinoResource
-from .sources.reddit import reddit_posts, reddit_comments
+from .resources.postgres import PostgresResource
+from .resources.dbt import dbt_payment_assets, dbt_project
+
+from .sources.payment_ingestion import payment_events, payment_events_quarantine
 from .sources.payments import (
     quarantine_charges_monitor,
     quarantine_summary_monitor,
     validation_flag_monitor
 )
-# from .sources.reddit_pyarrow import reddit_posts_pyarrow, reddit_comments_pyarrow  # Uncomment for PyArrow
 
 
-# Job for Reddit ingestion (Pandas backend)
-reddit_ingestion_job = define_asset_job(
-    name="reddit_ingestion_job",
-    selection=AssetSelection.groups("reddit_ingestion"),
-    description="Ingest Reddit posts and comments (Pandas backend)",
+# =============================================================================
+# Jobs
+# =============================================================================
+
+# Job for Payment PostgreSQL to Iceberg ingestion
+payment_ingestion_job = define_asset_job(
+    name="payment_ingestion_job",
+    selection=AssetSelection.groups("payment_ingestion"),
+    description="Ingest payment events from PostgreSQL bronze layer to Iceberg",
 )
 
-# Job for Reddit ingestion (PyArrow backend) - Uncomment to use
-# reddit_ingestion_pyarrow_job = define_asset_job(
-#     name="reddit_ingestion_pyarrow_job",
-#     selection=AssetSelection.groups("reddit_ingestion_pyarrow"),
-#     description="Ingest Reddit posts and comments (PyArrow backend)",
-# )
+# Job for DBT transformations
+dbt_transformation_job = define_asset_job(
+    name="dbt_transformation_job",
+    selection=AssetSelection.assets(dbt_payment_assets),
+    description="Run DBT transformations on payment Iceberg tables",
+)
 
 # Job for Payment Data Quality Monitoring
 payment_dq_monitoring_job = define_asset_job(
@@ -38,65 +53,92 @@ payment_dq_monitoring_job = define_asset_job(
     description="Monitor payment quarantine tables and data quality metrics",
 )
 
-# Define all assets and resources
+# Full pipeline job (ingestion + DBT)
+payment_pipeline_job = define_asset_job(
+    name="payment_pipeline_job",
+    selection=AssetSelection.groups("payment_ingestion") | AssetSelection.assets(dbt_payment_assets),
+    description="Full payment pipeline: PostgreSQL ingestion + DBT transformations",
+)
+
+
+# =============================================================================
+# Schedules
+# =============================================================================
+
+# Run payment ingestion every 15 minutes
+payment_ingestion_schedule = ScheduleDefinition(
+    job=payment_ingestion_job,
+    cron_schedule="*/15 * * * *",  # Every 15 minutes
+    default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
+)
+
+# Run DBT transformations hourly
+dbt_transformation_schedule = ScheduleDefinition(
+    job=dbt_transformation_job,
+    cron_schedule="0 * * * *",  # Every hour at minute 0
+    default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
+)
+
+# Run data quality monitoring hourly
+dq_monitoring_schedule = ScheduleDefinition(
+    job=payment_dq_monitoring_job,
+    cron_schedule="5 * * * *",  # Every hour at minute 5
+    default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
+)
+
+
+# =============================================================================
+# Definitions
+# =============================================================================
+
 defs = Definitions(
     assets=[
-        # Reddit ingestion assets (Pandas backend - default)
-        reddit_posts,
-        reddit_comments,
+        # Payment ingestion assets (PostgreSQL -> Iceberg)
+        payment_events,
+        payment_events_quarantine,
+
+        # DBT transformation assets
+        dbt_payment_assets,
 
         # Payment data quality monitoring assets
         quarantine_charges_monitor,
         quarantine_summary_monitor,
         validation_flag_monitor,
-
-        # PyArrow backend assets (uncomment to use)
-        # reddit_posts_pyarrow,
-        # reddit_comments_pyarrow,
     ],
     resources={
-        # Pandas backend (default) - best for small-to-medium datasets
+        # Iceberg IO Manager for persisting DataFrames to Iceberg tables
         "iceberg_io_manager": create_iceberg_io_manager(
             namespace="data",
             backend="pandas"
         ),
 
-        # Trino resource for data quality monitoring
+        # PostgreSQL resource for reading payment events from bronze layer
+        # Host is configured via POSTGRES_HOST environment variable
+        # Defaults: "localhost" for local development, "payments-db" in Docker
+        "postgres_resource": PostgresResource(),
+
+        # Trino resource for data quality monitoring queries
         # Host is configured via TRINO_HOST environment variable
         # Defaults: "trino" in Kubernetes, "localhost" for local development
-        # Catalog name matches Trino catalog file: iceberg.properties -> catalog name "iceberg"
         "trino_resource": TrinoResource(
             port=8080,
             catalog="iceberg",
-            schema="payments_db",
+            schema="data",
             user="dagster"
         ),
 
-        # PyArrow backend (uncomment to use) - best for large datasets
-        # "iceberg_io_manager": create_iceberg_io_manager(
-        #     namespace="data",
-        #     backend="pyarrow"
-        # ),
+        # DBT CLI resource for running DBT commands
+        "dbt": DbtCliResource(project_dir=dbt_project),
     },
     jobs=[
-        reddit_ingestion_job,
+        payment_ingestion_job,
+        dbt_transformation_job,
         payment_dq_monitoring_job,
-        # reddit_ingestion_pyarrow_job,  # Uncomment for PyArrow
+        payment_pipeline_job,
+    ],
+    schedules=[
+        payment_ingestion_schedule,
+        dbt_transformation_schedule,
+        dq_monitoring_schedule,
     ],
 )
-
-# Backend Selection Guide:
-#
-# Use Pandas backend (current default) when:
-# - Dataset size < 1M rows
-# - Team familiar with Pandas API
-# - Need flexible data manipulation
-# - Interactive exploration needed
-#
-# Use PyArrow backend when:
-# - Dataset size > 1M rows
-# - Performance is critical
-# - Memory is constrained
-# - Need columnar data format
-#
-# See BACKEND_COMPARISON.md for detailed comparison

@@ -6,8 +6,9 @@ dependencies = [
     "dagster==1.11.16",
     "dagster-postgres",  # PostgreSQL storage for K8s run pods
     "dagster-iceberg>=0.1.0",  # Iceberg IO manager
+    "dagster-dbt>=0.24.0",  # DBT integration for asset orchestration
     "pyiceberg>=0.7.0",  # Core PyIceberg library (required by dagster-iceberg)
-    "praw>=7.7.1",  # Reddit API client
+    "psycopg[binary]>=3.1.0",  # PostgreSQL client for payment event ingestion
     "pandas>=2.0.0",  # DataFrame library
     "pyarrow>=14.0.0",  # Arrow data format (required for dagster-iceberg)
     "sqlalchemy>=2.0.18",  # Required by PyIceberg (2.0.18+)
