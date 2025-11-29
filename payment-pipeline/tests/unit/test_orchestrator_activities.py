@@ -88,37 +88,3 @@ class TestRetryStrategyActivity:
 
         # Should be reasonable for HTTP call
         assert 5 <= settings.inference_timeout_seconds <= 60
-
-
-class TestIcebergActivity:
-    """Tests for Iceberg persistence activity."""
-
-    def test_iceberg_config_exists(self) -> None:
-        """Test that Iceberg configuration exists."""
-        from orchestrator.config import settings
-
-        assert settings.iceberg_catalog_uri is not None
-        assert settings.iceberg_warehouse is not None
-        assert settings.iceberg_namespace is not None
-
-    def test_iceberg_schema_definition(self) -> None:
-        """Test that Iceberg schemas are defined correctly."""
-        from orchestrator.activities.iceberg import (
-            PAYMENTS_BRONZE_SCHEMA,
-            QUARANTINE_SCHEMA,
-        )
-
-        # Verify bronze schema has expected fields
-        bronze_fields = {f.name for f in PAYMENTS_BRONZE_SCHEMA}
-        assert "event_id" in bronze_fields
-        assert "provider" in bronze_fields
-        assert "amount_cents" in bronze_fields
-        assert "fraud_score" in bronze_fields
-        assert "ingested_at" in bronze_fields
-
-        # Verify quarantine schema has expected fields
-        quarantine_fields = {f.name for f in QUARANTINE_SCHEMA}
-        assert "event_id" in quarantine_fields
-        assert "original_payload" in quarantine_fields
-        assert "validation_errors" in quarantine_fields
-        assert "quarantined_at" in quarantine_fields

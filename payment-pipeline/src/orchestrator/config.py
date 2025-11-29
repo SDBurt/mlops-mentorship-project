@@ -40,20 +40,6 @@ class Settings(BaseSettings):
         encoded_password = quote_plus(self.postgres_password)
         return f"postgresql://{encoded_user}:{encoded_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
-    # Iceberg/PyIceberg settings (kept for future batch loading)
-    iceberg_catalog_uri: str = "http://polaris:8181/api/catalog"
-    iceberg_warehouse: str = "polariscatalog"
-    iceberg_namespace: str = "bronze"
-
-    # Polaris credentials
-    polaris_client_id: str = ""
-    polaris_client_secret: str = ""
-
-    # S3/MinIO settings
-    s3_endpoint: str = "http://minio:9000"
-    s3_access_key: str = ""
-    s3_secret_key: str = ""
-
     # Processing settings
     batch_size: int = 100
 
