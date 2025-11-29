@@ -54,6 +54,11 @@ JR Generators → Kafka → Flink SQL (Validation) → Polaris Catalog
                                MinIO/S3 (Iceberg)
                                      ↓
                            DBT Transformations (Silver/Gold)
+
+Payment Pipeline Flow (payment-pipeline/):
+Stripe Webhook → Gateway (FastAPI) → Kafka → Normalizer → Temporal Orchestrator
+                                                               ↓
+                                                    Fraud/Retry Inference → Iceberg Bronze
 ```
 
 **Data Layers:**
@@ -100,6 +105,14 @@ make clean-old           # Remove old separate namespaces
 
 # Get help
 make help                # Show all available commands
+
+# Payment Pipeline (Docker Compose)
+make pipeline-up         # Start full pipeline (Kafka + Gateway + Normalizer)
+make pipeline-down       # Stop full pipeline
+make gateway-up          # Start payment gateway with Kafka
+make normalizer-up       # Start normalizer with gateway
+make orchestrator-up     # Start orchestrator with Temporal
+make gateway-simulator   # Start webhook simulator
 ```
 
 **Quick Start:**
@@ -294,6 +307,7 @@ echo "base64-string" | base64 -d     # Decode to verify
 - `transformations/` - Analytics engineering (DBT models)
 - `lakehouse/` - Data architecture (Iceberg schemas, conventions)
 - `orchestration-dagster/` - Data engineering (Dagster + dagster-iceberg pipelines)
+- `payment-pipeline/` - Streaming payment processing (Gateway, Normalizer, Temporal Orchestrator)
 - `analytics/` - BI/Analytics (Superset dashboards) - Phase 2+
 - `ml/` - ML engineering (Feast, Kubeflow, DVC) - Phase 4
 
@@ -581,3 +595,7 @@ curl http://localhost:8181/api/catalog/v1/config
 - [docs/topics/polaris-rest-catalog.md](docs/topics/polaris-rest-catalog.md)
 - [docs/topics/dagster.md](docs/topics/dagster.md)
 - [docs/topics/apache-iceberg.md](docs/topics/apache-iceberg.md)
+
+**Payment Pipeline:**
+- [payment-pipeline/CLAUDE.md](payment-pipeline/CLAUDE.md) - Payment pipeline specific guidance
+- [payment-pipeline/README.md](payment-pipeline/README.md) - Gateway, Normalizer, Orchestrator docs
