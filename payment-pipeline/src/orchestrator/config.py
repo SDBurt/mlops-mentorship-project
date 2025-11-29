@@ -1,5 +1,7 @@
 """Orchestrator configuration using Pydantic Settings."""
 
+from urllib.parse import quote_plus
+
 from pydantic_settings import BaseSettings
 
 
@@ -33,8 +35,10 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
-        """Build Postgres connection string."""
-        return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        """Build Postgres connection string with URL-encoded credentials."""
+        encoded_user = quote_plus(self.postgres_user)
+        encoded_password = quote_plus(self.postgres_password)
+        return f"postgresql://{encoded_user}:{encoded_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     # Iceberg/PyIceberg settings (kept for future batch loading)
     iceberg_catalog_uri: str = "http://polaris:8181/api/catalog"
