@@ -94,19 +94,20 @@ async def main() -> None:
     logger.info(f"DLQ topic: {settings.dlq_topic}")
     logger.info("=" * 60)
 
-    # Connect to Temporal
-    logger.info("Connecting to Temporal...")
-    client = await Client.connect(
-        settings.temporal_host,
-        namespace=settings.temporal_namespace,
-    )
-    logger.info("Connected to Temporal successfully")
-
-    # Run worker and consumer concurrently
-    # The worker executes workflows/activities, the consumer triggers them
-    logger.info("Starting worker and consumer...")
-
+    # Connect to Temporal with proper error handling and cleanup
+    client = None
     try:
+        logger.info("Connecting to Temporal...")
+        client = await Client.connect(
+            settings.temporal_host,
+            namespace=settings.temporal_namespace,
+        )
+        logger.info("Connected to Temporal successfully")
+
+        # Run worker and consumer concurrently
+        # The worker executes workflows/activities, the consumer triggers them
+        logger.info("Starting worker and consumer...")
+
         await asyncio.gather(
             run_worker(client),
             run_consumer(client),
@@ -117,6 +118,9 @@ async def main() -> None:
         logger.exception(f"Service error: {e}")
         raise
     finally:
+        if client:
+            await client.close()
+            logger.info("Temporal client closed")
         logger.info("Payment Orchestrator Service stopped")
 
 
