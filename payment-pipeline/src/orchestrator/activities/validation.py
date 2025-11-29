@@ -84,7 +84,11 @@ async def validate_business_rules(event_data: dict[str, Any]) -> dict[str, Any]:
     rules_checked.append("required_fields")
     required_fields = ["event_id", "provider", "event_type", "status"]
     for field in required_fields:
-        if not event_data.get(field):
+        value = event_data.get(field)
+        # Missing if: key absent (None) OR empty/whitespace string
+        # Preserves valid falsy values like 0 or False
+        is_missing = value is None or (isinstance(value, str) and not value.strip())
+        if is_missing:
             errors.append({
                 "rule": "required_fields",
                 "code": "MISSING_REQUIRED_FIELD",
@@ -92,7 +96,7 @@ async def validate_business_rules(event_data: dict[str, Any]) -> dict[str, Any]:
             })
 
     # Warning: High-value transaction
-    if amount_cents > 10_000_00:  # > $100
+    if amount_cents > 10_000:  # > $100
         warnings.append({
             "rule": "high_value_warning",
             "message": f"High-value transaction: {amount_cents} cents",
