@@ -24,21 +24,21 @@ A modern data platform built on Kubernetes featuring real-time payment event pro
                                  PAYMENT PIPELINE
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                 │
-│   Stripe       ┌──────────┐    Kafka    ┌────────────┐    Kafka    ┌─────────┐ │
-│   Webhooks ───>│ Gateway  │───────────> │ Normalizer │───────────> │Temporal │ │
-│                │ (FastAPI)│             │  (Python)  │             │Workflows│ │
-│                └──────────┘             └────────────┘             └─────────┘ │
-│                     │                        │                          │      │
-│                     v                        v                          v      │
-│                 [DLQ Topic]             [DLQ Topic]               PostgreSQL   │
-│                                                                         │      │
-│   Inference Service (ML)                                                │      │
-│   - Fraud Scoring                                                       v      │
-│   - Retry Strategy            ┌─────────────────────────────────────────────┐  │
-│   - Churn Prediction          │            LAKEHOUSE PLATFORM               │  │
-│                               │  Dagster ──> Iceberg ──> DBT ──> Trino      │  │
-│                               │  (batch)    (Bronze)   (Silver)  (query)    │  │
-│                               └─────────────────────────────────────────────┘  │
+│   Stripe       ┌──────────┐    Kafka    ┌────────────┐    Kafka    ┌─────────┐  │
+│   Webhooks ───>│ Gateway  │───────────> │ Normalizer │───────────> │Temporal │  │
+│                │ (FastAPI)│             │  (Python)  │             │Workflows│  │
+│                └──────────┘             └────────────┘             └─────────┘  │
+│                     │                        │                          │       │
+│                     v                        v                          v       │
+│                 [DLQ Topic]             [DLQ Topic]               PostgreSQL    │
+│                                                                         │       │
+│   Inference Service (ML)                                                │       │
+│   - Fraud Scoring                                                       v       │
+│   - Retry Strategy            ┌─────────────────────────────────────────────┐   │
+│   - Churn Prediction          │            LAKEHOUSE PLATFORM               │   │
+│                               │  Dagster ──> Iceberg ──> DBT ──> Trino      │   │
+│                               │  (batch)    (Bronze)   (Silver)  (query)    │   │
+│                               └─────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
