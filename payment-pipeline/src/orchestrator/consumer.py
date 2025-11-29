@@ -110,7 +110,7 @@ class KafkaTemporalBridge:
         Main processing loop.
 
         Consumes messages from Kafka and starts Temporal workflows.
-        Commits offsets after workflow start to ensure at-least-once delivery.
+        Commits offsets only after successful workflow start to ensure at-least-once delivery.
         """
         if not self.consumer:
             raise RuntimeError("Consumer not started. Call start() first.")
@@ -123,10 +123,12 @@ class KafkaTemporalBridge:
                     logger.info("Shutdown signal received, stopping consumption")
                     break
 
-                await self._process_message(msg)
+                success = await self._process_with_retry(msg)
 
-                # Commit offset after successful workflow start
-                await self.consumer.commit()
+                # Only commit offset on confirmed success
+                if success:
+                    await self.consumer.commit()
+                # If not success, message will be redelivered by Kafka
 
                 # Log progress periodically
                 if self._stats["consumed"] % 100 == 0:
@@ -138,32 +140,73 @@ class KafkaTemporalBridge:
             logger.exception(f"Error in consumer loop: {e}")
             raise
 
+    async def _process_with_retry(self, msg: Any, max_retries: int = 5) -> bool:
+        """
+        Process message with exponential backoff retry.
+
+        Args:
+            msg: Kafka message
+            max_retries: Maximum retry attempts (default 5)
+
+        Returns:
+            True if processing succeeded, False otherwise
+        """
+        for attempt in range(max_retries):
+            try:
+                await self._process_message(msg)
+                return True
+            except json.JSONDecodeError as e:
+                # JSON errors are not retryable, skip the message
+                logger.error(f"Failed to parse message from {msg.topic}: {e}")
+                self._stats["errors"] += 1
+                return True  # Commit to skip malformed message
+            except Exception as e:
+                # Check if it's a duplicate (not an error)
+                error_str = str(e).lower()
+                if "already started" in error_str or "already exists" in error_str:
+                    logger.debug(f"Duplicate workflow, skipping: {e}")
+                    self._stats["duplicates_skipped"] += 1
+                    return True
+
+                if attempt < max_retries - 1:
+                    delay = (2 ** attempt) * 0.5  # 0.5s, 1s, 2s, 4s, 8s
+                    logger.warning(
+                        f"Retry {attempt + 1}/{max_retries} for {msg.topic} "
+                        f"partition={msg.partition} offset={msg.offset} after {delay}s: {e}"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        f"Failed after {max_retries} retries for {msg.topic} "
+                        f"partition={msg.partition} offset={msg.offset}: {e}"
+                    )
+                    self._stats["errors"] += 1
+                    return False
+
+        return False
+
     async def _process_message(self, msg: Any) -> None:
         """
         Process a single Kafka message.
 
         Args:
             msg: Kafka message
+
+        Raises:
+            json.JSONDecodeError: If message cannot be parsed
+            Exception: If workflow start fails
         """
         self._stats["consumed"] += 1
         topic = msg.topic
 
-        try:
-            # Parse message value
-            value = json.loads(msg.value.decode("utf-8"))
+        # Parse message value (let JSONDecodeError propagate)
+        value = json.loads(msg.value.decode("utf-8"))
 
-            # Determine workflow type based on topic
-            if topic == settings.dlq_topic:
-                await self._start_dlq_workflow(value, msg)
-            else:
-                await self._start_payment_workflow(value, msg)
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse message from {topic}: {e}")
-            self._stats["errors"] += 1
-        except Exception as e:
-            logger.error(f"Failed to process message from {topic}: {e}")
-            self._stats["errors"] += 1
+        # Determine workflow type based on topic (let exceptions propagate)
+        if topic == settings.dlq_topic:
+            await self._start_dlq_workflow(value, msg)
+        else:
+            await self._start_payment_workflow(value, msg)
 
     async def _start_payment_workflow(self, event_data: dict[str, Any], msg: Any) -> None:
         """
