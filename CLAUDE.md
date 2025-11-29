@@ -47,6 +47,18 @@ Reddit API → PRAW → Dagster Assets → dagster-iceberg → Polaris Catalog
                                                               ↓
                                                     Single 'data' Namespace
                                           (organized by table naming conventions)
+
+Streaming Flow:
+JR Generators → Kafka → Flink SQL (Validation) → Polaris Catalog
+                                     ↓
+                               MinIO/S3 (Iceberg)
+                                     ↓
+                           DBT Transformations (Silver/Gold)
+
+Payment Pipeline Flow (payment-pipeline/):
+Stripe Webhook → Gateway (FastAPI) → Kafka → Normalizer → Temporal Orchestrator
+                                                               ↓
+                                                    Fraud/Retry Inference → Iceberg Bronze
 ```
 
 **Data Layers:**
@@ -93,6 +105,14 @@ make clean-old           # Remove old separate namespaces
 
 # Get help
 make help                # Show all available commands
+
+# Payment Pipeline (Docker Compose)
+make pipeline-up         # Start full pipeline (Kafka + Gateway + Normalizer)
+make pipeline-down       # Stop full pipeline
+make gateway-up          # Start payment gateway with Kafka
+make normalizer-up       # Start normalizer with gateway
+make orchestrator-up     # Start orchestrator with Temporal
+make gateway-simulator   # Start webhook simulator
 ```
 
 **Quick Start:**
@@ -287,6 +307,7 @@ echo "base64-string" | base64 -d     # Decode to verify
 - `transformations/` - Analytics engineering (DBT models)
 - `lakehouse/` - Data architecture (Iceberg schemas, conventions)
 - `orchestration-dagster/` - Data engineering (Dagster + dagster-iceberg pipelines)
+- `payment-pipeline/` - Streaming payment processing (Gateway, Normalizer, Temporal Orchestrator)
 - `analytics/` - BI/Analytics (Superset dashboards) - Phase 2+
 - `ml/` - ML engineering (Feast, Kubeflow, DVC) - Phase 4
 
@@ -333,6 +354,23 @@ transformations/dbt/
 ```
 
 ## Important Patterns
+
+### Streaming Data Pipeline (Docker Compose)
+
+**Automated Job Submission:**
+- **`flink-job-submitter`**: A dedicated container that waits for services and submits SQL jobs automatically on startup.
+- **SQL Files**: Located in `infrastructure/docker/flink/sql/`:
+  - `01_catalogs.sql`: Catalog definitions
+  - `02_tables.sql`: Table definitions
+  - `03_jobs.sql`: Streaming INSERT jobs with validation logic
+- **Commands**:
+  - `make docker-up`: Starts the stack and submits jobs automatically.
+  - `make flink-submit-jobs`: Tails the logs of the submitter to verify success.
+
+**Validation Strategy:**
+- **Layer 1 (Flink)**: Real-time validation (nulls, currency, amounts) -> Splits into Valid/Quarantine tables.
+- **Layer 2 (DBT)**: Business logic validation in Silver layer.
+- **Layer 3 (Dagster)**: Monitoring assets for quarantine volume and data quality scores.
 
 ### Iceberg Table Creation (via Trino)
 
@@ -410,12 +448,13 @@ FROM {{ source('raw', 'customers') }}
 - Makefile automation
 - Comprehensive documentation
 
-**Phase 2 (Analytics):** 🔄 In Progress
+**Phase 2 (Analytics):** ✅ Complete
 - ✅ dagster-iceberg integration
 - ✅ PRAW Reddit data source
 - ✅ Dual backend support (Pandas + PyArrow)
-- ⏳ Verify end-to-end data flow
-- ⏳ DBT model implementation
+- ✅ Streaming pipeline (Kafka + Flink)
+- ✅ Upstream validation (Flink SQL)
+- ✅ DBT model implementation (Bronze/Silver/Gold)
 - ⏳ Superset deployment (optional)
 
 **Phase 3 (Governance):** Ready to Start
@@ -556,3 +595,7 @@ curl http://localhost:8181/api/catalog/v1/config
 - [docs/topics/polaris-rest-catalog.md](docs/topics/polaris-rest-catalog.md)
 - [docs/topics/dagster.md](docs/topics/dagster.md)
 - [docs/topics/apache-iceberg.md](docs/topics/apache-iceberg.md)
+
+**Payment Pipeline:**
+- [payment-pipeline/CLAUDE.md](payment-pipeline/CLAUDE.md) - Payment pipeline specific guidance
+- [payment-pipeline/README.md](payment-pipeline/README.md) - Gateway, Normalizer, Orchestrator docs

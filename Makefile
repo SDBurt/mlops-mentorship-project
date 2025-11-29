@@ -1,7 +1,7 @@
 # Kubernetes Lakehouse Platform - Makefile
 # Simplified deployment automation for lakehouse namespace architecture
 
-.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test
+.PHONY: help check setup validate-secrets generate-user-secrets configure-trino-polaris build-dagster-image deploy-dagster-code install deploy destroy nuke clean-old port-forward port-forward-start port-forward-stop port-forward-status restart-dagster restart-trino restart-polaris restart-all status polaris-status polaris-logs init-polaris setup-polaris-rbac polaris-test docker-up docker-jr docker-down docker-build docker-restart docker-status docker-logs docker-polaris-init flink-submit-jobs flink-attach jr-charges jr-refunds jr-disputes jr-subscriptions jr-all jr-create-topics jr-stop jr-help gateway-up gateway-down gateway-logs gateway-simulator gateway-build gateway-test gateway-status gateway-test-send
 
 # Variables
 NAMESPACE := lakehouse
@@ -13,6 +13,12 @@ TRINO_VALUES_MINIMAL := infrastructure/kubernetes/trino/values-minimal.yaml
 POLARIS_VALUES := infrastructure/kubernetes/polaris/values.yaml
 POLARIS_SECRETS := infrastructure/kubernetes/polaris/polaris-secrets.yaml
 POLARIS_REPO := infrastructure/helm/polaris
+
+# Docker Compose Variables
+DOCKER_DIR := infrastructure/docker
+DOCKER_COMPOSE := docker compose -f $(DOCKER_DIR)/docker-compose.yml
+JR_DIR := $(DOCKER_DIR)/jr
+JR_KAFKA_CONFIG := $(JR_DIR)/kafka.client.properties
 
 # Required secret files (checked before deployment)
 MINIO_SECRETS := infrastructure/kubernetes/minio/minio-secrets.yaml
@@ -70,6 +76,63 @@ help:
 	@echo "  make build-dagster-image    - Build orchestration-dagster Docker image"
 	@echo "  make deploy-dagster-code    - Deploy user code (ConfigMap + scale deployment)"
 	@echo ""
+	@echo "Docker Compose (Full Payment Pipeline):"
+	@echo "  make docker-up              - Start full stack (Gateway, Normalizer, Temporal, Orchestrator)"
+	@echo "  make docker-jr              - Start JR generator containers"
+	@echo "  make docker-down            - Stop and remove all containers"
+	@echo "  make docker-build           - Build/rebuild Flink image"
+	@echo "  make docker-restart         - Restart all services"
+	@echo "  make docker-status          - Show running containers"
+	@echo "  make docker-logs            - View logs from all containers"
+	@echo "  make docker-polaris-init    - Manually initialize Polaris (auto-runs on docker-up)"
+	@echo "  make flink-submit-jobs      - Auto-submit streaming jobs (one-time setup)"
+	@echo "  make flink-attach           - Attach to Flink SQL client for queries"
+	@echo ""
+	@echo "JR Data Generation (Stripe-like Payment Events):"
+	@echo "  make jr-create-topics       - Create Kafka topics (run once after docker-up)"
+	@echo "  make jr-charges             - Generate charge events (requires JR installed)"
+	@echo "  make jr-refunds             - Generate refund events"
+	@echo "  make jr-disputes            - Generate dispute events"
+	@echo "  make jr-subscriptions       - Generate subscription events"
+	@echo "  make jr-all                 - Generate all event types simultaneously"
+	@echo "  make jr-stop                - Stop all running JR processes"
+	@echo "  make jr-help                - Show JR installation and usage help"
+	@echo ""
+	@echo "Payment Pipeline (Full Stack):"
+	@echo "  make pipeline-up            - Start full pipeline (Kafka + Gateway + Normalizer + Temporal + Orchestrator)"
+	@echo "  make pipeline-down          - Stop full pipeline"
+	@echo "  make pipeline-status        - Show all pipeline component status"
+	@echo "  make pipeline-logs          - View all pipeline logs"
+	@echo ""
+	@echo "Payment Gateway (Webhook Receiver):"
+	@echo "  make gateway-up             - Start payment gateway with Kafka"
+	@echo "  make gateway-down           - Stop payment gateway"
+	@echo "  make gateway-logs           - View payment gateway logs"
+	@echo "  make gateway-simulator      - Start webhook simulator (continuous traffic)"
+	@echo "  make simulator-stop         - Stop webhook simulator"
+	@echo "  make simulator-logs         - View simulator logs"
+	@echo "  make gateway-build          - Build payment gateway Docker image"
+	@echo "  make gateway-test           - Run payment gateway unit tests"
+	@echo "  make gateway-status         - Show payment gateway status"
+	@echo ""
+	@echo "Normalizer (Python Kafka Consumer):"
+	@echo "  make normalizer-up          - Start normalizer with gateway"
+	@echo "  make normalizer-down        - Stop normalizer"
+	@echo "  make normalizer-logs        - View normalizer logs"
+	@echo "  make normalizer-build       - Build normalizer Docker image"
+	@echo "  make normalizer-status      - Show normalizer status"
+	@echo "  make normalizer-counts      - Show message counts per topic"
+	@echo ""
+	@echo "Orchestrator (Temporal Workflows):"
+	@echo "  make orchestrator-up        - Start orchestrator with all dependencies"
+	@echo "  make orchestrator-down      - Stop orchestrator and Temporal"
+	@echo "  make orchestrator-logs      - View orchestrator logs"
+	@echo "  make orchestrator-build     - Build orchestrator Docker image"
+	@echo "  make orchestrator-status    - Show orchestrator status"
+	@echo "  make temporal-logs          - View Temporal server logs"
+	@echo "  make inference-logs         - View inference service logs"
+	@echo "  make inference-build        - Build inference service Docker image"
+	@echo ""
 	@echo "Complete Workflow:"
 	@echo "  1. make setup                       # One command: setup repos and deploy everything"
 	@echo "  2. make build-dagster-image         # Build user code Docker image"
@@ -77,6 +140,12 @@ help:
 	@echo "  4. make init-polaris                # Initialize Polaris catalog"
 	@echo "  5. make configure-trino-polaris     # Connect Trino to Polaris"
 	@echo "  6. make port-forward-start          # Access services locally"
+	@echo ""
+	@echo "Payment Pipeline Workflow (Docker Compose):"
+	@echo "  1. make docker-up                      # Start full stack (Gateway + Normalizer + Temporal + Orchestrator)"
+	@echo "  2. make gateway-simulator              # Start webhook simulator"
+	@echo "  3. make pipeline-status                # Check all components"
+	@echo "  4. make pipeline-logs                  # View all logs"
 	@echo ""
 
 # Check prerequisites
@@ -221,7 +290,7 @@ generate-user-secrets:
 		REDDIT_AGENT=$$(grep 'REDDIT_USER_AGENT:' $(DAGSTER_USER_SECRETS) | awk -F'"' '{print $$2}'); \
 	else \
 		REDDIT_ID="REPLACE_WITH_REDDIT_CLIENT_ID"; \
-		REDDIT_SECRET="REPLACE_WITH_REDDIT_CLIENT_SECRET"; \
+		REDDIT_SECRET="REPLACE_WITH_REDDIT_CLIENT_SECRET"; \  # pragma: allowlist secret
 		REDDIT_AGENT="REPLACE_WITH_REDDIT_USER_AGENT"; \
 	fi; \
 	sed -e "s|POLARIS_CLIENT_ID:.*|POLARIS_CLIENT_ID: \"$$POLARIS_CLIENT_ID\"|" \
@@ -716,3 +785,774 @@ deploy-dagster-code:
 	@echo "✓ Dagster user code deployed successfully!"
 	@echo ""
 	@echo "Deployment complete! Access Dagster at http://localhost:3001"
+
+##################################################
+# DOCKER COMPOSE COMMANDS (Local Streaming Stack)
+##################################################
+
+# Start all Docker Compose services (full payment pipeline stack)
+docker-up:
+	@echo "=========================================="
+	@echo "   Starting Full Payment Pipeline Stack"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components:"
+	@echo "  - Kafka Broker (message queue)"
+	@echo "  - Payment Gateway (webhook receiver)"
+	@echo "  - Normalizer (validation & transformation)"
+	@echo "  - Temporal (workflow orchestration)"
+	@echo "  - Inference Service (ML mock endpoints)"
+	@echo "  - Orchestrator (Temporal workflows)"
+	@echo "  - Payments DB (Postgres for event storage)"
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator up -d --build
+	@echo ""
+	@echo "=========================================="
+	@echo "   Stack Started Successfully!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Gateway API:        http://localhost:8000"
+	@echo "  Gateway Health:     http://localhost:8000/health"
+	@echo "  Inference Service:  http://localhost:8002"
+	@echo "  Temporal UI:        http://localhost:8088"
+	@echo "  Kafka Broker:       localhost:9092"
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "  Input:   webhooks.stripe.payment_intent"
+	@echo "           webhooks.stripe.charge"
+	@echo "           webhooks.stripe.refund"
+	@echo "  Output:  payments.normalized"
+	@echo "  DLQ:     payments.validation.dlq"
+	@echo ""
+	@echo "Database:"
+	@echo "  Payments DB:  localhost:5433 (payments/payments)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start simulator:  make gateway-simulator"
+	@echo "  2. View logs:        make pipeline-logs"
+	@echo "  3. Check status:     make pipeline-status"
+	@echo "  4. View counts:      make normalizer-counts"
+	@echo ""
+
+# Start JR generator containers (requires Kafka to be running)
+docker-jr:
+	@echo "Starting JR generator containers..."
+	@cd $(DOCKER_DIR) && docker compose --profile generators up -d --build jr-charges jr-refunds jr-disputes jr-subscriptions
+	@echo ""
+	@echo "✓ JR generators started!"
+	@echo ""
+	@echo "Running generators:"
+	@echo "  - jr-charges (charges)"
+	@echo "  - jr-refunds (refunds)"
+	@echo "  - jr-disputes (disputes)"
+	@echo "  - jr-subscriptions (subscriptions)"
+	@echo ""
+	@echo "Note: Make sure Kafka broker is running (make docker-up)"
+	@echo ""
+
+# Stop and remove all Docker Compose services
+docker-down:
+	@echo "Stopping Docker Compose stack..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator --profile generators down
+	@echo "✓ Stack stopped"
+
+# Build/rebuild Docker images (especially Flink)
+docker-build:
+	@echo "Building Docker images..."
+	@cd $(DOCKER_DIR) && docker compose build
+	@echo "✓ Images built"
+
+# Restart all Docker Compose services
+docker-restart:
+	@echo "Restarting Docker Compose stack..."
+	@cd $(DOCKER_DIR) && docker compose restart
+	@echo "✓ Stack restarted"
+
+# Show detailed status of Docker Compose services
+docker-status:
+	@echo "=========================================="
+	@echo "   Docker Compose Services Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "----------------"
+	@cd $(DOCKER_DIR) && docker compose ps
+	@echo ""
+	@echo "Service URLs & Ports:"
+	@echo "---------------------"
+	@echo "  Kafka Broker:      localhost:9092"
+	@echo "  Flink Web UI:      http://localhost:8081"
+	@echo "  Polaris API:       http://localhost:8181"
+	@echo "  MinIO Console:     http://localhost:9001 (admin/password)"
+	@echo "  MinIO S3 API:      http://localhost:9000"
+	@echo "  Trino:             http://localhost:8080"
+	@echo "  Dagster:           http://localhost:3000"
+	@echo ""
+	@echo "Container Health:"
+	@echo "-----------------"
+	@cd $(DOCKER_DIR) && docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" | head -20
+	@echo ""
+	@echo "Resource Usage (if available):"
+	@echo "------------------------------"
+	@cd $(DOCKER_DIR) && docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" 2>/dev/null | head -15 || echo "  (Stats not available - containers may not be running)"
+	@echo ""
+	@echo "Quick Checks:"
+	@echo "-------------"
+	@if docker ps | grep -q "kafka-broker"; then \
+		echo "  ✓ Kafka broker is running"; \
+	else \
+		echo "  ✗ Kafka broker is not running"; \
+	fi
+	@if docker ps | grep -q "flink-jobmanager"; then \
+		echo "  ✓ Flink JobManager is running"; \
+	else \
+		echo "  ✗ Flink JobManager is not running"; \
+	fi
+	@if docker ps | grep -q "polaris"; then \
+		echo "  ✓ Polaris is running"; \
+	else \
+		echo "  ✗ Polaris is not running"; \
+	fi
+	@if docker ps | grep -q "minio"; then \
+		echo "  ✓ MinIO is running"; \
+	else \
+		echo "  ✗ MinIO is not running"; \
+	fi
+	@if docker ps | grep -q "trino"; then \
+		echo "  ✓ Trino is running"; \
+	else \
+		echo "  ✗ Trino is not running"; \
+	fi
+	@if docker ps | grep -q "dagster"; then \
+		echo "  ✓ Dagster is running"; \
+	else \
+		echo "  ✗ Dagster is not running"; \
+	fi
+	@if docker ps | grep -q "jr-"; then \
+		echo "  ✓ JR generators are running"; \
+	else \
+		echo "  ○ JR generators are not running (use 'make docker-jr' to start)"; \
+	fi
+	@echo ""
+	@echo "Useful Commands:"
+	@echo "  make docker-logs          - View logs from all containers"
+	@echo "  make docker-restart      - Restart all services"
+	@echo "  make docker-down         - Stop all services"
+	@echo "  make flink-submit-jobs   - Check Flink job status"
+	@echo "  make jr-create-topics    - Create Kafka topics"
+
+# View logs from all Docker Compose services
+docker-logs:
+	@echo "Viewing Docker Compose logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose logs -f
+
+# Initialize Polaris warehouse (Docker Compose setup)
+# Note: This now runs automatically via polaris-init service on docker-up
+# This target is kept for manual re-initialization if needed
+docker-polaris-init:
+	@echo "Initializing Polaris warehouse..."
+	@if ! docker ps | grep -q polaris; then \
+		echo "❌ Error: Polaris container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo "Running Polaris initialization script..."
+	@echo "Note: Polaris initialization now runs automatically on docker-up"
+	@echo "      This manual command is for re-initialization if needed"
+	@bash $(DOCKER_DIR)/polaris/init-polaris.sh
+	@echo ""
+	@echo "✓ Polaris warehouse initialized!"
+	@echo ""
+	@echo "Next step: make flink-submit-jobs (to verify jobs started)"
+
+# Check status of auto-submitted streaming jobs
+flink-submit-jobs:
+	@echo "Checking Flink job submission status..."
+	@if ! docker ps -a | grep -q flink-job-submitter; then \
+		echo "❌ Error: Flink Job Submitter container not found"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo "Tailing logs for flink-job-submitter..."
+	@cd $(DOCKER_DIR) && docker compose logs -f flink-job-submitter
+
+# Attach to Flink SQL client
+flink-attach:
+	@echo "Attaching to Flink SQL client..."
+	@if ! docker ps | grep -q flink-sql-client; then \
+		echo "❌ Error: Flink SQL client container not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "TIP: Streaming jobs are auto-submitted on startup."
+	@echo "  Check status with: make flink-submit-jobs"
+	@echo ""
+	@echo "Jobs persist across SQL sessions."
+	@echo "Manual catalog setup is only needed for ad-hoc queries."
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose exec -it flink-sql-client sql-client.sh
+
+##################################################
+# JR DATA GENERATION COMMANDS (Payment Events)
+##################################################
+
+# Generate payment charge events
+jr-charges:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found"; \
+		echo ""; \
+		echo "Install JR:"; \
+		echo "  brew install jr"; \
+		echo "  or: sudo snap install jrnd && sudo snap alias jrnd.jr jr"; \
+		echo ""; \
+		echo "Or see: make jr-help"; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-charges.sh
+
+# Generate payment refund events
+jr-refunds:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-refunds.sh
+
+# Generate payment dispute events
+jr-disputes:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-disputes.sh
+
+# Generate subscription events
+jr-subscriptions:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-subscriptions.sh
+
+# Generate all event types simultaneously (background processes)
+jr-all:
+	@if ! command -v jr >/dev/null 2>&1; then \
+		echo "❌ Error: JR tool not found. Run 'make jr-help' for installation."; \
+		exit 1; \
+	fi
+	@$(JR_DIR)/generate-all.sh
+
+# Create Kafka topics for payment events
+jr-create-topics:
+	@echo "Creating Kafka topics for payment events..."
+	@echo ""
+	@if ! docker ps | grep -q kafka-broker; then \
+		echo "❌ Error: Kafka broker not running"; \
+		echo "   Start Docker Compose first: make docker-up"; \
+		exit 1; \
+	fi
+	@echo "Creating topic: payment_charges"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_charges \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo "Creating topic: payment_refunds"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_refunds \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo "Creating topic: payment_disputes"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_disputes \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo "Creating topic: payment_subscriptions"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --create --topic payment_subscriptions \
+		--bootstrap-server localhost:9092 \
+		--replication-factor 1 --partitions 1 \
+		--if-not-exists 2>/dev/null || true
+	@echo ""
+	@echo "✓ Topics created successfully"
+	@echo ""
+	@echo "List topics:"
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+		/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+# Stop all running JR processes
+jr-stop:
+	@echo "Stopping all JR processes..."
+	@pkill -f "jr run" 2>/dev/null || echo "No JR processes found"
+	@echo "✓ All JR processes stopped"
+
+# Show JR installation and usage help
+jr-help:
+	@echo "JR - Random Data Generator"
+	@echo "=========================="
+	@echo ""
+	@echo "Installation:"
+	@echo "  macOS/Linux (Homebrew):"
+	@echo "    brew install jr"
+	@echo ""
+	@echo "  Manual installation:"
+	@echo "    See: https://github.com/ugol/jr"
+	@echo ""
+	@echo "Important: JR Configuration Fix"
+	@echo "================================"
+	@echo "After installing JR via Homebrew, delete the default config:"
+	@echo "  rm /opt/homebrew/etc/jr/jrconfig.json"
+	@echo ""
+	@echo "This prevents JSON Schema format conflicts with our setup."
+	@echo ""
+	@echo "Available Commands:"
+	@echo "  make jr-charges       - Generate charge events"
+	@echo "  make jr-refunds       - Generate refund events"
+	@echo "  make jr-disputes      - Generate dispute events"
+	@echo "  make jr-subscriptions - Generate subscription events"
+	@echo "  make jr-all           - Generate all events simultaneously"
+	@echo "  make jr-stop          - Stop all JR processes"
+	@echo ""
+	@echo "Event Templates Location:"
+	@echo "  $(JR_DIR)/"
+	@echo ""
+	@echo "Kafka Topics (created automatically):"
+	@echo "  - payment_charges"
+	@echo "  - payment_refunds"
+	@echo "  - payment_disputes"
+	@echo "  - payment_subscriptions"
+	@echo ""
+	@echo "View Kafka topics:"
+	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml exec kafka-broker \\"
+	@echo "    kafka-topics.sh --list --bootstrap-server localhost:9092"
+	@echo ""
+	@echo "Consume events (example):"
+	@echo "  docker compose -f $(DOCKER_DIR)/docker-compose.yml exec kafka-broker \\"
+	@echo "    kafka-console-consumer.sh --bootstrap-server localhost:9092 \\"
+	@echo "    --topic payment_charges --from-beginning"
+
+##################################################
+# PAYMENT PIPELINE COMMANDS (Full Ingestion)
+##################################################
+
+# Payment Pipeline Variables
+PAYMENT_PIPELINE_DIR := payment-pipeline
+
+# Start full payment pipeline (Kafka + Gateway + Normalizer + Temporal + Orchestrator)
+pipeline-up:
+	@echo "=========================================="
+	@echo "   Starting Payment Pipeline"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components:"
+	@echo "  - Kafka Broker (message queue)"
+	@echo "  - Payment Gateway (webhook receiver)"
+	@echo "  - Normalizer (validation & transformation)"
+	@echo "  - Temporal (workflow orchestration)"
+	@echo "  - Inference Service (ML mock endpoints)"
+	@echo "  - Orchestrator (Temporal workflows)"
+	@echo ""
+	@echo "Starting Kafka..."
+	@cd $(DOCKER_DIR) && docker compose up -d kafka-broker
+	@echo "Waiting for Kafka to be ready..."
+	@sleep 5
+	@echo ""
+	@echo "Starting Gateway..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d payment-gateway
+	@sleep 3
+	@echo ""
+	@echo "Starting Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
+	@sleep 2
+	@echo ""
+	@echo "Starting Temporal..."
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d temporal-db temporal temporal-ui
+	@echo "Waiting for Temporal to be ready..."
+	@sleep 10
+	@echo ""
+	@echo "Starting Inference Service and Orchestrator..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator up -d inference-service orchestrator
+	@sleep 3
+	@echo ""
+	@echo "=========================================="
+	@echo "   Payment Pipeline Started!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Services:"
+	@echo "  Gateway API:        http://localhost:8000"
+	@echo "  Gateway Health:     http://localhost:8000/health"
+	@echo "  Inference Service:  http://localhost:8002"
+	@echo "  Temporal UI:        http://localhost:8088"
+	@echo "  Kafka Broker:       localhost:9092"
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "  Input:   webhooks.stripe.payment_intent"
+	@echo "           webhooks.stripe.charge"
+	@echo "           webhooks.stripe.refund"
+	@echo "  Output:  payments.normalized"
+	@echo "  DLQ:     payments.validation.dlq"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start simulator:  make gateway-simulator"
+	@echo "  2. View logs:        make pipeline-logs"
+	@echo "  3. Check status:     make pipeline-status"
+	@echo "  4. View counts:      make normalizer-counts"
+
+# Stop full payment pipeline
+pipeline-down:
+	@echo "Stopping Payment Pipeline..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator stop \
+		orchestrator inference-service temporal-ui temporal temporal-db \
+		normalizer payment-gateway webhook-simulator kafka-broker 2>/dev/null || true
+	@echo "Payment Pipeline stopped"
+
+# Show all pipeline component status
+pipeline-status: gateway-status normalizer-status orchestrator-status
+
+# View all pipeline logs
+pipeline-logs:
+	@echo "Viewing Pipeline logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator logs -f kafka-broker payment-gateway normalizer orchestrator inference-service temporal
+
+##################################################
+# PAYMENT GATEWAY COMMANDS (Webhook Receiver)
+##################################################
+
+# Start payment gateway with Kafka (using gateway profile)
+gateway-up:
+	@echo "Starting Payment Gateway with Kafka..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d kafka-broker payment-gateway
+	@echo ""
+	@echo "Waiting for services to be healthy..."
+	@sleep 5
+	@echo ""
+	@echo "✓ Payment Gateway started!"
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Gateway API:     http://localhost:8000"
+	@echo "  Gateway Health:  http://localhost:8000/health"
+	@echo "  Kafka Broker:    localhost:9092"
+	@echo ""
+	@echo "Webhook Endpoints:"
+	@echo "  Stripe:  POST http://localhost:8000/webhooks/stripe/"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Send test webhook:     make gateway-test-send"
+	@echo "  2. Start simulator:       make gateway-simulator"
+	@echo "  3. View logs:             make gateway-logs"
+
+# Stop payment gateway
+gateway-down:
+	@echo "Stopping Payment Gateway..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop payment-gateway webhook-simulator
+	@echo "✓ Payment Gateway stopped"
+
+# View payment gateway logs
+gateway-logs:
+	@echo "Viewing Payment Gateway logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose logs -f payment-gateway
+
+# Start webhook simulator (continuous traffic)
+gateway-simulator:
+	@echo "Starting Webhook Simulator..."
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator up -d webhook-simulator
+	@echo ""
+	@echo "Webhook Simulator started! Generating webhooks at 2/sec for 5 minutes"
+	@echo ""
+	@echo "Commands:"
+	@echo "  make simulator-stop   - Stop simulator"
+	@echo "  make simulator-logs   - View simulator logs"
+
+# Stop webhook simulator
+simulator-stop:
+	@echo "Stopping Webhook Simulator..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop webhook-simulator
+	@echo "Webhook Simulator stopped"
+
+# View webhook simulator logs
+simulator-logs:
+	@echo "Viewing Simulator logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator logs -f webhook-simulator
+
+# Build payment gateway Docker image
+gateway-build:
+	@echo "Building Payment Gateway Docker image..."
+	@cd $(PAYMENT_PIPELINE_DIR) && docker build -t payment-gateway:latest .
+	@echo "✓ Payment Gateway image built: payment-gateway:latest"
+
+# Run payment gateway unit tests
+gateway-test:
+	@echo "Running Payment Gateway unit tests..."
+	@cd $(PAYMENT_PIPELINE_DIR) && pip install -e ".[dev]" -q && pytest tests/ -v
+	@echo "✓ Tests completed"
+
+# Send a single test webhook
+gateway-test-send:
+	@echo "Sending test webhook to gateway..."
+	@if ! docker ps | grep -q payment-gateway; then \
+		echo "❌ Error: Payment Gateway not running"; \
+		echo "   Start it first: make gateway-up"; \
+		exit 1; \
+	fi
+	@cd $(PAYMENT_PIPELINE_DIR) && pip install -e . -q && \
+		python -m simulator.main send --type payment_intent.succeeded
+	@echo ""
+	@echo "✓ Test webhook sent!"
+
+# Show payment gateway status
+gateway-status:
+	@echo "=========================================="
+	@echo "   Payment Gateway Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q payment-gateway; then \
+		echo "  ✓ Payment Gateway: running"; \
+		docker ps --filter "name=payment-gateway" --format "    {{.Status}}  {{.Ports}}"; \
+	else \
+		echo "  ✗ Payment Gateway: not running"; \
+	fi
+	@if docker ps | grep -q webhook-simulator; then \
+		echo "  ✓ Webhook Simulator: running"; \
+	else \
+		echo "  ○ Webhook Simulator: not running"; \
+	fi
+	@echo ""
+	@echo "Health Check:"
+	@echo "-------------"
+	@if docker ps | grep -q payment-gateway; then \
+		curl -s http://localhost:8000/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "  Gateway not responding"; \
+	else \
+		echo "  Gateway not running"; \
+	fi
+	@echo ""
+	@echo "Kafka Topics (webhooks.*):"
+	@echo "--------------------------"
+	@if docker ps | grep -q kafka-broker; then \
+		docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+			/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092 2>/dev/null | grep "webhooks" || echo "  No webhook topics found"; \
+	else \
+		echo "  Kafka not running"; \
+	fi
+	@echo ""
+	@echo "Commands:"
+	@echo "  make gateway-up          - Start gateway"
+	@echo "  make gateway-logs        - View logs"
+	@echo "  make gateway-simulator   - Start traffic generator"
+	@echo "  make gateway-test-send   - Send single test webhook"
+
+##################################################
+# NORMALIZER (Python Kafka Consumer)
+##################################################
+
+# Build normalizer Docker image
+normalizer-build:
+	@echo "Building Normalizer Docker image..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer build normalizer
+	@echo "Normalizer image built"
+
+# Start normalizer with gateway
+normalizer-up: gateway-up
+	@echo ""
+	@echo "Starting Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
+	@echo ""
+	@echo "Normalizer started!"
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Gateway API:      http://localhost:8000"
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "  Input:   webhooks.stripe.payment_intent"
+	@echo "           webhooks.stripe.charge"
+	@echo "           webhooks.stripe.refund"
+	@echo "  Output:  payments.normalized"
+	@echo "  DLQ:     payments.validation.dlq"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Start simulator:  make gateway-simulator"
+	@echo "  2. View logs:        make normalizer-logs"
+	@echo "  3. Check status:     make normalizer-status"
+
+# Stop normalizer
+normalizer-down:
+	@echo "Stopping Normalizer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer stop normalizer
+	@echo "Normalizer stopped"
+
+# View normalizer logs
+normalizer-logs:
+	@echo "Viewing Normalizer logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer logs -f normalizer
+
+# Show normalizer status
+normalizer-status:
+	@echo "=========================================="
+	@echo "   Normalizer Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q payment-normalizer; then \
+		echo "  [OK] Normalizer: running"; \
+	else \
+		echo "  [--] Normalizer: not running"; \
+	fi
+	@if docker ps | grep -q payment-gateway; then \
+		echo "  [OK] Gateway: running"; \
+	else \
+		echo "  [--] Gateway: not running"; \
+	fi
+	@if docker ps | grep -q kafka-broker; then \
+		echo "  [OK] Kafka: running"; \
+	else \
+		echo "  [--] Kafka: not running"; \
+	fi
+	@echo ""
+	@echo "Kafka Topics:"
+	@echo "-------------"
+	@if docker ps | grep -q kafka-broker; then \
+		docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+			/opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092 2>/dev/null | grep -E "(payments\.|webhooks\.)" || echo "  No payment topics found"; \
+	else \
+		echo "  Kafka not running"; \
+	fi
+	@echo ""
+	@echo "Commands:"
+	@echo "  make normalizer-up      - Start normalizer with gateway"
+	@echo "  make normalizer-logs    - View normalizer logs"
+	@echo "  make normalizer-counts  - Show message counts"
+	@echo "  make normalizer-down    - Stop normalizer"
+
+# Check normalized message counts
+normalizer-counts:
+	@echo "Kafka Topic Message Counts:"
+	@echo "==========================="
+	@if docker ps | grep -q kafka-broker; then \
+		echo ""; \
+		echo "Input Topics:"; \
+		for topic in webhooks.stripe.payment_intent webhooks.stripe.charge webhooks.stripe.refund; do \
+			count=$$(docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+				/opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+				--broker-list localhost:9092 --topic $$topic --time -1 2>/dev/null | \
+				awk -F: '{sum += $$3} END {print sum}' 2>/dev/null || echo "0"); \
+			printf "  %-35s %s messages\n" "$$topic:" "$$count"; \
+		done; \
+		echo ""; \
+		echo "Output Topics:"; \
+		for topic in payments.normalized payments.validation.dlq; do \
+			count=$$(docker compose -f $(DOCKER_DIR)/docker-compose.yml exec -T kafka-broker \
+				/opt/kafka/bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
+				--broker-list localhost:9092 --topic $$topic --time -1 2>/dev/null | \
+				awk -F: '{sum += $$3} END {print sum}' 2>/dev/null || echo "0"); \
+			printf "  %-35s %s messages\n" "$$topic:" "$$count"; \
+		done; \
+	else \
+		echo "Kafka not running"; \
+	fi
+
+##################################################
+# ORCHESTRATOR COMMANDS (Temporal Workflows)
+##################################################
+
+# Build orchestrator Docker image
+orchestrator-build:
+	@echo "Building Orchestrator Docker image..."
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator build orchestrator
+	@echo "Orchestrator image built"
+
+# Build inference service Docker image
+inference-build:
+	@echo "Building Inference Service Docker image..."
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator build inference-service
+	@echo "Inference Service image built"
+
+# Start orchestrator with all dependencies (gateway, normalizer, temporal)
+orchestrator-up: normalizer-up
+	@echo ""
+	@echo "Starting Temporal and Orchestrator..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator up -d temporal-db temporal temporal-ui inference-service orchestrator
+	@echo ""
+	@echo "Orchestrator started!"
+	@echo ""
+	@echo "Access Points:"
+	@echo "  - Temporal UI:        http://localhost:8088"
+	@echo "  - Inference Service:  http://localhost:8002"
+	@echo ""
+	@echo "Commands:"
+	@echo "  make orchestrator-logs    - View orchestrator logs"
+	@echo "  make orchestrator-status  - Show orchestrator status"
+	@echo "  make orchestrator-down    - Stop orchestrator"
+
+# Stop orchestrator (keeps gateway and normalizer running)
+orchestrator-down:
+	@echo "Stopping Orchestrator and Temporal..."
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator stop orchestrator inference-service temporal-ui temporal temporal-db
+	@echo "Orchestrator stopped"
+
+# View orchestrator logs
+orchestrator-logs:
+	@echo "Viewing Orchestrator logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator logs -f orchestrator
+
+# View temporal logs
+temporal-logs:
+	@echo "Viewing Temporal logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator logs -f temporal
+
+# View inference service logs
+inference-logs:
+	@echo "Viewing Inference Service logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator logs -f inference-service
+
+# Show orchestrator status
+orchestrator-status:
+	@echo "=========================================="
+	@echo "   Orchestrator Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q payment-orchestrator; then \
+		echo "  [OK] Orchestrator: running"; \
+	else \
+		echo "  [--] Orchestrator: not running"; \
+	fi
+	@if docker ps | grep -q inference-service; then \
+		echo "  [OK] Inference Service: running"; \
+	else \
+		echo "  [--] Inference Service: not running"; \
+	fi
+	@if docker ps | grep -q temporal-ui; then \
+		echo "  [OK] Temporal UI: running"; \
+	else \
+		echo "  [--] Temporal UI: not running"; \
+	fi
+	@if docker ps | grep -q "temporal$$"; then \
+		echo "  [OK] Temporal: running"; \
+	else \
+		echo "  [--] Temporal: not running"; \
+	fi
+	@if docker ps | grep -q temporal-db; then \
+		echo "  [OK] Temporal DB: running"; \
+	else \
+		echo "  [--] Temporal DB: not running"; \
+	fi
+	@echo ""
+	@echo "Access Points:"
+	@echo "--------------"
+	@echo "  - Temporal UI:        http://localhost:8088"
+	@echo "  - Inference Service:  http://localhost:8002/health"
+	@echo ""
+	@echo "Commands:"
+	@echo "  make orchestrator-up      - Start orchestrator with dependencies"
+	@echo "  make orchestrator-logs    - View orchestrator logs"
+	@echo "  make temporal-logs        - View temporal logs"
+	@echo "  make inference-logs       - View inference service logs"
+	@echo "  make orchestrator-down    - Stop orchestrator"

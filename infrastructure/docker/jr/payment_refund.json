@@ -1,0 +1,21 @@
+{
+  "event_id": "{{key "evt_" 1000000}}",
+  "event_type": "refund.{{randoms "created|succeeded|failed"}}",
+  "provider": "{{randoms "stripe|braintree|adyen|checkout|square"}}",
+  "refund_id": "{{key "re_" 500000}}",
+  "charge_id": "{{key "ch_" 500000}}",
+  "customer_id": "{{key "cus_" 50000}}",
+  "amount": {{amount 1 5000 ""}},
+  "currency": "{{randoms "USD|EUR|GBP|CAD|JPY"}}",
+  "status": "{{randoms "succeeded|failed|pending"}}",
+  "reason": "{{randoms "requested_by_customer|fraudulent|duplicate"}}",
+  "failure_reason": "{{randoms "insufficient_funds|expired_refund_window|processing_error"}}",
+  "merchant_id": "{{key "merch_" 1000}}",
+  "metadata": {
+    "refund_requested_by": "{{randoms "customer|merchant|support_agent"}}",
+    "original_order_id": "{{key "ord_" 200000}}",
+    "support_ticket_id": "{{key "ticket_" 50000}}"
+  },
+  "created_at": "{{format_timestamp now "2006-01-02T15:04:05.000"}}",
+  "updated_at": "{{format_timestamp now "2006-01-02T15:04:05.000"}}"
+}

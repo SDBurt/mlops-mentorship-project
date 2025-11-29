@@ -7,7 +7,13 @@ from dagster import (
 )
 
 from .resources.iceberg import create_iceberg_io_manager
+from .resources.trino import TrinoResource
 from .sources.reddit import reddit_posts, reddit_comments
+from .sources.payments import (
+    quarantine_charges_monitor,
+    quarantine_summary_monitor,
+    validation_flag_monitor
+)
 # from .sources.reddit_pyarrow import reddit_posts_pyarrow, reddit_comments_pyarrow  # Uncomment for PyArrow
 
 
@@ -25,12 +31,24 @@ reddit_ingestion_job = define_asset_job(
 #     description="Ingest Reddit posts and comments (PyArrow backend)",
 # )
 
+# Job for Payment Data Quality Monitoring
+payment_dq_monitoring_job = define_asset_job(
+    name="payment_dq_monitoring_job",
+    selection=AssetSelection.groups("data_quality_payments"),
+    description="Monitor payment quarantine tables and data quality metrics",
+)
+
 # Define all assets and resources
 defs = Definitions(
     assets=[
-        # Pandas backend assets (default)
+        # Reddit ingestion assets (Pandas backend - default)
         reddit_posts,
         reddit_comments,
+
+        # Payment data quality monitoring assets
+        quarantine_charges_monitor,
+        quarantine_summary_monitor,
+        validation_flag_monitor,
 
         # PyArrow backend assets (uncomment to use)
         # reddit_posts_pyarrow,
@@ -43,6 +61,17 @@ defs = Definitions(
             backend="pandas"
         ),
 
+        # Trino resource for data quality monitoring
+        # Host is configured via TRINO_HOST environment variable
+        # Defaults: "trino" in Kubernetes, "localhost" for local development
+        # Catalog name matches Trino catalog file: iceberg.properties -> catalog name "iceberg"
+        "trino_resource": TrinoResource(
+            port=8080,
+            catalog="iceberg",
+            schema="payments_db",
+            user="dagster"
+        ),
+
         # PyArrow backend (uncomment to use) - best for large datasets
         # "iceberg_io_manager": create_iceberg_io_manager(
         #     namespace="data",
@@ -51,6 +80,7 @@ defs = Definitions(
     },
     jobs=[
         reddit_ingestion_job,
+        payment_dq_monitoring_job,
         # reddit_ingestion_pyarrow_job,  # Uncomment for PyArrow
     ],
 )

@@ -1,33 +1,285 @@
 services:
+  #####################################
+  # STREAMING SERVICES (Kafka + Flink)
+  #####################################
+
+  kafka-broker:
+    image: apache/kafka:4.0.0
+    platform: linux/amd64
+    container_name: kafka-broker
+    ports:
+      - "9092:9092"
+    networks:
+      - local-iceberg-lakehouse
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka-broker:29092,CONTROLLER://kafka-broker:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka-broker:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-broker:29093'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  flink-jobmanager:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      - polaris
+      - minio
+
+    env_file:
+      - .env
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE_ACCESS: "true"
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        # Configure checkpoint storage to use S3/MinIO
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        # Configure S3 filesystem (Hadoop S3A) for MinIO
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        # Hadoop S3A filesystem configuration
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
+
+  flink-taskmanager:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    command: taskmanager
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      - polaris
+      - minio
+    deploy:
+      replicas: 1
+    env_file:
+      - .env
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE_ACCESS: "true"
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 8
+        # Configure checkpoint storage to use S3/MinIO
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        # Configure S3 filesystem (Hadoop S3A) for MinIO
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        # Hadoop S3A filesystem configuration
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
+
+  flink-sql-client:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    command: ["sql-client.sh"]
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      polaris:
+        condition: service_started
+      minio:
+        condition: service_started
+      flink-jobmanager:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE_ACCESS: "true"
+      # Flink SQL job configuration (parameterized in SQL files)
+      POLARIS_URI: ${POLARIS_URI:-http://polaris:8181/api/catalog}
+      POLARIS_OAUTH_URI: ${POLARIS_OAUTH_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka-broker:29092}
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.address: flink-jobmanager
+        # Configure checkpoint storage to use S3/MinIO
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        # Configure S3 filesystem (Hadoop S3A) for MinIO
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        # Hadoop S3A filesystem configuration
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
+    stdin_open: true
+    tty: true
+
+  flink-job-submitter:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    container_name: flink-job-submitter
+    command: ["/opt/flink/entrypoint-submit.sh"]
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+      kafka-broker:
+        condition: service_healthy
+      polaris:
+        condition: service_started
+    volumes:
+      - ./flink/sql:/opt/flink/sql
+      - ./flink/entrypoint-submit.sh:/opt/flink/entrypoint-submit.sh
+    env_file:
+      - .env
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      S3_ENDPOINT: http://minio:9000
+      S3_PATH_STYLE_ACCESS: "true"
+      FLINK_JOBMANAGER: flink-jobmanager:8081
+      KAFKA_BROKER: kafka-broker:29092
+      POLARIS_HOST: polaris:8181
+      POLARIS_USER: ${POLARIS_USER}
+      POLARIS_PASSWORD: ${POLARIS_PASSWORD}
+      # Flink properties for S3 access
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.address: flink-jobmanager
+        execution.checkpointing.storage: filesystem
+        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
+        s3.access-key: ${AWS_ACCESS_KEY_ID}
+        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
+        s3.endpoint: http://minio:9000
+        s3.path-style-access: true
+        fs.s3a.endpoint: http://minio:9000
+        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
+        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
+        fs.s3a.path.style.access: true
+        fs.s3a.connection.ssl.enabled: false
+
+  #####################################
+  # LAKEHOUSE SERVICES
+  #####################################
+
   polaris:
     image: apache/polaris:latest
     platform: linux/amd64
     ports:
       - "8181:8181"
       - "8182:8182"
+    env_file:
+      - .env
     environment:
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
-      AWS_REGION: dummy-region
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_ENDPOINT_URL_STS: http://minio:9000
-      POLARIS_BOOTSTRAP_CREDENTIALS: default-realm,root,secret
+      POLARIS_BOOTSTRAP_CREDENTIALS: ${POLARIS_REALM},${POLARIS_USER},${POLARIS_PASSWORD}
       polaris.features.DROP_WITH_PURGE_ENABLED: "true"
-      polaris.realm-context.realms: default-realm
+      polaris.realm-context.realms: ${POLARIS_REALM}
     healthcheck:
-      test: ["CMD", "curl", "http://localhost:8181/healthcheck"]
-      interval: 5s
-      timeout: 10s
+      test:
+        - "CMD-SHELL"
+        - >
+          curl -f http://localhost:8181/api/catalog/v1/config >/dev/null 2>&1 ||
+          curl -f http://localhost:8182/health >/dev/null 2>&1 ||
+          timeout 1 bash -c "</dev/tcp/localhost/8182" 2>/dev/null ||
+          exit 1
+      interval: 10s
+      timeout: 5s
       retries: 5
+      start_period: 60s
     networks:
       - local-iceberg-lakehouse
+
+  polaris-init:
+    image: alpine:latest
+    container_name: polaris-init
+    depends_on:
+      polaris:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      POLARIS_URL: http://polaris:8181
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      MINIO_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+      MINIO_REGION: ${AWS_REGION}
+      CATALOG_NAME: polariscatalog
+      CLIENT_ID: ${POLARIS_USER}
+      CLIENT_SECRET: ${POLARIS_PASSWORD}
+      SCOPE: PRINCIPAL_ROLE:ALL
+    volumes:
+      - ./polaris/init-polaris.sh:/init-polaris.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache bash curl jq >/dev/null 2>&1
+        chmod +x /init-polaris.sh
+        /init-polaris.sh
+    networks:
+      - local-iceberg-lakehouse
+    restart: "no"
 
   trino:
     image: trinodb/trino:latest
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       TRINO_JVM_OPTS: -Xmx2G
+      # S3 credentials for MinIO access (used by iceberg.properties via ${ENV:...})
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # Polaris OAuth credentials (used by iceberg.properties via ${ENV:...})
+      # Format: username:password (constructed from POLARIS_USER:POLARIS_PASSWORD)
+      POLARIS_OAUTH_CREDENTIAL: ${POLARIS_USER}:${POLARIS_PASSWORD}
     volumes:
       - ./trino/catalog:/etc/trino/catalog
     depends_on:
@@ -38,13 +290,15 @@ services:
 
   minio:
     image: minio/minio:latest
+    env_file:
+      - .env
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_DOMAIN: minio
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
-      AWS_REGION: dummy-region
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -58,9 +312,13 @@ services:
     image: minio/mc:latest
     depends_on:
       - minio
+    env_file:
+      - .env
     entrypoint: >
       /bin/sh -c "
-      until (mc alias set minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      until (mc alias set minio http://minio:9000
+      ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}) do
+      echo '...waiting...' && sleep 1; done;
       mc rm -r --force minio/warehouse;
       mc mb minio/warehouse;
       mc anonymous set public minio/warehouse;
@@ -69,14 +327,20 @@ services:
     networks:
       - local-iceberg-lakehouse
 
+  #####################################
+  # ORCHESTRATION SERVICES (Dagster)
+  #####################################
+
   postgres:
     image: postgres:14
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: dagster
-      POSTGRES_PASSWORD: dagster
-      POSTGRES_DB: dagster
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dagster -d dagster"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -95,24 +359,26 @@ services:
     env_file:
       - .env
     environment:
-      DAGSTER_POSTGRES_USER: dagster
-      DAGSTER_POSTGRES_PASSWORD: dagster
-      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
       DAGSTER_CURRENT_IMAGE: dagster_user_code_image
       # PyIceberg / Polaris / MinIO for IO manager
       PYICEBERG_CATALOG__DEFAULT__URI: http://polaris:8181/api/catalog
       PYICEBERG_CATALOG__DEFAULT__WAREHOUSE: polariscatalog
       PYICEBERG_CATALOG__DEFAULT__TYPE: rest
-      PYICEBERG_CATALOG__DEFAULT__CREDENTIAL: root:secret
+      PYICEBERG_CATALOG__DEFAULT__CREDENTIAL: ${POLARIS_USER}:${POLARIS_PASSWORD}
       PYICEBERG_CATALOG__DEFAULT__SCOPE: PRINCIPAL_ROLE:ALL
       PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT: http://minio:9000
-      PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID: admin
-      PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY: password
+      PYICEBERG_CATALOG__DEFAULT__S3__ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS: "true"
       AWS_EC2_METADATA_DISABLED: "true"
       AWS_ENDPOINT_URL_S3: http://minio:9000
-      AWS_ACCESS_KEY_ID: admin
-      AWS_SECRET_ACCESS_KEY: password
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # Trino connection for data quality monitoring
+      TRINO_HOST: trino
     expose:
       - "3030"
     healthcheck:
@@ -144,10 +410,12 @@ services:
       - workspace.yaml
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
-      DAGSTER_POSTGRES_USER: dagster
-      DAGSTER_POSTGRES_PASSWORD: dagster
-      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dagster-io:/tmp/io_manager_storage
@@ -167,10 +435,12 @@ services:
       - dagster-daemon
       - run
     restart: on-failure
+    env_file:
+      - .env
     environment:
-      DAGSTER_POSTGRES_USER: dagster
-      DAGSTER_POSTGRES_PASSWORD: dagster
-      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dagster-io:/tmp/io_manager_storage
@@ -182,9 +452,305 @@ services:
       dagster-user-code:
         condition: service_started
 
+  #####################################
+  # JR GENERATOR SERVICES
+  #####################################
+
+  jr-charges:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-charges
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - generators
+
+  jr-refunds:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-refunds
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - generators
+    entrypoint: ["/usr/local/bin/generate-refunds.sh"]
+
+  jr-disputes:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-disputes
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - generators
+    entrypoint: ["/usr/local/bin/generate-disputes.sh"]
+
+  jr-subscriptions:
+    build:
+      context: ./jr
+      dockerfile: Dockerfile
+    container_name: jr-subscriptions
+    networks:
+      - local-iceberg-lakehouse
+    volumes:
+      - ./jr:/home/jr-user/templates
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - generators
+    entrypoint: ["/usr/local/bin/generate-subscriptions.sh"]
+
+  #####################################
+  # PAYMENT GATEWAY SERVICES
+  #####################################
+
+  payment-gateway:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile
+    container_name: payment-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_secret_for_dev}
+      LOG_LEVEL: INFO
+      KAFKA_CONNECTION_RETRIES: 10
+      KAFKA_RETRY_DELAY: 2.0
+      KAFKA_RETRY_MAX_DELAY: 30.0
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - gateway
+
+  webhook-simulator:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile
+    container_name: webhook-simulator
+    command: ["python", "-m", "simulator.main", "generate", "--rate", "2", "--duration", "300"]
+    environment:
+      GATEWAY_URL: http://payment-gateway:8000/webhooks/stripe/
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_secret_for_dev}
+    depends_on:
+      payment-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - simulator
+
+  #####################################
+  # NORMALIZER SERVICE (Python)
+  #####################################
+
+  normalizer:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile.normalizer
+    container_name: payment-normalizer
+    environment:
+      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      NORMALIZER_KAFKA_CONSUMER_GROUP: normalizer-group
+      NORMALIZER_INPUT_TOPICS: webhooks.stripe.payment_intent,webhooks.stripe.charge,webhooks.stripe.refund
+      NORMALIZER_OUTPUT_TOPIC: payments.normalized
+      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
+      NORMALIZER_LOG_LEVEL: INFO
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      payment-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - normalizer
+
+  #####################################
+  # TEMPORAL SERVICES (Workflow Orchestration)
+  #####################################
+
+  payments-db:
+    image: postgres:14
+    container_name: payments-db
+    environment:
+      POSTGRES_USER: ${PAYMENTS_DB_USER:-payments}
+      POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
+      POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - payments-db-data:/var/lib/postgresql/data
+      - ./payments-db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  temporal-db:
+    image: postgres:14
+    container_name: temporal-db
+    environment:
+      POSTGRES_USER: ${TEMPORAL_DB_USER:-temporal}
+      POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal}
+      POSTGRES_DB: ${TEMPORAL_DB_NAME:-temporal}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - temporal-db-data:/var/lib/postgresql/data
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: temporal
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: temporal-ui
+    ports:
+      - "8088:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      - temporal
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  #####################################
+  # ORCHESTRATOR SERVICE (Temporal Workflows)
+  #####################################
+
+  inference-service:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile.inference
+    container_name: inference-service
+    ports:
+      - "8002:8002"
+    environment:
+      INFERENCE_LOG_LEVEL: INFO
+      INFERENCE_MODEL_VERSION: mock-v1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  orchestrator:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile.orchestrator
+    container_name: payment-orchestrator
+    environment:
+      ORCHESTRATOR_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      ORCHESTRATOR_INPUT_TOPIC: payments.normalized
+      ORCHESTRATOR_DLQ_TOPIC: payments.validation.dlq
+      ORCHESTRATOR_KAFKA_CONSUMER_GROUP: orchestrator-group
+      ORCHESTRATOR_TEMPORAL_HOST: temporal:7233
+      ORCHESTRATOR_TEMPORAL_NAMESPACE: default
+      ORCHESTRATOR_TEMPORAL_TASK_QUEUE: payment-processing
+      ORCHESTRATOR_INFERENCE_SERVICE_URL: http://inference-service:8002
+      # Postgres for payment event storage (replaces direct Iceberg writes)
+      ORCHESTRATOR_POSTGRES_HOST: payments-db
+      ORCHESTRATOR_POSTGRES_PORT: 5432
+      ORCHESTRATOR_POSTGRES_USER: ${PAYMENTS_DB_USER:-payments}
+      ORCHESTRATOR_POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
+      ORCHESTRATOR_POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
+      # Iceberg config (kept for future batch loading)
+      ORCHESTRATOR_ICEBERG_CATALOG_URI: http://polaris:8181/api/catalog
+      ORCHESTRATOR_ICEBERG_WAREHOUSE: polariscatalog
+      ORCHESTRATOR_ICEBERG_NAMESPACE: bronze
+      ORCHESTRATOR_POLARIS_CLIENT_ID: ${POLARIS_USER}
+      ORCHESTRATOR_POLARIS_CLIENT_SECRET: ${POLARIS_PASSWORD}
+      ORCHESTRATOR_S3_ENDPOINT: http://minio:9000
+      ORCHESTRATOR_S3_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      ORCHESTRATOR_S3_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+      ORCHESTRATOR_LOG_LEVEL: INFO
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      inference-service:
+        condition: service_healthy
+      payments-db:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - orchestrator
+
 volumes:
   postgres-data:
   dagster-io:
+  temporal-db-data:
+  payments-db-data:
 
 networks:
   local-iceberg-lakehouse:

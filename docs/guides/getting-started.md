@@ -95,6 +95,34 @@ make nuke
 
 All secrets must be configured before deployment. Let's set them up step by step.
 
+### Security Best Practices
+
+**⚠️ IMPORTANT**: Never commit secrets to version control. Follow these practices:
+
+**For Local Development**:
+- **Use `.env` files**: Store secrets in a `.env` file (excluded via `.gitignore`) and source it when needed
+- **Use inline environment variables**: For one-off commands, pass secrets inline: `POLARIS_BOOTSTRAP_CLIENT_SECRET="..." make init-polaris`
+- **Never use plain `export`**: Avoid exporting secrets to your shell environment as they persist in your session history
+
+**For Production**:
+- **Use a secret manager**: Integrate with HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager
+- **Use Kubernetes Secrets**: Store secrets as Kubernetes Secret resources (already configured in this guide)
+- **Rotate regularly**: Implement secret rotation policies
+
+**Files to Never Commit**:
+- `.env` files containing secrets
+- `.credentials/` directories
+- Any files with hardcoded credentials
+
+**Example `.gitignore` patterns** (should already be configured):
+```
+.env
+.env.*
+*.secrets.yaml
+.credentials/
+**/secrets.yaml
+```
+
 ### 2.1 Polaris Secrets
 
 Create Polaris secrets for bootstrap admin access and MinIO storage:
@@ -139,9 +167,9 @@ metadata:
   namespace: lakehouse
 type: Opaque
 stringData:
-  bootstrap-credentials: "lakehouse,polaris_admin,YOUR_BOOTSTRAP_SECRET_HERE"
+  bootstrap-credentials: "lakehouse,polaris_admin,YOUR_BOOTSTRAP_SECRET_HERE"  # pragma: allowlist secret
   client-id: "polaris_admin"
-  client-secret: "YOUR_BOOTSTRAP_SECRET_HERE"
+  client-secret: "YOUR_BOOTSTRAP_SECRET_HERE"  # pragma: allowlist secret
 ```
 
 ### 2.2 MinIO Secrets
@@ -308,13 +336,24 @@ Expected output shows all pods in `Running` status.
 
 Polaris needs to be initialized with RBAC (roles, permissions, and service accounts):
 
-```bash
-# Set bootstrap credentials (use the secret from your polaris-secrets.yaml)
-export POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
-export POLARIS_BOOTSTRAP_CLIENT_SECRET="YOUR_GENERATED_SECRET_HERE"
+> **🔒 Security Note**: See [Security Best Practices](#security-best-practices) above. Instead of exporting secrets, use one of these secure methods:
 
-# Initialize Polaris
+**Option 1: Inline environment variables** (recommended for one-off commands):
+```bash
+# Pass credentials inline (not exported to shell)
+POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin" \
+POLARIS_BOOTSTRAP_CLIENT_SECRET="YOUR_GENERATED_SECRET_HERE" \  # pragma: allowlist secret
 make init-polaris
+```
+
+**Option 2: Use a `.env` file** (for repeated use):
+```bash
+# Create .env file (gitignored) with:
+# POLARIS_BOOTSTRAP_CLIENT_ID="polaris_admin"
+# POLARIS_BOOTSTRAP_CLIENT_SECRET="YOUR_GENERATED_SECRET_HERE" # pragma: allowlist secret
+
+# Source and run
+source .env && make init-polaris
 ```
 
 **What this does**:
@@ -359,6 +398,8 @@ Credentials saved to: infrastructure/kubernetes/polaris/.credentials/dagster_use
 - If you get "Cannot connect to Polaris", start port-forwarding: `make port-forward-start`
 - If credentials are wrong, check your polaris-secrets.yaml file
 
+> **Note**: Step 6 (Deploy Dagster User Code) is optional — only required if you are deploying custom Dagster user jobs/code.
+
 ## Step 5: Configure Trino-Polaris Integration
 
 Connect Trino to the Polaris catalog so it can query Iceberg tables:
@@ -372,6 +413,8 @@ make configure-trino-polaris
 2. Updates Trino secrets with Polaris OAuth credentials
 3. Restarts Trino to apply configuration
 4. Trino can now query tables via Polaris catalog
+
+> **Note**: Step 6 (Deploy Dagster User Code) is optional — only required if you are deploying custom Dagster user jobs/code.
 
 **Expected Output**:
 ```
@@ -397,6 +440,8 @@ make deploy-dagster-code
 
 This deploys Python code for orchestrating data ingestion and transformations.
 
+> **Note**: This step is optional — only required if you are deploying custom Dagster user jobs/code. You can skip this if you're using the default bundled jobs or only evaluating the stack locally.
+
 ## Step 7: Access Services
 
 Start port-forwarding to access services from your local machine:
@@ -408,7 +453,7 @@ make port-forward-start
 **Services Available**:
 - **Dagster UI**: http://localhost:3000 (data orchestration)
 - **Trino UI**: http://localhost:8080 (SQL queries)
-- **MinIO Console**: http://localhost:9001 (S3 storage, login: admin/your-password)
+- **MinIO Console**: http://localhost:9001 (S3 storage, login: admin/YOUR_MINIO_PASSWORD_HERE)
 - **Polaris REST API**: http://localhost:8181 (catalog API)
 
 **Check port-forward status**:
@@ -425,8 +470,23 @@ make port-forward-stop
 
 ### 8.1 Test Polaris Connectivity
 
+> **🔒 Security Note**: See [Security Best Practices](#security-best-practices) above. The credentials file is gitignored, but prefer inline variables for one-off commands.
+
+**Option 1: Inline environment variables** (recommended):
 ```bash
-# Get an OAuth token from Polaris
+# Read credentials and use inline (credentials file is gitignored)
+POLARIS_CLIENT_ID=$(grep POLARIS_CLIENT_ID infrastructure/kubernetes/polaris/.credentials/dagster_user.txt | cut -d'=' -f2 | tr -d '"')
+POLARIS_CLIENT_SECRET=$(grep POLARIS_CLIENT_SECRET infrastructure/kubernetes/polaris/.credentials/dagster_user.txt | cut -d'=' -f2 | tr -d '"')
+
+curl -s --user "${POLARIS_CLIENT_ID}:${POLARIS_CLIENT_SECRET}" \
+  http://localhost:8181/api/catalog/v1/oauth/tokens \
+  -d 'grant_type=client_credentials' \
+  -d 'scope=PRINCIPAL_ROLE:ALL'
+```
+
+**Option 2: Source credentials file** (if file is properly gitignored):
+```bash
+# Source credentials (file should be in .gitignore)
 source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt
 
 curl -s --user "${POLARIS_CLIENT_ID}:${POLARIS_CLIENT_SECRET}" \

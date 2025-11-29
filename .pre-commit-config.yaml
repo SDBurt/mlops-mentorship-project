@@ -6,7 +6,7 @@
 repos:
   # Detect secrets using detect-secrets
   - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.4.0
+    rev: v1.5.0
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
@@ -48,6 +48,10 @@ repos:
       - id: check-yaml
         args: ['--unsafe']  # Allow custom tags in YAML
       - id: check-json
+        exclude: |
+          (?x)^(
+            infrastructure/docker/jr/.*\.json$
+          )$
       - id: check-added-large-files
         args: ['--maxkb=1000']
       - id: check-merge-conflict

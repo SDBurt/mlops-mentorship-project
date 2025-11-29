@@ -214,3 +214,153 @@ sources:
 
       - name: reddit_investing_subreddit
         description: "Metadata for r/investing subreddit"
+
+  # ============================================================================
+  # Payments - Bronze Layer (From Flink + Polaris)
+  # ============================================================================
+  - name: bronze_payments
+    description: "Validated payment events from Flink streaming pipeline"
+    database: lakehouse
+    schema: payments_db
+
+    # Freshness checks - streaming data should be near real-time
+    freshness:
+      warn_after: {count: 10, period: minute}
+      error_after: {count: 30, period: minute}
+    loaded_at_field: "created_at"
+
+    tables:
+      - name: payment_charges
+        description: "Validated payment charge events (passed Flink validation)"
+        columns:
+          - name: event_id
+            description: "Unique event identifier"
+            tests:
+              - unique
+              - not_null
+          - name: customer_id
+            description: "Customer identifier (validated not null)"
+            tests:
+              - not_null
+          - name: amount
+            description: "Transaction amount (validated > 0 and <= 1M)"
+          - name: currency
+            description: "Currency code (validated: USD, CAD, GBP, EUR, JPY)"
+            tests:
+              - accepted_values:
+                  values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY', null]
+          - name: created_at
+            description: "Event timestamp"
+            tests:
+              - not_null
+          - name: validation_flag
+            description: "Flag for suspicious patterns (true = needs review)"
+
+      - name: payment_refunds
+        description: "Validated refund events"
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: charge_id
+            description: "Reference to original charge"
+            tests: [not_null]
+          - name: amount
+            description: "Refund amount"
+          - name: currency
+            tests:
+              - accepted_values:
+                  values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY', null]
+          - name: created_at
+            tests: [not_null]
+          - name: validation_flag
+            description: "Flag for suspicious patterns"
+
+      - name: payment_disputes
+        description: "Validated dispute/chargeback events"
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: charge_id
+            tests: [not_null]
+          - name: amount
+          - name: currency
+            tests:
+              - accepted_values:
+                  values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY', null]
+          - name: created_at
+            tests: [not_null]
+          - name: validation_flag
+
+      - name: payment_subscriptions
+        description: "Validated subscription events"
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: plan_id
+            description: "Subscription plan identifier"
+            tests: [not_null]
+          - name: amount
+          - name: currency
+            tests:
+              - accepted_values:
+                  values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY', null]
+          - name: created_at
+            tests: [not_null]
+          - name: validation_flag
+
+      # Quarantine tables for monitoring invalid data
+      - name: quarantine_payment_charges
+        description: "Invalid charge events rejected by Flink validation"
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: quarantine_timestamp
+            description: "When record was quarantined"
+            tests: [not_null]
+          - name: rejection_reason
+            description: "Why the record was rejected"
+            tests:
+              - not_null
+              - accepted_values:
+                  values:
+                    - 'MISSING_CUSTOMER_ID'
+                    - 'INVALID_CURRENCY'
+                    - 'INVALID_AMOUNT_NEGATIVE'
+                    - 'INVALID_AMOUNT_TOO_LARGE'
+                    - 'UNKNOWN_VALIDATION_FAILURE'
+
+      - name: quarantine_payment_refunds
+        description: "Invalid refund events"
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: quarantine_timestamp
+            tests: [not_null]
+          - name: rejection_reason
+            tests: [not_null]
+
+      - name: quarantine_payment_disputes
+        description: "Invalid dispute events"
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: quarantine_timestamp
+            tests: [not_null]
+          - name: rejection_reason
+            tests: [not_null]
+
+      - name: quarantine_payment_subscriptions
+        description: "Invalid subscription events"
+        columns:
+          - name: event_id
+            tests: [unique, not_null]
+          - name: quarantine_timestamp
+            tests: [not_null]
+          - name: rejection_reason
+            tests: [not_null]

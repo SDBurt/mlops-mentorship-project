@@ -1,0 +1,33 @@
+{
+  "event_id": "{{key "evt_" 1000000}}",
+  "event_type": "subscription.{{randoms "created|updated|canceled|payment_failed|payment_succeeded"}}",
+  "provider": "{{randoms "stripe|braintree|adyen|checkout|square"}}",
+  "subscription_id": "{{key "sub_" 100000}}",
+  "customer_id": "{{key "cus_" 50000}}",
+  "plan_id": "{{key "plan_" 100}}",
+  "plan_name": "{{randoms "Basic Plan|Pro Plan|Enterprise Plan"}}",
+  "amount": {{amount 5 500 ""}},
+  "currency": "{{randoms "USD|EUR|GBP|CAD|JPY"}}",
+  "interval": "{{randoms "month|year|week"}}",
+  "interval_count": {{integer 1 12}},
+  "status": "{{randoms "active|past_due|canceled|unpaid|trialing"}}",
+  "cancel_at_period_end": "{{randoms "true|false"}}",
+  "canceled_at": "{{format_timestamp now "2006-01-02T15:04:05.000"}}",
+  "trial_start": "{{format_timestamp now "2006-01-02T15:04:05.000"}}",
+  "trial_end": "{{format_timestamp now "2006-01-02T15:04:05.000"}}",
+  "current_period_start": "{{format_timestamp now "2006-01-02T15:04:05.000"}}",
+  "current_period_end": "{{format_timestamp now "2006-01-02T15:04:05.000"}}",
+  "payment_method_id": "{{key "pm_" 100000}}",
+  "merchant_id": "{{key "merch_" 1000}}",
+  "metadata": {
+    "user_email": "{{email}}",
+    "signup_source": "{{randoms "web|mobile_app|api"}}",
+    "promo_code": "{{key "promo_" 1000}}"
+  },
+  "discount": {
+    "coupon_id": "{{key "coupon_" 500}}",
+    "percent_off": {{integer 10 50}}
+  },
+  "created_at": "{{format_timestamp now "2006-01-02T15:04:05.000"}}",
+  "updated_at": "{{format_timestamp now "2006-01-02T15:04:05.000"}}"
+}
