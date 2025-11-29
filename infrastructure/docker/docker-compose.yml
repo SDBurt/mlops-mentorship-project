@@ -600,9 +600,157 @@ services:
     profiles:
       - normalizer
 
+  #####################################
+  # TEMPORAL SERVICES (Workflow Orchestration)
+  #####################################
+
+  payments-db:
+    image: postgres:14
+    container_name: payments-db
+    environment:
+      POSTGRES_USER: ${PAYMENTS_DB_USER:-payments}
+      POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
+      POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - payments-db-data:/var/lib/postgresql/data
+      - ./payments-db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  temporal-db:
+    image: postgres:14
+    container_name: temporal-db
+    environment:
+      POSTGRES_USER: ${TEMPORAL_DB_USER:-temporal}
+      POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal}
+      POSTGRES_DB: ${TEMPORAL_DB_NAME:-temporal}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - temporal-db-data:/var/lib/postgresql/data
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: temporal
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: temporal-ui
+    ports:
+      - "8088:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      - temporal
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  #####################################
+  # ORCHESTRATOR SERVICE (Temporal Workflows)
+  #####################################
+
+  inference-service:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile.inference
+    container_name: inference-service
+    ports:
+      - "8002:8002"
+    environment:
+      INFERENCE_LOG_LEVEL: INFO
+      INFERENCE_MODEL_VERSION: mock-v1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - orchestrator
+
+  orchestrator:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: Dockerfile.orchestrator
+    container_name: payment-orchestrator
+    environment:
+      ORCHESTRATOR_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      ORCHESTRATOR_INPUT_TOPIC: payments.normalized
+      ORCHESTRATOR_DLQ_TOPIC: payments.validation.dlq
+      ORCHESTRATOR_KAFKA_CONSUMER_GROUP: orchestrator-group
+      ORCHESTRATOR_TEMPORAL_HOST: temporal:7233
+      ORCHESTRATOR_TEMPORAL_NAMESPACE: default
+      ORCHESTRATOR_TEMPORAL_TASK_QUEUE: payment-processing
+      ORCHESTRATOR_INFERENCE_SERVICE_URL: http://inference-service:8002
+      # Postgres for payment event storage (replaces direct Iceberg writes)
+      ORCHESTRATOR_POSTGRES_HOST: payments-db
+      ORCHESTRATOR_POSTGRES_PORT: 5432
+      ORCHESTRATOR_POSTGRES_USER: ${PAYMENTS_DB_USER:-payments}
+      ORCHESTRATOR_POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
+      ORCHESTRATOR_POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
+      # Iceberg config (kept for future batch loading)
+      ORCHESTRATOR_ICEBERG_CATALOG_URI: http://polaris:8181/api/catalog
+      ORCHESTRATOR_ICEBERG_WAREHOUSE: polariscatalog
+      ORCHESTRATOR_ICEBERG_NAMESPACE: bronze
+      ORCHESTRATOR_POLARIS_CLIENT_ID: ${POLARIS_USER}
+      ORCHESTRATOR_POLARIS_CLIENT_SECRET: ${POLARIS_PASSWORD}
+      ORCHESTRATOR_S3_ENDPOINT: http://minio:9000
+      ORCHESTRATOR_S3_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      ORCHESTRATOR_S3_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+      ORCHESTRATOR_LOG_LEVEL: INFO
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      inference-service:
+        condition: service_healthy
+      payments-db:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - orchestrator
+
 volumes:
   postgres-data:
   dagster-io:
+  temporal-db-data:
+  payments-db-data:
 
 networks:
   local-iceberg-lakehouse:

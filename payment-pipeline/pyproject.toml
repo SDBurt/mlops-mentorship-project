@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "payment-gateway"
+name = "payment-pipeline"
 version = "0.1.0"
-description = "Webhook gateway for payment providers"
+description = "Streaming payment data pipeline with webhook gateway, normalizer, and Temporal orchestration"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -24,13 +24,31 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.1.0",
+    "temporalio>=1.5.0",
+    "psycopg[binary]>=3.1.0",
+    "pyiceberg>=0.6.0",
+    "pyarrow>=14.0.0",
+]
+orchestrator = [
+    "temporalio>=1.5.0",
+    "aiokafka>=0.10.0",
+    "httpx>=0.26.0",
+    "psycopg[binary]>=3.1.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+]
+inference = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
 ]
 
 [project.scripts]
 simulator = "simulator.main:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/payment_gateway", "src/normalizer", "simulator"]
+packages = ["src/payment_gateway", "src/normalizer", "src/orchestrator", "simulator", "inference_service"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
