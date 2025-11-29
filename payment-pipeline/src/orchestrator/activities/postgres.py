@@ -75,10 +75,10 @@ async def persist_to_postgres(event_data: dict[str, Any]) -> dict[str, Any]:
             "schema_version": event_data.get("schema_version", 1),
         }
 
-        # Insert into Postgres using psycopg3 (async-compatible sync API)
-        with psycopg.connect(settings.postgres_dsn) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+        # Insert into Postgres using psycopg3 async API
+        async with await psycopg.AsyncConnection.connect(settings.postgres_dsn) as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
                     """
                     INSERT INTO payment_events (
                         event_id, provider, provider_event_id, event_type,
@@ -117,7 +117,7 @@ async def persist_to_postgres(event_data: dict[str, Any]) -> dict[str, Any]:
                     """,
                     record,
                 )
-                conn.commit()
+                await conn.commit()
 
         activity.heartbeat()
         activity.logger.info(f"Successfully persisted {event_id} to payment_events")
@@ -166,25 +166,34 @@ async def persist_quarantine_to_postgres(dlq_payload: dict[str, Any]) -> dict[st
             "schema_version": dlq_payload.get("schema_version", 1),
         }
 
-        with psycopg.connect(settings.postgres_dsn) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+        async with await psycopg.AsyncConnection.connect(settings.postgres_dsn) as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
                     """
                     INSERT INTO payment_events_quarantine (
                         event_id, provider, provider_event_id,
                         original_payload, validation_errors, failure_reason,
                         source_topic, kafka_partition, kafka_offset,
-                        schema_version
+                        schema_version, updated_at
                     ) VALUES (
                         %(event_id)s, %(provider)s, %(provider_event_id)s,
                         %(original_payload)s, %(validation_errors)s, %(failure_reason)s,
                         %(source_topic)s, %(kafka_partition)s, %(kafka_offset)s,
-                        %(schema_version)s
+                        %(schema_version)s, NOW()
                     )
+                    ON CONFLICT (event_id) DO UPDATE SET
+                        original_payload = EXCLUDED.original_payload,
+                        validation_errors = EXCLUDED.validation_errors,
+                        failure_reason = EXCLUDED.failure_reason,
+                        source_topic = EXCLUDED.source_topic,
+                        kafka_partition = EXCLUDED.kafka_partition,
+                        kafka_offset = EXCLUDED.kafka_offset,
+                        schema_version = EXCLUDED.schema_version,
+                        updated_at = NOW()
                     """,
                     record,
                 )
-                conn.commit()
+                await conn.commit()
 
         activity.heartbeat()
         activity.logger.info(f"Successfully quarantined {event_id}")
