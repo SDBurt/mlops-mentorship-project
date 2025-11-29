@@ -612,7 +612,7 @@ services:
       POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
       POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -632,7 +632,7 @@ services:
       POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal}
       POSTGRES_DB: ${TEMPORAL_DB_NAME:-temporal}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
