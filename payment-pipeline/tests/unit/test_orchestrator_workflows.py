@@ -18,14 +18,16 @@ class TestPaymentEventWorkflow:
             fraud_score=0.15,
             risk_level="low",
             retry_strategy=None,
-            iceberg_success=True,
-            iceberg_table="bronze.payments_bronze",
+            churn_score=0.25,
+            churn_risk_level="low",
+            persistence_success=True,
+            persistence_table="payment_events",
         )
 
         assert result.event_id == "stripe:evt_123"
         assert result.validation_status == "passed"
         assert result.fraud_score == 0.15
-        assert result.iceberg_success is True
+        assert result.persistence_success is True
 
         # Verify it's a proper dataclass
         result_dict = asdict(result)
@@ -94,13 +96,13 @@ class TestWorkflowImports:
             validate_business_rules,
             get_fraud_score,
             get_retry_strategy,
-            persist_to_iceberg,
-            persist_quarantine,
+            persist_to_postgres,
+            persist_quarantine_to_postgres,
         )
 
         # Verify all activities are callable
         assert callable(validate_business_rules)
         assert callable(get_fraud_score)
         assert callable(get_retry_strategy)
-        assert callable(persist_to_iceberg)
-        assert callable(persist_quarantine)
+        assert callable(persist_to_postgres)
+        assert callable(persist_quarantine_to_postgres)
