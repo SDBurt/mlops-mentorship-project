@@ -40,7 +40,6 @@ HIGH_RISK_THRESHOLD = 0.7
 MEDIUM_RISK_THRESHOLD = 0.3
 
 # High-risk patterns
-HIGH_RISK_CURRENCIES = {"RUB", "UAH", "BYN"}
 SUSPICIOUS_CARD_BRANDS = {"unknown", "other"}
 
 
@@ -55,13 +54,13 @@ def compute_fraud_score(request: FraudScoreRequest) -> tuple[float, list[str]]:
     base_score = 0.05  # Start with low base risk
 
     # Factor 1: Transaction amount
-    if request.amount_cents > 100_000_00:  # > $1000
+    if request.amount_cents > 100_000:  # > $1,000
         base_score += 0.25
         risk_factors.append("very_high_amount")
-    elif request.amount_cents > 50_000_00:  # > $500
+    elif request.amount_cents > 50_000:  # > $500
         base_score += 0.15
         risk_factors.append("high_amount")
-    elif request.amount_cents > 10_000_00:  # > $100
+    elif request.amount_cents > 10_000:  # > $100
         base_score += 0.05
         risk_factors.append("moderate_amount")
 
@@ -70,24 +69,19 @@ def compute_fraud_score(request: FraudScoreRequest) -> tuple[float, list[str]]:
         base_score += 0.15
         risk_factors.append("guest_checkout")
 
-    # Factor 3: High-risk currencies
-    if request.currency and request.currency.upper() in HIGH_RISK_CURRENCIES:
-        base_score += 0.20
-        risk_factors.append("high_risk_currency")
-
-    # Factor 4: Suspicious card brand
+    # Factor 3: Suspicious card brand
     if request.card_brand and request.card_brand.lower() in SUSPICIOUS_CARD_BRANDS:
         base_score += 0.10
         risk_factors.append("unknown_card_brand")
 
-    # Factor 5: Non-card payment methods have slightly higher risk
+    # Factor 4: Non-card payment methods have slightly higher risk
     if request.payment_method_type and request.payment_method_type not in ["card", "credit_card"]:
         base_score += 0.05
         risk_factors.append("alternative_payment_method")
 
     # Add small random noise for realism (deterministic based on event_id hash)
-    noise_seed = hash(request.event_id) % 1000 / 10000  # -0.05 to 0.05
-    noise = (noise_seed - 0.05)
+    # Maps hash to [0, 1000] -> [0.0, 1.0] -> [-0.5, 0.5] -> [-0.05, 0.05]
+    noise = ((hash(request.event_id) % 1001) / 1000 - 0.5) * 0.1
     final_score = max(0.0, min(1.0, base_score + noise))
 
     return round(final_score, 4), risk_factors
