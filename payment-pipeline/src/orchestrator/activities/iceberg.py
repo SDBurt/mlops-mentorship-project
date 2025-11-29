@@ -6,7 +6,7 @@ from typing import Any
 
 import pyarrow as pa
 from pyiceberg.catalog import load_catalog
-from pyiceberg.exceptions import NoSuchTableError
+from pyiceberg.exceptions import NoSuchTableError, TableAlreadyExistsError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -112,8 +112,12 @@ async def persist_to_iceberg(event_data: dict[str, Any]) -> dict[str, Any]:
         try:
             table = catalog.load_table(table_name)
         except NoSuchTableError:
-            activity.logger.info(f"Creating table: {table_name}")
-            table = catalog.create_table(table_name, schema=PAYMENTS_BRONZE_SCHEMA)
+            try:
+                activity.logger.info(f"Creating table: {table_name}")
+                table = catalog.create_table(table_name, schema=PAYMENTS_BRONZE_SCHEMA)
+            except TableAlreadyExistsError:
+                # Another concurrent activity created the table
+                table = catalog.load_table(table_name)
 
         # Parse timestamps
         provider_created_at = _parse_timestamp(event_data.get("provider_created_at"))
@@ -201,8 +205,12 @@ async def persist_quarantine(dlq_payload: dict[str, Any]) -> dict[str, Any]:
         try:
             table = catalog.load_table(table_name)
         except NoSuchTableError:
-            activity.logger.info(f"Creating quarantine table: {table_name}")
-            table = catalog.create_table(table_name, schema=QUARANTINE_SCHEMA)
+            try:
+                activity.logger.info(f"Creating quarantine table: {table_name}")
+                table = catalog.create_table(table_name, schema=QUARANTINE_SCHEMA)
+            except TableAlreadyExistsError:
+                # Another concurrent activity created the table
+                table = catalog.load_table(table_name)
 
         # Build record
         record = {

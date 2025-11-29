@@ -71,7 +71,8 @@ async def get_fraud_score(event_data: dict[str, Any]) -> dict[str, Any]:
 
         # 4xx errors are non-retryable (client errors)
         # 5xx errors are retryable (server errors)
-        non_retryable = status_code < 500
+        # Exception: 429 (Too Many Requests) is retryable
+        non_retryable = status_code < 500 and status_code != 429
         raise ApplicationError(
             f"Fraud service returned {status_code}",
             non_retryable=non_retryable,
