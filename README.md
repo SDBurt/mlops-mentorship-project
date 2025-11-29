@@ -1,550 +1,166 @@
-# MLOps Lakehouse Platform - A Mentorship Learning Project
+# Data Platform & Payment Pipeline
 
-A **hands-on learning journey** from foundational data engineering to production MLOps. This project demonstrates how to build a complete data lakehouse platform on Kubernetes, then extend it with machine learning workflows, feature stores, model serving, and ML governance.
+> **Status: Active Development** - This project demonstrates production-grade data engineering patterns. Core infrastructure and payment pipeline are complete; analytics layer is in progress.
 
-## Project Vision
+A modern data platform built on Kubernetes featuring real-time payment event processing, streaming validation, workflow orchestration, and a lakehouse architecture.
 
-**Learn by Building**: Start with a solid data platform foundation, then progressively integrate MLOps capabilities. This project showcases the full spectrum of modern data and ML engineering - from raw data ingestion to serving ML models in production.
+---
 
-**End Goal**: A production-ready platform that demonstrates:
-- Modern data engineering (batch pipelines, dimensional modeling, data quality)
-- MLOps best practices (feature stores, model versioning, automated training)
-- Platform engineering (Kubernetes, infrastructure as code, monitoring)
-- Data governance (access control, lineage, compliance)
+## Highlights
 
-## Learning Path
+| Component | Description | Status |
+|-----------|-------------|--------|
+| **Payment Pipeline** | Webhook ingestion, multi-layer validation, Temporal workflows | Complete |
+| **Streaming Infrastructure** | Kafka, async Python consumers, dead letter queues | Complete |
+| **Lakehouse Platform** | Apache Iceberg, Polaris catalog, Trino query engine | Complete |
+| **Batch Orchestration** | Dagster assets, DBT transformations, medallion architecture | Complete |
+| **Analytics Layer** | Dagster batch ingestion from PostgreSQL to Iceberg | In Progress |
 
-This project follows a deliberate progression that mirrors real-world platform development:
+---
 
-### Phase 1-2: Data Foundation (Learn First)
-**Build the data pipeline infrastructure**
-- Deploy Kubernetes services (MinIO, Dagster, Trino)
-- Implement streaming data ingestion (Kafka + Flink)
-- Create DBT transformations (Bronze → Silver → Gold)
-- Build dimensional models (star schema)
-- Master SQL, data modeling, and pipeline orchestration
-
-**Why this matters**: You can't do MLOps without a solid data foundation. Features come from data pipelines.
-
-### Phase 3: Data Governance (Learn Second)
-**Add catalog and access control**
-- Deploy Polaris REST Catalog for unified metadata
-- Implement RBAC for tables and features
-- Set up audit logging and lineage tracking
-- Learn data governance patterns
-
-**Why this matters**: Production ML requires governance. Who can access features? Who deployed this model?
-
-### Phase 4: MLOps Integration (Learn Third - Primary Goal)
-**Extend the platform with ML capabilities**
-- Deploy Feast feature store (online + offline)
-- Set up Kubeflow for ML pipelines
-- Implement DVC for data/model versioning
-- Build training pipelines
-- Deploy models with KServe
-- Monitor model performance
-
-**Why this matters**: This is where data engineering meets machine learning. The ultimate goal of this project.
-
-### Phase 5: Real-Time & Production (Learn Fourth)
-**Add streaming and production hardening**
-- Kafka/Redpanda for real-time ingestion
-- Stream processing with Flink
-- Real-time feature computation
-- Production monitoring and observability
-
-## Architecture Overview
-
-### Current Focus: Data Pipeline Foundation
+## Architecture
 
 ```
-JR Generators → Kafka Topics → Flink SQL
-                                  ↓
-                        ┌─────────┴─────────┐
-                        ↓                   ↓
-                  VALID (passes)      INVALID (fails)
-                        ↓                   ↓
-          polaris_catalog.payments_db   polaris_catalog.payments_db
-            .payment_charges           .quarantine_payment_charges
-            .payment_refunds           .quarantine_payment_refunds
-            .payment_disputes          .quarantine_payment_disputes
-            .payment_subscriptions     .quarantine_payment_subscriptions
-                        ↓                   ↓
-                   DBT Staging         Dagster Monitoring
-                  (Silver Layer)        (Alerts on spikes)
-                        ↓
-              <1% invalid data goal
+                                 PAYMENT PIPELINE
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                 │
+│   Stripe       ┌──────────┐    Kafka    ┌────────────┐    Kafka    ┌─────────┐ │
+│   Webhooks ───>│ Gateway  │───────────> │ Normalizer │───────────> │Temporal │ │
+│                │ (FastAPI)│             │  (Python)  │             │Workflows│ │
+│                └──────────┘             └────────────┘             └─────────┘ │
+│                     │                        │                          │      │
+│                     v                        v                          v      │
+│                 [DLQ Topic]             [DLQ Topic]               PostgreSQL   │
+│                                                                         │      │
+│   Inference Service (ML)                                                │      │
+│   - Fraud Scoring                                                       v      │
+│   - Retry Strategy            ┌─────────────────────────────────────────────┐  │
+│   - Churn Prediction          │            LAKEHOUSE PLATFORM               │  │
+│                               │  Dagster ──> Iceberg ──> DBT ──> Trino      │  │
+│                               │  (batch)    (Bronze)   (Silver)  (query)    │  │
+│                               └─────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Future Goal: MLOps Platform
+---
 
-```
-Data Pipeline (above)
-    ↓
-[Feast] - Feature Store
-    ├─→ Online Store (Redis) - Low-latency serving
-    └─→ Offline Store (Iceberg) - Training data
-         ↓
-    [Kubeflow] - ML Pipeline Orchestration
-         ├─→ Training Jobs
-         ├─→ Hyperparameter Tuning
-         └─→ Experiment Tracking
-              ↓
-    [DVC] - Data & Model Versioning
-         ↓
-    [Model Registry] - Version Management
-         ↓
-    [KServe] - Model Serving
-         ↓
-    Production Predictions
-```
+## Technical Stack
 
-## Current Stack
+### Payment Pipeline
+- **Gateway**: FastAPI, HMAC-SHA256 signature verification, aiokafka
+- **Normalizer**: ISO 4217 currency validation, null normalization, unified event schema
+- **Orchestrator**: Temporal workflows, per-activity retry policies, idempotent processing
+- **Inference**: Mock ML service (fraud, retry optimization, churn prediction)
 
-**Infrastructure** (Kubernetes-native):
-- **Kubernetes**: Container orchestration (Docker Desktop / minikube)
-- **Helm**: Package management for services
-- **MinIO**: S3-compatible object storage (lightweight alternative to MinIO)
-- **PostgreSQL**: Metadata storage (embedded in Dagster)
+### Data Platform
+- **Storage**: MinIO (S3-compatible), Apache Iceberg tables
+- **Catalog**: Apache Polaris REST catalog
+- **Query**: Trino distributed SQL
+- **Orchestration**: Dagster asset-based pipelines
+- **Transformations**: DBT (medallion architecture)
+- **Streaming**: Apache Kafka
 
-**Data Platform**:
-- **Kafka**: Event streaming platform
-- **Flink**: Stream processing and validation
-- **Apache Iceberg**: Open table format (ACID, time travel, schema evolution)
-- **Apache Polaris**: REST catalog for Iceberg (unified metadata, governance)
-- **DBT**: SQL-based transformations (medallion architecture)
-- **Dagster**: Asset-centric orchestration
-- **Trino**: Distributed SQL query engine
+### Infrastructure
+- **Container Orchestration**: Kubernetes
+- **Package Management**: Helm
+- **Local Development**: Docker Compose
 
-**Future MLOps Stack** (Phase 4):
-- **Feast**: Feature store (online + offline)
-- **Kubeflow**: ML platform (pipelines, notebooks, training)
-- **DVC**: Data and model versioning
-- **KServe**: Model serving
-- **MLflow/Weights & Biases**: Experiment tracking
+---
 
-## My Learning Progress
+## Key Features
 
-### Week 1-2: Infrastructure Foundation
-**Status**: [x] Complete
+### Multi-Layer Validation Pipeline
+Three validation layers ensure data quality before lakehouse ingestion:
+1. **Gateway**: Signature verification, JSON structure validation
+2. **Normalizer**: Currency codes (ISO 4217), amount bounds, null handling
+3. **Orchestrator**: Business rules via Temporal activities
 
-**What was Learned**:
-- Kubernetes fundamentals (pods, services, namespaces, StatefulSets)
-- Helm package management (charts, releases, values files)
-- Kubernetes networking (DNS, same-namespace service discovery)
-- Persistent storage with PVCs
-- Namespace best practices (grouping communicating services)
+### Durable Workflow Execution
+- Temporal workflows survive service restarts
+- Event-based idempotency (`event_id` as workflow ID)
+- Per-activity retry policies with exponential backoff
+- Dead letter queues at each processing stage
 
-**Tasks Completed**:
-- [x] MinIO S3 storage with cluster initialization
-- [x] Dagster with embedded PostgreSQL
-- [x] Trino query engine
+### Provider-Agnostic Design
+- Unified event schema normalizes provider-specific formats
+- Pluggable transformer/handler architecture
+- Extensible for additional payment providers (Square, PayPal, Adyen)
 
-**Key Challenges Solved**:
-- MinIO cluster initialization (non-obvious required step)
-- Namespace strategy (single namespace for communicating services)
-- StatefulSet storage management with PVCs
-
-**Documentation Created**:
-- 18 comprehensive topic guides in [docs/topics/](docs/topics/)
-- [GETTING-STARTED.md](docs/guides/GETTING-STARTED.md) - Complete setup guide with hand-holding
-- [deploying-the-cluster.md](docs/guides/deploying-the-cluster.md) - Technical deployment reference
-
-### Week 3-4: Data Pipeline Implementation
-**Status**: [x] Complete
-
-**Current Focus**:
-- [x] Set up Kafka and Flink for streaming ingestion
-- [x] Implement Flink SQL validation logic
-- [x] Configure Flink to write Iceberg tables to MinIO S3 via Polaris
-- [x] Verify Iceberg table structure and partitioning
-- [x] Implement Quarantine tables for invalid data
-- [x] Configure Trino Iceberg catalog
-- [x] Build DBT project structure
-- [x] Implement Bronze layer (staging views)
-- [x] Implement Silver layer (cleaned dimensions)
-- [x] Implement Gold layer (star schema facts)
-- [x] Test DBT transformations via Trino
-
-**Learning Goals**:
-- Master Iceberg table format and operations
-- Understand medallion architecture (Bronze/Silver/Gold)
-- Learn dimensional modeling (star schema)
-- Practice SQL transformations with DBT
-- Understand incremental models and partitioning
-
-**Blockers/Questions**:
-- _(Record any challenges or questions here)_
-
-**Resources Used**:
-- [Apache Iceberg docs](docs/topics/apache-iceberg.md)
-- [DBT docs](docs/topics/dbt.md)
-- [Medallion Architecture guide](docs/topics/medallion-architecture.md)
-- [Star Schema patterns](docs/topics/star-schema.md)
-
-### Week 5-6: Orchestration & Data Quality
-**Status**: [x] Complete
-
-**Planned Tasks**:
-- [x] Create Dagster assets for DBT models
-- [x] Set up daily refresh schedules
-- [x] Implement data quality tests in DBT
-- [x] Build Dagster sensors for data refreshes
-- [x] Create monitoring dashboards
-- [x] Set up alerting for pipeline failures
-
-**Learning Goals**:
-- Dagster asset-centric orchestration
-- DBT testing framework
-- Pipeline monitoring best practices
-- Error handling and retry strategies
-
-### Week 7-8: Data Governance (Phase 3)
-**Status**: 🔄 Ready to Start (Configuration Complete)
-
-**Completed**:
-- [x] Create Polaris Helm configuration
-- [x] Configure secrets for database and storage
-- [x] Document Polaris deployment and setup
-- [x] Update Makefile with Polaris commands
-
-**Planned Tasks**:
-- [ ] Deploy Apache Polaris REST Catalog
-- [ ] Migrate Trino to use Polaris catalog
-- [ ] Create initial catalog and namespaces
-- [ ] Implement RBAC policies for table access
-- [ ] Set up audit logging and monitoring
-- [ ] Document table lineage
-- [ ] Test multi-engine catalog sharing (Trino, Spark)
-
-**Learning Goals**:
-- Modern REST catalog vs embedded catalogs (JDBC, Hive)
-- Fine-grained access control for data lakes
-- Governance and compliance in production systems
-- Centralized metadata management across compute engines
-
-### Week 9-12: MLOps Integration (Phase 4) - PRIMARY GOAL
-**Status**: ⏳ Planned
-
-**Planned Tasks**:
-- [ ] Deploy Feast feature store
-  - [ ] Configure offline store (Iceberg/MinIO)
-  - [ ] Configure online store (Redis)
-  - [ ] Define feature views from Gold tables
-- [ ] Deploy Kubeflow platform
-  - [ ] Set up Kubeflow Pipelines
-  - [ ] Create Jupyter notebook environment
-  - [ ] Build first training pipeline
-- [ ] Set up DVC for versioning
-  - [ ] Configure MinIO as remote storage
-  - [ ] Version training datasets
-  - [ ] Track model artifacts
-- [ ] Build ML pipelines
-  - [ ] Feature engineering from DBT models
-  - [ ] Model training workflow
-  - [ ] Hyperparameter tuning with Katib
-  - [ ] Model evaluation and validation
-- [ ] Deploy model serving
-  - [ ] Set up KServe
-  - [ ] Deploy first model
-  - [ ] Implement A/B testing
-- [ ] Implement monitoring
-  - [ ] Track model performance
-  - [ ] Detect data drift
-  - [ ] Alert on degradation
-
-**Learning Goals**:
-- Feature store architecture and patterns
-- ML pipeline orchestration
-- Model versioning and registry
-- Production model serving
-- ML monitoring and observability
-
-### Phase 5+: Real-Time & Production
-**Status**: ⏳ Future
-
-**Topics to Learn**:
-- Stream processing with Kafka/Flink
-- Real-time feature computation
-- Lambda architecture (batch + streaming)
-- Production hardening and SRE practices
-
-## Quick Start
-
-### Prerequisites
-```bash
-# Verify prerequisites
-kubectl version --client    # Kubernetes CLI
-helm version               # Helm package manager
-docker --version          # Docker (for local cluster)
-```
-
-### Deploy the Platform
-
-**Using Automated Makefile Commands** (Recommended)
-
-```bash
-# Step 1: Verify prerequisites
-make check
-
-# Step 2: Setup Helm repositories and clone dependencies
-make setup
-
-# Step 3: Deploy infrastructure
-#   - MinIO (S3 storage)
-#   - Dagster (orchestration, user code disabled initially)
-#   - Trino (query engine, without lakehouse catalog)
-#   - Polaris (REST catalog)
-make deploy
-
-# Step 4: Initialize Polaris catalog and create credentials
-make init-polaris
-
-# Step 5: Configure Trino to connect to Polaris
-#   - Adds lakehouse catalog to Trino
-#   - Requires Polaris credentials from step 4
-make configure-trino-polaris
-
-# Step 6: Deploy Dagster user code (optional)
-#   - Auto-generates secrets from MinIO + Polaris credentials
-#   - Builds Docker image for orchestration-dagster
-#   - Scales user code deployment to 1 replica
-make deploy-dagster-code
-
-# Step 7: Access services locally
-make port-forward-start
-```
-
-**Service URLs** (after port-forward):
-- Dagster: http://localhost:3001
-- Trino: http://localhost:8080
-- MinIO Console: http://localhost:9001
-- Polaris: http://localhost:8181
-
-**Stop Port Forwards**:
-```bash
-make port-forward-stop
-```
-
-### Check Status
-```bash
-# Quick status overview
-make status
-
-# Polaris-specific status
-make polaris-status
-
-# View all pods
-kubectl get pods -n lakehouse
-
-# Check specific service logs
-kubectl logs -n lakehouse deployment/dagster-dagster-webserver
-kubectl logs -n lakehouse deployment/trino-coordinator
-```
-
-### Common Operations
-
-```bash
-# Validate secret files exist
-make validate-secrets
-
-# Auto-generate user code secrets from sources
-make generate-user-secrets
-
-# Restart services
-make restart-dagster
-make restart-trino
-make restart-polaris
-make restart-all
-
-# Complete teardown
-make destroy      # Remove services, keep secrets
-make nuke         # Complete reset (irreversible)
-```
-
-### Complete Setup Guide
-
-For a complete, hand-holding setup guide from scratch, see [GETTING-STARTED.md](docs/guides/GETTING-STARTED.md).
-
-For the streaming data pipeline setup (Kafka + Flink), see [streaming-setup.md](docs/guides/streaming-setup.md).
+---
 
 ## Project Structure
 
 ```
 .
-├── docs/                          # Comprehensive documentation
-│   ├── topics/                   # Detailed topic guides
-│   │   ├── kubernetes-fundamentals.md
-│   │   ├── minio.md
-│   │   ├── dagster.md
-│   │   ├── trino.md
-│   │   ├── dbt.md
-│   │   ├── apache-iceberg.md
-│   │   ├── hive-metastore.md
-│   │   ├── polaris-rest-catalog.md
-│   │   ├── medallion-architecture.md
-│   │   ├── star-schema.md
-│   │   ├── mlops.md              # Phase 4 guide
-│   │   └── ... (more)
-│   ├── guides/                   # Step-by-step guides
-│   │   ├── GETTING-STARTED.md   # Complete setup guide
-│   │   ├── streaming-setup.md   # Streaming pipeline guide
-│   │   ├── deploying-the-cluster.md  # Technical reference
-│   │   ├── setup-polaris.md     # Polaris RBAC setup
-│   │   └── update-polaris.md    # Polaris updates
+├── payment-pipeline/           # Streaming payment processing
+│   ├── src/
+│   │   ├── payment_gateway/    # Webhook ingestion (FastAPI)
+│   │   ├── normalizer/         # Validation & transformation
+│   │   └── orchestrator/       # Temporal workflows
+│   ├── inference_service/      # Mock ML endpoints
+│   └── tests/                  # Unit & integration tests
 │
-├── infrastructure/               # Platform infrastructure
-│   ├── kubernetes/              # K8s manifests and Helm values
-│   │   ├── minio/             # S3 storage
-│   │   ├── dagster/            # Orchestration
-│   │   ├── trino/              # Query engine
-│   │   ├── polaris/            # Polaris REST Catalog (Phase 3)
-│   │   └── namespace.yaml      # Single lakehouse namespace
-│   ├── helm/                   # Local Helm charts
-│   │   └── minio/             # MinIO Helm chart
-│   └── docker/                 # Docker Compose stack (Streaming)
-│       ├── flink/
-│       ├── kafka/
-│       └── jr/
+├── infrastructure/
+│   ├── kubernetes/             # Helm values, K8s manifests
+│   │   ├── dagster/
+│   │   ├── trino/
+│   │   ├── polaris/
+│   │   └── minio/
+│   └── docker/                 # Docker Compose for local dev
 │
-├── orchestration-dbt/             # DBT transformations
-│   └── dbt/
-│       ├── models/
-│       │   ├── sources.yml     # Raw data sources
-│       │   ├── staging/        # Staging views (Bronze)
-│       │   ├── intermediate/   # Business logic (Silver)
-│       │   └── marts/          # Star schema facts (Gold)
-│       ├── dbt_project.yml
-│       └── profiles.yml        # Trino connection
-│
-├── orchestration-dagster/         # Dagster pipelines
-│   └── src/
-│       └── orchestration_dagster/
-│           ├── assets/         # DBT assets, custom assets
-│           ├── jobs/           # Job definitions
-│           ├── schedules/      # Schedules
-│           └── sensors/        # Sensors (data triggers)
-│
-├── lakehouse/                   # Iceberg schemas & conventions
-│   ├── schemas/
-│   │   ├── bronze/
-│   │   ├── silver/
-│   │   └── gold/
-│   └── conventions/            # Naming standards
-│
-├── ml/                          # MLOps (Phase 4)
-│   ├── feast/                  # Feature store
-│   │   ├── features/          # Feature definitions
-│   │   └── entities/          # Entity definitions
-│   ├── kubeflow/              # ML pipelines
-│   │   ├── pipelines/         # Training workflows
-│   │   └── components/        # Reusable components
-│   ├── models/                # Model code
-│   │   ├── training/
-│   │   ├── evaluation/
-│   │   └── serving/
-│   ├── notebooks/             # Jupyter notebooks
-│   └── dvc/                   # DVC versioning
-│
-├── analytics/                   # BI & dashboards (Phase 2+)
-│   └── superset/
-│
-├── CLAUDE.md                   # Project conventions & guidance
-└── README.md                   # This file
+├── orchestration-dagster/      # Batch pipeline orchestration
+├── orchestration-dbt/          # SQL transformations
+└── docs/                       # Architecture & guides
 ```
 
-## Key Learning Resources
+---
 
-### Documentation
-- **[GETTING-STARTED.md](docs/guides/GETTING-STARTED.md)**: Complete setup guide from scratch
-- **[deploying-the-cluster.md](docs/guides/deploying-the-cluster.md)**: Technical deployment reference
-- **[docs/topics/](docs/topics/)**: 18 comprehensive guides on every component
-
-### Essential Topics
-- [Kubernetes Fundamentals](docs/topics/kubernetes-fundamentals.md)
-- [Helm Package Management](docs/topics/helm-package-management.md)
-- [Apache Iceberg](docs/topics/apache-iceberg.md)
-- [DBT Transformations](docs/topics/dbt.md)
-- [Medallion Architecture](docs/topics/medallion-architecture.md)
-- [Star Schema Design](docs/topics/star-schema.md)
-- [MLOps Overview](docs/topics/mlops.md)
-
-### External Resources
-- [Apache Iceberg Documentation](https://iceberg.apache.org/docs/latest/)
-- [DBT Documentation](https://docs.getdbt.com/)
-- [Dagster Documentation](https://docs.dagster.io/)
-- [Feast Documentation](https://docs.feast.dev/)
-- [Kubeflow Documentation](https://www.kubeflow.org/docs/)
-
-## Mentorship Notes
-
-### What I'm Learning
-This project teaches the complete modern data stack:
-
-**Foundation Skills**:
-- Kubernetes deployment and management
-- Infrastructure as code with Helm
-- SQL and dimensional modeling
-- Data pipeline orchestration
-- Testing and data quality
-
-**Advanced Skills**:
-- Apache Iceberg table format
-- DBT incremental models and testing
-- Asset-centric orchestration with Dagster
-- Distributed query optimization with Trino
-
-**MLOps Skills** (Phase 4 focus):
-- Feature store architecture
-- ML pipeline orchestration
-- Model versioning and registry
-- Production model serving
-- ML monitoring and drift detection
-
-### Challenges & Solutions
-
-**Challenge**: MinIO cluster initialization was not automatic
-**Solution**: Must explicitly assign storage roles and apply layout after deployment. Documented in [MinIO guide](docs/topics/minio.md).
-
-**Challenge**: Understanding StatefulSets vs Deployments
-**Solution**: StatefulSets provide stable pod names and dedicated storage - critical for databases. See [Stateful Applications](docs/topics/stateful-applications.md).
-
-**Challenge**: Namespace organization for communicating services
-**Solution**: Use single `lakehouse` namespace for all services - enables simplified DNS (`service:port`). Follows Kubernetes best practices: services that communicate should live together. See [Kubernetes Networking](docs/topics/kubernetes-networking.md).
-
-### Questions for Mentor
-- _(Record questions to discuss during mentorship sessions)_
--
--
-
-### Next Session Goals
-- _(Prepare topics to cover in next mentorship session)_
--
--
-
-## Cleanup
+## Quick Start
 
 ```bash
-# Uninstall all services (see docs/TEARDOWN.md for details)
-helm uninstall dagster -n dagster
-helm uninstall trino -n trino
-helm uninstall minio -n minio
+# Prerequisites: kubectl, helm, docker
 
-# Delete namespaces
-kubectl delete namespace dagster trino minio
+# Deploy lakehouse platform
+make check && make setup && make deploy
+
+# Start payment pipeline (Docker Compose)
+make pipeline-up
+
+# Send test webhooks
+make gateway-simulator
+
+# Access services
+make port-forward-start
+# Dagster:  http://localhost:3001
+# Trino:    http://localhost:8080
+# MinIO:    http://localhost:9001
 ```
+
+---
+
+## Documentation
+
+- [Payment Pipeline Design](docs/guides/payment-pipeline.md) - Full system design document
+- [Getting Started](docs/guides/getting-started.md) - Setup walkthrough
+- [Streaming Setup](docs/guides/streaming-setup.md) - Kafka + Flink configuration
+
+---
+
+## Skills Demonstrated
+
+| Category | Technologies |
+|----------|-------------|
+| **Languages** | Python 3.11+, SQL |
+| **Streaming** | Apache Kafka, aiokafka |
+| **Orchestration** | Temporal, Dagster |
+| **Data Lake** | Apache Iceberg, Apache Polaris, Trino |
+| **Transformations** | DBT, medallion architecture |
+| **APIs** | FastAPI, Pydantic v2 |
+| **Infrastructure** | Kubernetes, Helm, Docker |
+| **Testing** | pytest, unit & integration tests |
+
+---
 
 ## License
 
-This is a personal learning project for mentorship and portfolio purposes.
-
-## Acknowledgments
-
-This project synthesizes concepts and best practices from:
-- Apache Iceberg community
-- DBT Labs documentation
-- Dagster Labs examples
-- Kubernetes documentation
-- MLOps community resources
-
-Built with guidance from mentors and the data engineering community.
+Personal portfolio project for demonstration purposes.

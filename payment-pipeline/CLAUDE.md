@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Payment Pipeline is a webhook-driven payment processing system demonstrating upstream validation, real-time streaming, and distributed workflow orchestration. See `docs/guides/payment-pipeline.md` for the full design document.
 
-**Architecture:** Webhooks -> Gateway -> Kafka -> Normalizer -> Kafka -> Temporal Orchestrator -> Iceberg
+**Architecture:** Webhooks -> Gateway -> Kafka -> Normalizer -> Kafka -> Temporal Orchestrator -> PostgreSQL (Dagster batch -> Iceberg)
 
 | System | Component | Technology | Status |
 |--------|-----------|------------|--------|
@@ -79,12 +79,17 @@ Stripe Webhook --> Gateway --> Kafka (webhooks.stripe.*) --> Normalizer
                                               |                                       |
                                               v                                       v
                                     PaymentEventWorkflow                    DLQReviewWorkflow
-                                              |
-                           +------------------+------------------+
-                           |                  |                  |
-                           v                  v                  v
-                     Validation        Fraud/Retry         Iceberg Bronze
-                                       Inference
+                                              |                                       |
+                           +------------------+------------------+                     v
+                           |                  |                  |              PostgreSQL
+                           v                  v                  v             (quarantine)
+                     Validation        Fraud/Retry/       PostgreSQL
+                                         Churn               |
+                                       Inference             v
+                                                      Dagster Batch
+                                                             |
+                                                             v
+                                                      Iceberg Bronze
 ```
 
 ### Service Configuration
@@ -115,10 +120,11 @@ All services use Pydantic Settings with environment variable prefixes:
 1. `validate_business_rules` - Final business rule validation
 2. `get_fraud_score` - Call inference service (successful payments)
 3. `get_retry_strategy` - Call inference service (failed payments)
-4. `persist_to_iceberg` - Write to Bronze layer
+4. `get_churn_prediction` - Call inference service for churn risk
+5. `persist_to_postgres` - Write to PostgreSQL (Dagster batch ingests to Iceberg)
 
 **DLQReviewWorkflow** (`src/orchestrator/workflows/dlq_review.py`):
-- Processes quarantined events for manual review
+- Persists quarantined events to PostgreSQL quarantine table
 
 Workflows use `event_id` as workflow ID with `WorkflowIDConflictPolicy.USE_EXISTING` for idempotency.
 

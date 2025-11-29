@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document outlines the design and implementation of a webhook-driven payment processing pipeline demonstrating upstream validation, real-time streaming, and distributed workflow orchestration. The system ingests simulated payment webhooks, validates and normalizes them through a streaming layer, and orchestrates per-event workflows with ML integration before landing data in an Iceberg-based lakehouse.
+This document outlines the design and implementation of a webhook-driven payment processing pipeline demonstrating upstream validation, real-time streaming, and distributed workflow orchestration. The system ingests simulated payment webhooks, validates and normalizes them through a streaming layer, and orchestrates per-event workflows with ML integration before persisting to PostgreSQL. A separate Dagster batch layer ingests from PostgreSQL into the Iceberg lakehouse.
 
 ---
 
@@ -38,13 +38,14 @@ This document outlines the design and implementation of a webhook-driven payment
 │               (FastAPI)    (raw)     (Python)   (normalized)   (Temporal)        │
 │                  │                      │                          │             │
 │                  ▼                      ▼                          ▼             │
-│              [DLQ Topic]          [DLQ Topic]              [Iceberg Bronze]      │
+│              [DLQ Topic]          [DLQ Topic]               [PostgreSQL]         │
 │                                                                    │             │
 │                                                                    ▼             │
 │                                                    ┌───────────────────────────┐ │
 │                                                    │  ANALYTICS LAYER          │ │
-│                                                    │  Dagster → DBT → Iceberg  │ │
-│                                                    │  (Silver/Gold Layers)     │ │
+│                                                    │  Dagster (batch ingest)   │ │
+│                                                    │  → Iceberg → DBT          │ │
+│                                                    │  (Bronze/Silver/Gold)     │ │
 │                                                    └───────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -55,7 +56,7 @@ This document outlines the design and implementation of a webhook-driven payment
 |--------|------|------------|----------------|
 | System 1 | **Gateway** | FastAPI + aiokafka | Webhook reception, signature verification, Kafka production |
 | System 2 | **Normalizer** | Python + aiokafka | Content validation, schema normalization, DLQ routing |
-| System 3 | **Orchestrator** | Temporal + Kafka Consumer | Per-event workflow execution, ML integration, lake persistence |
+| System 3 | **Orchestrator** | Temporal + Kafka Consumer | Per-event workflow execution, ML integration, PostgreSQL persistence |
 | Support | **Inference** | FastAPI | Mock ML service for fraud, retry, churn, and recovery |
 | Support | **Analytics** | Dagster + DBT | Batch transformations, Silver/Gold layer management (future) |
 
@@ -112,7 +113,8 @@ payment-pipeline/
 │           ├── validation.py         # Business rule validation
 │           ├── fraud.py              # Call inference /fraud/score
 │           ├── retry_strategy.py     # Call inference /retry/strategy
-│           └── iceberg.py            # Persist to Bronze layer
+│           ├── churn.py              # Call inference /churn/predict
+│           └── postgres.py           # Persist to PostgreSQL
 │
 ├── inference_service/                # Support: Mock ML Service
 │   ├── main.py                       # FastAPI application
@@ -259,13 +261,16 @@ PaymentEventWorkflow(event)
 ├── 3. get_retry_strategy(event)  [if failed payment]
 │      └── Call Inference service for optimal retry timing
 │
-└── 4. persist_to_iceberg(event, scores)
-       └── Write enriched event to Bronze layer
+├── 4. get_churn_prediction(event)
+│      └── Call Inference service for churn risk assessment
+│
+└── 5. persist_to_postgres(event, scores)
+       └── Write enriched event to PostgreSQL (Dagster batch ingests to Iceberg)
 
 
 DLQReviewWorkflow(event)
 │
-└── Log quarantined event for manual review
+└── Persist quarantined event to PostgreSQL quarantine table
 ```
 
 **Activities:**
@@ -275,7 +280,8 @@ DLQReviewWorkflow(event)
 | `validate_business_rules` | Blocklist check, amount limits | 3 retries, 1s backoff |
 | `get_fraud_score` | Call inference `/fraud/score` | 5 retries, exponential backoff |
 | `get_retry_strategy` | Call inference `/retry/strategy` | 5 retries, exponential backoff |
-| `persist_to_iceberg` | Write to Iceberg via PyIceberg | 10 retries, exponential backoff |
+| `get_churn_prediction` | Call inference `/churn/predict` | 5 retries, exponential backoff |
+| `persist_to_postgres` | Write to PostgreSQL via psycopg3 | 5 retries, exponential backoff |
 
 **Key Design Decisions:**
 
@@ -334,10 +340,11 @@ Fraud score is computed based on amount, customer history flags, and card type. 
 
 **Implemented:**
 - Temporal workflows triggered by Kafka events
-- `PaymentEventWorkflow` with activity sequence
+- `PaymentEventWorkflow` with 5-step activity sequence
 - `DLQReviewWorkflow` for quarantined events
 - Idempotency via event_id as workflow ID
-- PyIceberg integration for Bronze layer writes
+- PostgreSQL persistence (Dagster batch layer ingests to Iceberg)
+- Churn prediction integration
 - Per-activity retry policies
 
 ---
@@ -437,8 +444,9 @@ uv run pytest tests/unit/ -v
 | Python | 3.11+ | All services |
 | Apache Kafka | 3.6+ | Via Docker Compose |
 | Temporal | 1.22+ | Via Docker Compose |
-| Apache Iceberg | 1.4+ | Via PyIceberg |
+| PostgreSQL | 15+ | Orchestrator persistence (Dagster ingests to Iceberg) |
 | FastAPI | 0.109+ | Gateway, Inference |
 | aiokafka | 0.10+ | Gateway, Normalizer, Orchestrator |
+| psycopg | 3.1+ | Orchestrator PostgreSQL driver |
 | Pydantic | 2.5+ | All services |
 | temporalio | 1.5+ | Orchestrator |

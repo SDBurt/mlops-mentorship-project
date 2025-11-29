@@ -4,12 +4,14 @@ End-to-end payment event processing pipeline with webhook ingestion, validation,
 
 ## Overview
 
-This project implements the first two systems of the payment processing pipeline:
+This project implements the payment processing pipeline:
 
 | System | Component | Description |
 |--------|-----------|-------------|
 | **System 1** | Gateway | Receives webhooks, verifies signatures, publishes to Kafka |
 | **System 2** | Normalizer | Validates events, transforms to unified schema, routes to DLQ |
+| **System 3** | Orchestrator | Temporal workflows for ML inference and PostgreSQL persistence |
+| **Support** | Inference | Mock ML service for fraud, retry, churn predictions |
 
 ## Architecture
 
@@ -17,14 +19,16 @@ This project implements the first two systems of the payment processing pipeline
 Payment Provider (Stripe)
          |
          v
-+------------------+     +-------------------+     +------------------+
-|     Gateway      | --> |    Normalizer     | --> |    Temporal      |
-|    (FastAPI)     |     | (Kafka Consumer)  |     |   (Workflows)    |
-+------------------+     +-------------------+     +------------------+
-         |                        |
-         v                        v
-  webhooks.stripe.*        payments.normalized
-                           payments.validation.dlq
++------------------+     +-------------------+     +------------------+     +------------+
+|     Gateway      | --> |    Normalizer     | --> |   Orchestrator   | --> | PostgreSQL |
+|    (FastAPI)     |     | (Kafka Consumer)  |     |    (Temporal)    |     |            |
++------------------+     +-------------------+     +------------------+     +------------+
+         |                        |                        |                      |
+         v                        v                        v                      v
+  webhooks.stripe.*        payments.normalized      Inference Service      Dagster Batch
+                           payments.validation.dlq  (Fraud/Retry/Churn)          |
+                                                                                 v
+                                                                           Iceberg Lake
 ```
 
 ## Quick Start
@@ -220,21 +224,35 @@ payment-pipeline/
 │   │   └── providers/
 │   │       └── stripe/       # Stripe models, validator, router
 │   │
-│   └── normalizer/           # System 2: Normalizer
-│       ├── main.py           # Kafka consumer loop
-│       ├── config.py         # Settings
-│       ├── validators/       # Currency, amount, null validation
-│       ├── transformers/     # UnifiedPaymentEvent, StripeTransformer
-│       └── handlers/         # StripeHandler
+│   ├── normalizer/           # System 2: Normalizer
+│   │   ├── main.py           # Kafka consumer loop
+│   │   ├── config.py         # Settings
+│   │   ├── validators/       # Currency, amount, null validation
+│   │   ├── transformers/     # UnifiedPaymentEvent, StripeTransformer
+│   │   └── handlers/         # StripeHandler
+│   │
+│   └── orchestrator/         # System 3: Orchestrator
+│       ├── main.py           # Kafka-Temporal bridge
+│       ├── consumer.py       # Kafka consumer
+│       ├── workflows/        # PaymentEventWorkflow, DLQReviewWorkflow
+│       └── activities/       # Validation, fraud, retry, churn, postgres
+│
+├── inference_service/        # Support: Mock ML Service
+│   ├── main.py              # FastAPI app
+│   └── routes/              # fraud, retry, churn, recovery endpoints
 │
 ├── simulator/                # Webhook simulator CLI
 ├── tests/
 │   ├── unit/
 │   │   ├── test_stripe_*.py           # Gateway tests
-│   │   └── test_normalizer_*.py       # Normalizer tests
+│   │   ├── test_normalizer_*.py       # Normalizer tests
+│   │   ├── test_orchestrator_*.py     # Orchestrator tests
+│   │   └── test_inference_*.py        # Inference tests
 │   └── integration/
 ├── Dockerfile                # Gateway image
 ├── Dockerfile.normalizer     # Normalizer image
+├── Dockerfile.orchestrator   # Orchestrator image
+├── Dockerfile.inference      # Inference service image
 └── pyproject.toml
 ```
 
