@@ -1,0 +1,145 @@
+version: 2
+
+models:
+  # ============================================================================
+  # Dimension Models
+  # ============================================================================
+
+  - name: dim_customer
+    description: |
+      Customer dimension with aggregated metrics, tier classification, and SCD Type 2.
+      Includes fraud/churn risk scores and payment behavior metrics.
+    config:
+      tags: ['marts', 'payments', 'dimensions']
+    columns:
+      - name: customer_key
+        description: Surrogate key for the customer dimension
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Natural key - customer identifier
+        tests:
+          - unique
+          - not_null
+      - name: customer_tier
+        description: Customer tier based on total revenue
+        tests:
+          - accepted_values:
+              values: ['platinum', 'gold', 'silver', 'bronze']
+      - name: is_current
+        description: SCD Type 2 flag indicating current record
+        tests:
+          - not_null
+
+  - name: dim_merchant
+    description: |
+      Merchant dimension with health scoring and aggregated metrics.
+      Includes dispute/refund rates and fraud risk assessment.
+    config:
+      tags: ['marts', 'payments', 'dimensions']
+    columns:
+      - name: merchant_key
+        description: Surrogate key for the merchant dimension
+        tests:
+          - unique
+          - not_null
+      - name: merchant_id
+        description: Natural key - merchant identifier
+        tests:
+          - unique
+          - not_null
+      - name: health_category
+        description: Merchant health category
+        tests:
+          - accepted_values:
+              values: ['excellent', 'good', 'fair', 'poor']
+      - name: is_current
+        description: SCD Type 2 flag indicating current record
+        tests:
+          - not_null
+
+  - name: dim_date
+    description: |
+      Date dimension for time-based analysis.
+      Contains date components, fiscal periods, and flags.
+    config:
+      tags: ['marts', 'payments', 'dimensions']
+    columns:
+      - name: date_key
+        description: Date surrogate key (the date value itself)
+        tests:
+          - unique
+          - not_null
+      - name: year
+        description: Year component
+        tests:
+          - not_null
+      - name: month
+        description: Month component (1-12)
+        tests:
+          - not_null
+
+  # ============================================================================
+  # Fact Models
+  # ============================================================================
+
+  - name: fct_payments
+    description: |
+      Main payment fact table with dimension foreign keys.
+      Grain: One row per payment event.
+      Includes ML inference results and validation status.
+    config:
+      tags: ['marts', 'payments', 'facts']
+    columns:
+      - name: payment_key
+        description: Surrogate key for the payment fact
+        tests:
+          - unique
+          - not_null
+      - name: event_id
+        description: Natural key - unique event identifier
+        tests:
+          - unique
+          - not_null
+      - name: customer_key
+        description: Foreign key to dim_customer
+      - name: merchant_key
+        description: Foreign key to dim_merchant
+      - name: date_key
+        description: Foreign key to dim_date
+        tests:
+          - not_null
+      - name: amount_cents
+        description: Transaction amount in cents
+      - name: status
+        description: Payment status
+        tests:
+          - not_null
+      - name: event_category
+        description: Normalized event category
+        tests:
+          - accepted_values:
+              values: ['charge', 'refund', 'dispute', 'subscription', 'failed_payment', 'other']
+
+  - name: fct_daily_payments
+    description: |
+      Daily aggregated payment metrics for dashboards and trending.
+      Grain: One row per day.
+      Includes transaction counts, revenue, and rate metrics.
+    config:
+      tags: ['marts', 'payments', 'facts', 'daily']
+    columns:
+      - name: date_key
+        description: Date of the aggregated metrics
+        tests:
+          - unique
+          - not_null
+      - name: total_transactions
+        description: Total number of transactions
+        tests:
+          - not_null
+      - name: total_revenue_dollars
+        description: Total revenue in dollars
+      - name: failure_rate
+        description: Failure rate (0-1)

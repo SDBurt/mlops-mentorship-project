@@ -2,7 +2,7 @@
 # https://docs.getdbt.com/reference/dbt_project.yml
 
 name: 'lakehouse_analytics'
-version: '1.0.0'
+version: '2.0.0'
 config-version: 2
 
 # This setting configures which "profile" dbt uses for this project.
@@ -27,59 +27,39 @@ clean-targets:         # directories to be removed by `dbt clean`
 models:
   lakehouse_analytics:
     # ========================================================================
-    # Single Namespace: All tables in 'data' namespace
+    # Single Namespace: All tables in 'data' schema
     # ========================================================================
     # Organization via table prefixes:
-    #   - Source tables: reddit_posts, reddit_comments
-    #   - Staging: stg_reddit_posts, stg_reddit_comments
-    #   - Intermediate: int_reddit_author_stats, int_reddit_post_metrics
-    #   - Marts: dim_authors, fct_posts, fct_comments
+    #   - Source tables: payment_events, payment_events_quarantine
+    #   - Intermediate: int_payment_customer_metrics, int_payment_merchant_metrics
+    #   - Marts: dim_customer, dim_merchant, dim_date, fct_payments, fct_daily_payments
 
     # Staging Layer: Source-conformed atomic building blocks
     staging:
       +materialized: view
       +schema: data
       +tags: ["staging"]
-      reddit:
-        +tags: ["staging", "reddit"]
+      payments:
+        +materialized: incremental
+        +incremental_strategy: merge
+        +tags: ["staging", "payments"]
 
     # Intermediate Layer: Purpose-built transformations
     intermediate:
       +materialized: ephemeral
       +schema: data
       +tags: ["intermediate"]
-      reddit:
-        +tags: ["intermediate", "reddit"]
+      payments:
+        +tags: ["intermediate", "payments"]
 
     # Marts Layer: Business-conformed entities
     marts:
       +schema: data
       +tags: ["marts"]
-      reddit:
+      payments:
         +materialized: incremental
         +incremental_strategy: merge
-        +tags: ["marts", "reddit"]
-
-    # ========================================================================
-    # DEPRECATED: Old bronze/silver/gold structure
-    # ========================================================================
-    # Kept for reference, to be removed after migration
-    bronze:
-      +materialized: view
-      +schema: bronze
-      +tags: ["bronze", "staging", "deprecated"]
-
-    silver:
-      +materialized: incremental
-      +schema: silver
-      +incremental_strategy: merge
-      +tags: ["silver", "dimensions", "deprecated"]
-
-    gold:
-      +materialized: incremental
-      +schema: gold
-      +incremental_strategy: merge
-      +tags: ["gold", "facts", "analytics", "deprecated"]
+        +tags: ["marts", "payments"]
 
 # Seeds configuration (CSV files loaded as tables)
 seeds:

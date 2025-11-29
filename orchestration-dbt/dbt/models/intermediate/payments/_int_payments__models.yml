@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: int_payment_customer_metrics
+    description: |
+      Aggregated customer-level payment metrics for dimensions and ML features.
+      Includes transaction counts, revenue metrics, failure rates, fraud/churn scores,
+      and customer tier classification.
+    config:
+      tags: ['intermediate', 'payments', 'customers']
+    columns:
+      - name: customer_id
+        description: Customer identifier
+        tests:
+          - unique
+          - not_null
+      - name: customer_tier
+        description: Customer tier based on total revenue (platinum, gold, silver, bronze)
+        tests:
+          - accepted_values:
+              values: ['platinum', 'gold', 'silver', 'bronze']
+      - name: payment_risk_profile
+        description: Risk profile based on failure rate
+        tests:
+          - accepted_values:
+              values: ['high_risk', 'medium_risk', 'low_risk']
+      - name: fraud_risk_category
+        description: Fraud risk category based on average fraud score
+        tests:
+          - accepted_values:
+              values: ['high', 'medium', 'low']
+      - name: churn_risk_category
+        description: Churn risk category based on average churn score
+        tests:
+          - accepted_values:
+              values: ['high', 'medium', 'low']
+
+  - name: int_payment_merchant_metrics
+    description: |
+      Aggregated merchant-level payment metrics for dimensions and analytics.
+      Includes transaction counts, revenue/refund metrics, dispute rates,
+      and merchant health scoring.
+    config:
+      tags: ['intermediate', 'payments', 'merchants']
+    columns:
+      - name: merchant_id
+        description: Merchant identifier
+        tests:
+          - unique
+          - not_null
+      - name: health_category
+        description: Merchant health category (excellent, good, fair, poor)
+        tests:
+          - accepted_values:
+              values: ['excellent', 'good', 'fair', 'poor']
+      - name: fraud_risk_category
+        description: Fraud risk category for the merchant
+        tests:
+          - accepted_values:
+              values: ['high', 'medium', 'low']
+
+  - name: int_payment_daily_summary
+    description: |
+      Daily aggregated payment metrics for time-series analytics and dashboards.
+      Includes transaction counts, revenue, rates, and breakdowns by provider/currency.
+    config:
+      tags: ['intermediate', 'payments', 'daily']
+    columns:
+      - name: event_date
+        description: Date of the transactions
+        tests:
+          - unique
+          - not_null
