@@ -35,9 +35,9 @@ models:
     #   - Marts: dim_customer, dim_merchant, dim_date, fct_payments, fct_daily_payments
 
     # Staging Layer: Source-conformed atomic building blocks
+    # Schema inherited from profile (data)
     staging:
       +materialized: view
-      +schema: data
       +tags: ["staging"]
       payments:
         +materialized: incremental
@@ -47,19 +47,24 @@ models:
     # Intermediate Layer: Purpose-built transformations
     intermediate:
       +materialized: ephemeral
-      +schema: data
       +tags: ["intermediate"]
       payments:
         +tags: ["intermediate", "payments"]
 
     # Marts Layer: Business-conformed entities
     marts:
-      +schema: data
       +tags: ["marts"]
       payments:
         +materialized: incremental
         +incremental_strategy: merge
         +tags: ["marts", "payments"]
+
+    # Analytics Layer: Superset-optimized aggregations
+    analytics:
+      +materialized: table
+      +tags: ["analytics"]
+      payments:
+        +tags: ["analytics", "payments"]
 
 # Seeds configuration (CSV files loaded as tables)
 seeds:

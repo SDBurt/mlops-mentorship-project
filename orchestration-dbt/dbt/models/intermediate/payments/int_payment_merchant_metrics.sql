@@ -14,7 +14,8 @@
 }}
 
 WITH payment_events AS (
-    SELECT * FROM {{ source('bronze_payments', 'payment_events') }}
+    -- Reference staging model for proper lineage
+    SELECT * FROM {{ ref('stg_payment_events') }}
     WHERE merchant_id IS NOT NULL
 ),
 

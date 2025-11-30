@@ -1,0 +1,128 @@
+version: 2
+
+models:
+  # ==========================================================================
+  # Analytics: Payment Summary KPIs
+  # ==========================================================================
+  - name: analytics_payment_summary
+    description: |
+      High-level payment KPIs for executive dashboards.
+      Includes overall metrics, period-over-period comparisons, and growth rates.
+      Best used for: Executive dashboards, KPI scorecards
+    config:
+      tags: ['analytics', 'payments', 'kpis']
+    columns:
+      - name: snapshot_at
+        description: "When this snapshot was generated"
+      - name: total_transactions
+        description: "Total number of payment transactions"
+      - name: total_revenue_dollars
+        description: "Total revenue in dollars"
+      - name: success_rate_pct
+        description: "Percentage of successful transactions"
+      - name: transaction_growth_pct
+        description: "Week-over-week transaction growth"
+      - name: revenue_growth_pct
+        description: "Week-over-week revenue growth"
+
+  # ==========================================================================
+  # Analytics: Payment Trends
+  # ==========================================================================
+  - name: analytics_payment_trends
+    description: |
+      Time-series payment data with daily granularity.
+      Includes date dimension attributes, metrics, moving averages, and cumulative totals.
+      Best used for: Trend charts, time-series analysis, forecasting
+    config:
+      tags: ['analytics', 'payments', 'trends']
+    columns:
+      - name: trend_key
+        description: "Surrogate key for the trend row"
+        tests:
+          - unique
+          - not_null
+      - name: date_key
+        description: "Date of the metrics"
+        tests:
+          - not_null
+      - name: transaction_count
+        description: "Number of transactions on this date"
+      - name: revenue_dollars
+        description: "Revenue in dollars for this date"
+      - name: ma7_transaction_count
+        description: "7-day moving average of transaction count"
+      - name: cumulative_revenue_cents
+        description: "Running total of revenue"
+
+  # ==========================================================================
+  # Analytics: Customer Segments
+  # ==========================================================================
+  - name: analytics_customer_segments
+    description: |
+      Customer segmentation data for analysis and targeting.
+      Segments by: tier, fraud risk, churn risk, payment method preference.
+      Best used for: Segment analysis, pie charts, cohort analysis
+    config:
+      tags: ['analytics', 'payments', 'customers']
+    columns:
+      - name: segment_type
+        description: "Type of segmentation (tier, fraud_risk, churn_risk, payment_method)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['tier', 'fraud_risk', 'churn_risk', 'payment_method']
+      - name: segment_value
+        description: "The segment value within the type"
+      - name: customer_count
+        description: "Number of customers in this segment"
+      - name: customer_pct
+        description: "Percentage of total customers"
+      - name: revenue_pct
+        description: "Percentage of total revenue from this segment"
+
+  # ==========================================================================
+  # Analytics: Risk Overview
+  # ==========================================================================
+  - name: analytics_risk_overview
+    description: |
+      Fraud and risk metrics for monitoring and alerting.
+      Breakdowns by risk category, provider, and payment method.
+      Best used for: Risk dashboards, fraud monitoring, alerts
+    config:
+      tags: ['analytics', 'payments', 'risk']
+    columns:
+      - name: metric_type
+        description: "Type of metric breakdown"
+        tests:
+          - not_null
+      - name: dimension
+        description: "Dimension value for the metric"
+      - name: transaction_count
+        description: "Number of transactions"
+      - name: avg_fraud_score
+        description: "Average fraud score for this segment"
+
+  # ==========================================================================
+  # Analytics: Provider Comparison
+  # ==========================================================================
+  - name: analytics_provider_comparison
+    description: |
+      Payment provider performance comparison.
+      Includes volume, revenue, rates, risk, and customer metrics per provider.
+      Best used for: Provider analysis, strategic decisions, vendor management
+    config:
+      tags: ['analytics', 'payments', 'providers']
+    columns:
+      - name: provider
+        description: "Payment provider name"
+        tests:
+          - unique
+          - not_null
+      - name: transaction_share_pct
+        description: "Provider's share of total transactions"
+      - name: revenue_share_pct
+        description: "Provider's share of total revenue"
+      - name: success_rate_pct
+        description: "Transaction success rate for this provider"
+      - name: failure_rate_pct
+        description: "Transaction failure rate for this provider"

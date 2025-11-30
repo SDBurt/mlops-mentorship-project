@@ -1,0 +1,14 @@
+# Environment files (contain secrets)
+.env
+*.env.local
+
+# Docker volume data (if using bind mounts)
+data/
+volumes/
+
+# Superset local overrides
+superset-config/*.local.*
+
+# Temporary files
+*.tmp
+*.log

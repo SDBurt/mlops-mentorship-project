@@ -6,6 +6,8 @@
 -- Materialization: Incremental with merge strategy
 -- ============================================================================
 
+-- depends_on: {{ ref('stg_payment_events') }}
+
 {{
   config(
     materialized='incremental',
@@ -90,8 +92,9 @@ dimensioned AS (
 SELECT * FROM dimensioned
 {% if is_incremental() %}
 WHERE customer_id IN (
+    -- Reference staging model for proper lineage
     SELECT DISTINCT customer_id
-    FROM {{ source('bronze_payments', 'payment_events') }}
+    FROM {{ ref('stg_payment_events') }}
     WHERE ingested_at > (SELECT MAX(dw_updated_at) FROM {{ this }})
 )
 {% endif %}

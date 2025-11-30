@@ -14,7 +14,8 @@ Note:
 """
 
 from pathlib import Path
-from dagster import AssetExecutionContext
+from dagster import AssetExecutionContext, AssetKey
+from typing import Optional, Mapping, Any
 import os
 import logging
 
@@ -45,7 +46,7 @@ for _path in _possible_paths:
 
 if DBT_PROJECT_DIR is not None:
     try:
-        from dagster_dbt import DbtCliResource, dbt_assets, DbtProject
+        from dagster_dbt import DbtCliResource, dbt_assets, DbtProject, DagsterDbtTranslator
 
         # Export the project directory path for DbtCliResource
         dbt_project = DBT_PROJECT_DIR
@@ -59,10 +60,39 @@ if DBT_PROJECT_DIR is not None:
         # This creates target/manifest.json which is needed for dbt_assets
         _dbt_project_instance.prepare_if_dev()
 
+        class PaymentDbtTranslator(DagsterDbtTranslator):
+            """
+            Custom translator to link DBT sources to upstream Dagster assets.
+
+            Maps DBT source 'bronze_payments.payment_events' to the Dagster
+            asset 'data/payment_events' so DBT models depend on the ingestion asset.
+            """
+
+            def get_asset_key(self, dbt_resource_props: Mapping[str, Any]) -> AssetKey:
+                """Map DBT sources to upstream Dagster asset keys."""
+                resource_type = dbt_resource_props.get("resource_type")
+
+                if resource_type == "source":
+                    # Map DBT sources to upstream Dagster assets
+                    source_name = dbt_resource_props.get("source_name")
+                    table_name = dbt_resource_props.get("name")
+
+                    # bronze_payments.payment_events -> data/payment_events
+                    if source_name == "bronze_payments" and table_name == "payment_events":
+                        return AssetKey(["data", "payment_events"])
+
+                    # bronze_payments.payment_events_quarantine -> data/payment_events_quarantine
+                    if source_name == "bronze_payments" and table_name == "payment_events_quarantine":
+                        return AssetKey(["data", "payment_events_quarantine"])
+
+                # Default behavior for models
+                return super().get_asset_key(dbt_resource_props)
+
         @dbt_assets(
             manifest=_dbt_project_instance.manifest_path,
             project=_dbt_project_instance,
             select="tag:payments",  # Only include payment-tagged models
+            dagster_dbt_translator=PaymentDbtTranslator(),
         )
         def dbt_payment_assets(context: AssetExecutionContext, dbt: DbtCliResource):
             """
@@ -75,6 +105,7 @@ if DBT_PROJECT_DIR is not None:
 
             The dagster-dbt integration automatically:
             - Maps DBT model dependencies to Dagster asset dependencies
+            - Links DBT sources to upstream Dagster assets (payment_events)
             - Handles DBT test execution as part of asset materialization
             - Provides DBT logs and metadata in the Dagster UI
 

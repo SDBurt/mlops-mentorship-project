@@ -52,6 +52,8 @@ services:
       POLARIS_BOOTSTRAP_CREDENTIALS: ${POLARIS_REALM},${POLARIS_USER},${POLARIS_PASSWORD}
       polaris.features.DROP_WITH_PURGE_ENABLED: "true"
       polaris.realm-context.realms: ${POLARIS_REALM}
+    volumes:
+      - polaris-data:/app/persistence
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -134,6 +136,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio-data:/data
     networks:
       local-iceberg-lakehouse:
         aliases:
@@ -150,8 +154,7 @@ services:
       until (mc alias set minio http://minio:9000
       ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}) do
       echo '...waiting...' && sleep 1; done;
-      mc rm -r --force minio/warehouse;
-      mc mb minio/warehouse;
+      mc mb --ignore-existing minio/warehouse;
       mc anonymous set public minio/warehouse;
       tail -f /dev/null
       "
@@ -331,7 +334,7 @@ services:
       context: ../../payment-pipeline
       dockerfile: Dockerfile
     container_name: webhook-simulator
-    command: ["python", "-m", "simulator.main", "generate", "--rate", "2", "--duration", "300"]
+    command: ["python", "-m", "simulator.main", "generate", "--rate", "2", "--duration", "7200"]
     environment:
       GATEWAY_URL: http://payment-gateway:8000/webhooks/stripe/
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_secret_for_dev}
@@ -518,11 +521,148 @@ services:
     profiles:
       - orchestrator
 
+  #####################################
+  # APACHE SUPERSET (BI Dashboard)
+  #####################################
+
+  superset-db:
+    image: postgres:14
+    container_name: superset-db
+    environment:
+      POSTGRES_USER: ${SUPERSET_DB_USER:-superset}
+      POSTGRES_PASSWORD: ${SUPERSET_DB_PASSWORD:-superset}
+      POSTGRES_DB: ${SUPERSET_DB_NAME:-superset}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SUPERSET_DB_USER:-superset} -d ${SUPERSET_DB_NAME:-superset}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - superset-db-data:/var/lib/postgresql/data
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - superset
+
+  superset-redis:
+    image: redis:7
+    container_name: superset-redis
+    restart: unless-stopped
+    volumes:
+      - superset-redis-data:/data
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - superset
+
+  superset-init:
+    build:
+      context: ./superset-config
+      dockerfile: Dockerfile
+    image: superset-lakehouse:latest
+    container_name: superset-init
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: superset-db
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${SUPERSET_DB_USER:-superset}
+      DATABASE_PASSWORD: ${SUPERSET_DB_PASSWORD:-superset}
+      DATABASE_DB: ${SUPERSET_DB_NAME:-superset}
+      REDIS_HOST: superset-redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SUPERSET_SECRET_KEY:-CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET}
+      SUPERSET_ADMIN_USERNAME: ${SUPERSET_ADMIN_USERNAME:-admin}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./superset-config/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ./superset-config/docker-init.sh:/app/docker-init.sh:ro
+    entrypoint: ["/bin/bash", "/app/docker-init.sh"]
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      superset-redis:
+        condition: service_started
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - superset
+    restart: "no"
+
+  superset:
+    build:
+      context: ./superset-config
+      dockerfile: Dockerfile
+    image: superset-lakehouse:latest
+    container_name: superset
+    ports:
+      - "8089:8088"  # Changed from 8088 to avoid conflict with Temporal UI
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: superset-db
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${SUPERSET_DB_USER:-superset}
+      DATABASE_PASSWORD: ${SUPERSET_DB_PASSWORD:-superset}
+      DATABASE_DB: ${SUPERSET_DB_NAME:-superset}
+      REDIS_HOST: superset-redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SUPERSET_SECRET_KEY:-CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET}
+      # Trino connection for analytics
+      TRINO_HOST: trino
+      TRINO_PORT: 8080
+    volumes:
+      - ./superset-config/superset_config.py:/app/pythonpath/superset_config.py:ro
+    command: ["/usr/bin/run-server.sh"]
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+      trino:
+        condition: service_started
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - superset
+
+  superset-worker:
+    build:
+      context: ./superset-config
+      dockerfile: Dockerfile
+    image: superset-lakehouse:latest
+    container_name: superset-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: superset-db
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${SUPERSET_DB_USER:-superset}
+      DATABASE_PASSWORD: ${SUPERSET_DB_PASSWORD:-superset}
+      DATABASE_DB: ${SUPERSET_DB_NAME:-superset}
+      REDIS_HOST: superset-redis
+      REDIS_PORT: 6379
+      SECRET_KEY: ${SUPERSET_SECRET_KEY:-CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET}
+    volumes:
+      - ./superset-config/superset_config.py:/app/pythonpath/superset_config.py:ro
+    command: ["celery", "--app=superset.tasks.celery_app:app", "worker", "--pool=prefork", "-O", "fair", "-c", "4"]
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - superset
+
 volumes:
   postgres-data:
   dagster-io:
   temporal-db-data:
   payments-db-data:
+  superset-db-data:
+  superset-redis-data:
+  minio-data:
+  polaris-data:
 
 networks:
   local-iceberg-lakehouse:

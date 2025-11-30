@@ -19,10 +19,11 @@
 }}
 
 WITH payment_events AS (
+    -- Reference staging model for proper lineage
     SELECT
         *,
         DATE(provider_created_at) AS event_date
-    FROM {{ source('bronze_payments', 'payment_events') }}
+    FROM {{ ref('stg_payment_events') }}
     {% if is_incremental() %}
     WHERE ingested_at > (SELECT MAX(dw_updated_at) FROM {{ this }})
     {% endif %}

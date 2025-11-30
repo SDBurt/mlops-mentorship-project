@@ -12,6 +12,7 @@ Usage:
 
 from dagster import ConfigurableResource
 from typing import List, Dict, Any
+from datetime import date
 from pydantic import Field
 import psycopg
 from psycopg.rows import dict_row
@@ -101,6 +102,38 @@ class PostgresResource(ConfigurableResource):
             LIMIT %s
         """
         return self.execute_query(query, (limit,))
+
+    def get_events_by_date(
+        self,
+        table: str = "payment_events",
+        partition_date: date = None,
+        limit: int = 50000,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all payment events for a specific date (for backfill).
+
+        Unlike get_unloaded_events, this queries ALL events for the date,
+        not just unloaded ones. The Iceberg merge will handle deduplication.
+
+        Args:
+            table: Table name (payment_events or payment_events_quarantine)
+            partition_date: Date to load events for
+            limit: Maximum number of records to fetch
+
+        Returns:
+            List of dictionaries with event data
+        """
+        if partition_date is None:
+            partition_date = date.today()
+
+        query = f"""
+            SELECT *
+            FROM {table}
+            WHERE DATE(ingested_at) = %s
+            ORDER BY ingested_at ASC
+            LIMIT %s
+        """
+        return self.execute_query(query, (partition_date, limit))
 
     def mark_as_loaded(self, table: str, event_ids: List[str]) -> int:
         """

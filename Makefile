@@ -6,7 +6,8 @@
 	pipeline-up pipeline-down pipeline-status pipeline-logs \
 	gateway-up gateway-down gateway-logs gateway-simulator simulator-stop simulator-logs gateway-build gateway-test gateway-status gateway-test-send \
 	normalizer-up normalizer-down normalizer-logs normalizer-build normalizer-status normalizer-counts \
-	orchestrator-up orchestrator-down orchestrator-logs orchestrator-build orchestrator-status temporal-logs inference-logs inference-build
+	orchestrator-up orchestrator-down orchestrator-logs orchestrator-build orchestrator-status temporal-logs inference-logs inference-build \
+	superset-up superset-down superset-logs superset-status
 
 # Variables
 DOCKER_DIR := infrastructure/docker
@@ -77,6 +78,12 @@ help:
 	@echo "  make temporal-logs          - View Temporal server logs"
 	@echo "  make inference-logs         - View inference service logs"
 	@echo "  make inference-build        - Build inference service Docker image"
+	@echo ""
+	@echo "Apache Superset (BI Dashboard):"
+	@echo "  make superset-up            - Start Superset with Trino connection"
+	@echo "  make superset-down          - Stop Superset services"
+	@echo "  make superset-logs          - View Superset logs"
+	@echo "  make superset-status        - Show Superset service status"
 	@echo ""
 	@echo "Workflows:"
 	@echo ""
@@ -784,3 +791,94 @@ orchestrator-status:
 	@echo "  make temporal-logs        - View temporal logs"
 	@echo "  make inference-logs       - View inference service logs"
 	@echo "  make orchestrator-down    - Stop orchestrator"
+
+##################################################
+# APACHE SUPERSET COMMANDS
+##################################################
+
+# Start Superset with analytics stack
+superset-up:
+	@echo "=========================================="
+	@echo "   Starting Apache Superset"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components:"
+	@echo "  - Superset DB (PostgreSQL metadata store)"
+	@echo "  - Superset Redis (caching & async tasks)"
+	@echo "  - Superset Init (migrations & admin user)"
+	@echo "  - Superset (web application)"
+	@echo "  - Superset Worker (async tasks/alerts)"
+	@echo ""
+	@echo "NOTE: Analytics stack (Trino, Polaris, MinIO) must be running."
+	@echo "      Run 'make analytics-up' first if not already started."
+	@echo ""
+	@echo "Starting Superset stack..."
+	@cd $(DOCKER_DIR) && docker compose --profile superset up -d
+	@echo ""
+	@echo "Waiting for initialization (this may take 30-60 seconds)..."
+	@sleep 30
+	@echo ""
+	@echo "=========================================="
+	@echo "   Apache Superset Started!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Access URL:"
+	@echo "  Superset:  http://localhost:8088"
+	@echo ""
+	@echo "Login:"
+	@echo "  Username: admin"
+	@echo "  Password: admin"
+	@echo ""
+	@echo "Pre-configured Connection:"
+	@echo "  Database: Lakehouse (Trino)"
+	@echo "  Schema:   data"
+	@echo ""
+	@echo "Available Analytics Tables:"
+	@echo "  - analytics_payment_summary    (KPI dashboard)"
+	@echo "  - analytics_payment_trends     (time-series charts)"
+	@echo "  - analytics_customer_segments  (segmentation analysis)"
+	@echo "  - analytics_risk_overview      (fraud monitoring)"
+	@echo "  - analytics_provider_comparison (provider analysis)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Login to Superset"
+	@echo "  2. Go to SQL Lab and select 'Lakehouse (Trino)' database"
+	@echo "  3. Run: SELECT * FROM data.analytics_payment_summary"
+	@echo "  4. Create datasets and build dashboards!"
+
+# Stop Superset
+superset-down:
+	@echo "Stopping Apache Superset..."
+	@cd $(DOCKER_DIR) && docker compose --profile superset stop \
+		superset superset-worker superset-init superset-redis superset-db 2>/dev/null || true
+	@echo "Apache Superset stopped"
+
+# View Superset logs
+superset-logs:
+	@echo "Viewing Superset logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile superset logs -f superset superset-init superset-worker
+
+# Show Superset status
+superset-status:
+	@echo "=========================================="
+	@echo "   Apache Superset Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q superset-db; then echo "  [OK] Superset DB"; else echo "  [--] Superset DB"; fi
+	@if docker ps | grep -q superset-redis; then echo "  [OK] Superset Redis"; else echo "  [--] Superset Redis"; fi
+	@if docker ps --format "{{.Names}}" | grep -q "^superset$$"; then echo "  [OK] Superset"; else echo "  [--] Superset"; fi
+	@if docker ps | grep -q superset-worker; then echo "  [OK] Superset Worker"; else echo "  [--] Superset Worker"; fi
+	@echo ""
+	@echo "Trino Connection (required):"
+	@echo "----------------------------"
+	@if docker ps | grep -q trino; then echo "  [OK] Trino: running"; else echo "  [--] Trino: not running (run: make analytics-up)"; fi
+	@echo ""
+	@echo "Access URL:"
+	@echo "  Superset:  http://localhost:8088"
+	@echo ""
+	@echo "Commands:"
+	@echo "  make superset-up      - Start Superset"
+	@echo "  make superset-logs    - View logs"
+	@echo "  make superset-down    - Stop Superset"

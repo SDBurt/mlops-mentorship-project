@@ -14,10 +14,11 @@
 }}
 
 WITH payment_events AS (
+    -- Reference staging model for proper lineage
     SELECT
         *,
         DATE(provider_created_at) AS event_date
-    FROM {{ source('bronze_payments', 'payment_events') }}
+    FROM {{ ref('stg_payment_events') }}
 ),
 
 -- Daily aggregations

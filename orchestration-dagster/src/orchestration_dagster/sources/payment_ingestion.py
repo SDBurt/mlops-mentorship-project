@@ -11,12 +11,13 @@ Data Flow:
 """
 
 import pandas as pd
-from dagster import asset, AssetExecutionContext, Output, MetadataValue
+from dagster import asset, AssetExecutionContext, Output, MetadataValue, Nothing
 from decimal import Decimal
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional, Union
 
 from ..resources.postgres import PostgresResource
+from ..partitions import payment_daily_partitions
 
 
 def _convert_decimal_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -115,6 +116,9 @@ def payment_events(
 
     After successful write, marks records as loaded in PostgreSQL.
 
+    Returns empty DataFrame with proper schema when there are no new events,
+    allowing incremental runs to succeed without writing any data.
+
     Schema includes:
         - Core fields: event_id, provider, event_type, amount_cents, currency
         - Customer/Merchant: customer_id, merchant_id
@@ -135,8 +139,21 @@ def payment_events(
 
     if not events:
         context.log.info("No new payment events to ingest")
+        # Return empty DataFrame with proper schema to avoid column errors
+        # This allows incremental runs to succeed without writing any data
+        empty_df = pd.DataFrame(columns=[
+            'event_id', 'provider', 'provider_event_id', 'event_type',
+            'customer_id', 'merchant_id', 'amount_cents', 'currency',
+            'payment_method_type', 'card_brand', 'card_last_four',
+            'status', 'failure_code', 'failure_message',
+            'fraud_score', 'risk_level', 'churn_score', 'churn_risk_level',
+            'retry_strategy', 'retry_delay_seconds', 'days_to_churn_estimate',
+            'validation_status', 'validation_errors',
+            'provider_created_at', 'processed_at', 'ingested_at',
+            'metadata', 'schema_version'
+        ])
         return Output(
-            pd.DataFrame(),
+            empty_df,
             metadata={
                 "num_records": 0,
                 "status": "no_new_events",
@@ -184,6 +201,95 @@ def payment_events(
 
 @asset(
     key_prefix=["data"],
+    name="payment_events_daily",
+    io_manager_key="iceberg_io_manager",
+    partitions_def=payment_daily_partitions,
+    metadata={
+        "partition_expr": "ingested_at",
+        "description": "Daily partitioned payment events for batch processing",
+    },
+    group_name="payment_daily",
+    compute_kind="postgres",
+)
+def payment_events_daily(
+    context: AssetExecutionContext,
+    postgres_resource: PostgresResource,
+) -> Output[pd.DataFrame]:
+    """
+    Daily batch processing of payment events by date partition.
+
+    This asset queries ALL events for the partition date and uses Iceberg's
+    merge strategy for deduplication. Complements the real-time ingestion
+    (payment_events) with daily batch processing.
+
+    Use cases:
+    - Daily batch reconciliation
+    - Historical data recovery (backfill)
+    - Reprocessing specific date ranges
+
+    Note: This does NOT update loaded_to_iceberg flag since it processes
+    all events for the date, not just new ones.
+    """
+    partition_key = context.partition_key
+    partition_date = datetime.strptime(partition_key, "%Y-%m-%d").date()
+
+    context.log.info(f"Backfilling payment events for partition: {partition_date}")
+
+    events = postgres_resource.get_events_by_date(
+        table="payment_events",
+        partition_date=partition_date,
+    )
+
+    if not events:
+        context.log.info(f"No events found for {partition_date}")
+        # Return empty DataFrame with proper schema
+        empty_df = pd.DataFrame(columns=[
+            'event_id', 'provider', 'provider_event_id', 'event_type',
+            'customer_id', 'merchant_id', 'amount_cents', 'currency',
+            'payment_method_type', 'card_brand', 'card_last_four',
+            'status', 'failure_code', 'failure_message',
+            'fraud_score', 'risk_level', 'churn_score', 'churn_risk_level',
+            'retry_strategy', 'retry_delay_seconds', 'days_to_churn_estimate',
+            'validation_status', 'validation_errors',
+            'provider_created_at', 'processed_at', 'ingested_at',
+            'metadata', 'schema_version'
+        ])
+        return Output(
+            empty_df,
+            metadata={
+                "num_records": 0,
+                "partition_date": str(partition_date),
+                "status": "no_events_for_date",
+            }
+        )
+
+    context.log.info(f"Found {len(events)} payment events for {partition_date}")
+
+    # Convert to DataFrame
+    df = pd.DataFrame(events)
+
+    # Remove internal tracking columns (not needed in Iceberg)
+    drop_cols = ['id', 'loaded_to_iceberg', 'loaded_at']
+    df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors='ignore')
+
+    # Prepare for Iceberg
+    df = _prepare_dataframe_for_iceberg(df)
+
+    context.log.info(f"Prepared {len(df)} records for Iceberg backfill")
+
+    # Add output metadata
+    metadata = {
+        "num_records": len(df),
+        "partition_date": str(partition_date),
+        "event_types": MetadataValue.json(df['event_type'].value_counts().to_dict()) if 'event_type' in df.columns else {},
+        "providers": MetadataValue.json(df['provider'].value_counts().to_dict()) if 'provider' in df.columns else {},
+    }
+
+    return Output(df, metadata=metadata)
+
+
+@asset(
+    key_prefix=["data"],
     io_manager_key="iceberg_io_manager",
     metadata={
         "partition_expr": "quarantined_at",
@@ -200,6 +306,9 @@ def payment_events_quarantine(
 
     Quarantined events are those that failed validation in the
     Normalizer or Orchestrator and need manual review.
+
+    Returns empty DataFrame with proper schema when there are no events,
+    allowing incremental runs to succeed without writing any data.
 
     Schema includes:
         - Core fields: event_id, provider, provider_event_id
@@ -222,12 +331,26 @@ def payment_events_quarantine(
     events = postgres_resource.execute_query(query, (batch_size,))
 
     if not events:
-        context.log.info("No quarantine events to ingest")
+        context.log.info("No quarantine events to ingest - skipping materialization")
+        # Skip materialization entirely when there's no data
+        # The Iceberg IO manager can't handle empty DataFrames without proper schema
+        from dagster import AssetMaterialization
+        context.log_event(
+            AssetMaterialization(
+                asset_key=context.asset_key,
+                metadata={
+                    "num_records": 0,
+                    "status": "no_quarantine_events",
+                }
+            )
+        )
+        # Return a sentinel value that the IO manager can skip
+        # By returning None wrapped in Output, we signal no data to write
         return Output(
-            pd.DataFrame(),
+            value=pd.DataFrame(),  # Empty DataFrame signals no-op
             metadata={
                 "num_records": 0,
-                "status": "no_quarantine_events",
+                "status": "skipped_no_data",
             }
         )
 
