@@ -7,6 +7,7 @@ dependencies = [
     "dagster-postgres",  # PostgreSQL storage for K8s run pods
     "dagster-iceberg>=0.1.0",  # Iceberg IO manager
     "dagster-dbt>=0.24.0",  # DBT integration for asset orchestration
+    "dbt-trino>=1.7.0",  # DBT adapter for Trino query engine
     "pyiceberg>=0.7.0",  # Core PyIceberg library (required by dagster-iceberg)
     "psycopg[binary]>=3.1.0",  # PostgreSQL client for payment event ingestion
     "pandas>=2.0.0",  # DataFrame library

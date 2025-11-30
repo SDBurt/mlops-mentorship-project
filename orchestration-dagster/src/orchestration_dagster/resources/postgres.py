@@ -27,27 +27,27 @@ class PostgresResource(ConfigurableResource):
     """
 
     host: str = Field(
-        default_factory=lambda: os.getenv("POSTGRES_HOST", "localhost"),
-        description="PostgreSQL host (set POSTGRES_HOST env var)"
+        default_factory=lambda: os.getenv("PAYMENTS_DB_HOST", "localhost"),
+        description="PostgreSQL host (set PAYMENTS_DB_HOST env var)"
     )
 
     port: int = Field(
-        default_factory=lambda: int(os.getenv("POSTGRES_PORT", "5432")),
+        default_factory=lambda: int(os.getenv("PAYMENTS_DB_PORT", "5432")),
         description="PostgreSQL port"
     )
 
     user: str = Field(
-        default_factory=lambda: os.getenv("POSTGRES_USER", "payments"),
+        default_factory=lambda: os.getenv("PAYMENTS_DB_USER", "payments"),
         description="PostgreSQL user"
     )
 
     password: str = Field(
-        default_factory=lambda: os.getenv("POSTGRES_PASSWORD", "payments"),
+        default_factory=lambda: os.getenv("PAYMENTS_DB_PASSWORD", "payments"),
         description="PostgreSQL password"
     )
 
     database: str = Field(
-        default_factory=lambda: os.getenv("POSTGRES_DB", "payments"),
+        default_factory=lambda: os.getenv("PAYMENTS_DB_NAME", "payments"),
         description="PostgreSQL database"
     )
 

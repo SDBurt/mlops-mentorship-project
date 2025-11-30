@@ -36,6 +36,7 @@ def _prepare_dataframe_for_iceberg(df: pd.DataFrame) -> pd.DataFrame:
 
     - Converts timestamps to microsecond precision (Iceberg requirement)
     - Converts Decimal to float
+    - Converts object columns to proper string type (Iceberg v2 compatibility)
     - Handles JSONB columns (validation_errors, metadata)
     """
     if len(df) == 0:
@@ -55,6 +56,40 @@ def _prepare_dataframe_for_iceberg(df: pd.DataFrame) -> pd.DataFrame:
     for col in int_cols:
         if col in df.columns:
             df[col] = df[col].astype('Int64')  # Nullable integer
+
+    # Convert string/object columns to proper string type for Iceberg v2 compatibility
+    # These columns can be nullable but need explicit string dtype
+    string_cols = [
+        'event_id', 'provider', 'provider_event_id', 'event_type', 'customer_id',
+        'merchant_id', 'currency', 'payment_method_type', 'card_brand', 'card_last_four',
+        'status', 'failure_code', 'failure_message', 'risk_level', 'retry_strategy',
+        'source_topic', 'failure_reason', 'reviewed_by', 'resolution'
+    ]
+    for col in string_cols:
+        if col in df.columns:
+            # Convert to string, replacing None with pd.NA
+            df[col] = df[col].astype('string')
+
+    # Handle JSONB columns - convert to JSON string for Iceberg storage
+    import json
+
+    def _serialize_json(x):
+        """Safely serialize a value to JSON string."""
+        if x is None:
+            return None
+        # Handle pandas NA
+        try:
+            if pd.isna(x):
+                return None
+        except (ValueError, TypeError):
+            # pd.isna fails on arrays/lists - that's fine, serialize them
+            pass
+        return json.dumps(x)
+
+    json_cols = ['validation_errors', 'original_payload', 'metadata']
+    for col in json_cols:
+        if col in df.columns:
+            df[col] = df[col].apply(_serialize_json).astype('string')
 
     return df
 

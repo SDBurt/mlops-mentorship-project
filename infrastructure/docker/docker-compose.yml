@@ -1,6 +1,6 @@
 services:
   #####################################
-  # STREAMING SERVICES (Kafka + Flink)
+  # STREAMING SERVICES (Kafka)
   #####################################
 
   kafka-broker:
@@ -30,175 +30,6 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
-
-  flink-jobmanager:
-    build:
-      context: .
-      dockerfile: flink/Dockerfile
-    ports:
-      - "8081:8081"
-    command: jobmanager
-    networks:
-      - local-iceberg-lakehouse
-    depends_on:
-      - polaris
-      - minio
-
-    env_file:
-      - .env
-    environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_REGION: ${AWS_REGION}
-      S3_ENDPOINT: http://minio:9000
-      S3_PATH_STYLE_ACCESS: "true"
-      FLINK_PROPERTIES: |
-        jobmanager.rpc.address: flink-jobmanager
-        # Configure checkpoint storage to use S3/MinIO
-        execution.checkpointing.storage: filesystem
-        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
-        # Configure S3 filesystem (Hadoop S3A) for MinIO
-        s3.access-key: ${AWS_ACCESS_KEY_ID}
-        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
-        s3.endpoint: http://minio:9000
-        s3.path-style-access: true
-        # Hadoop S3A filesystem configuration
-        fs.s3a.endpoint: http://minio:9000
-        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
-        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
-        fs.s3a.path.style.access: true
-        fs.s3a.connection.ssl.enabled: false
-
-  flink-taskmanager:
-    build:
-      context: .
-      dockerfile: flink/Dockerfile
-    command: taskmanager
-    networks:
-      - local-iceberg-lakehouse
-    depends_on:
-      - polaris
-      - minio
-    deploy:
-      replicas: 1
-    env_file:
-      - .env
-    environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_REGION: ${AWS_REGION}
-      S3_ENDPOINT: http://minio:9000
-      S3_PATH_STYLE_ACCESS: "true"
-      FLINK_PROPERTIES: |
-        jobmanager.rpc.address: flink-jobmanager
-        taskmanager.numberOfTaskSlots: 8
-        # Configure checkpoint storage to use S3/MinIO
-        execution.checkpointing.storage: filesystem
-        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
-        # Configure S3 filesystem (Hadoop S3A) for MinIO
-        s3.access-key: ${AWS_ACCESS_KEY_ID}
-        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
-        s3.endpoint: http://minio:9000
-        s3.path-style-access: true
-        # Hadoop S3A filesystem configuration
-        fs.s3a.endpoint: http://minio:9000
-        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
-        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
-        fs.s3a.path.style.access: true
-        fs.s3a.connection.ssl.enabled: false
-
-  flink-sql-client:
-    build:
-      context: .
-      dockerfile: flink/Dockerfile
-    command: ["sql-client.sh"]
-    networks:
-      - local-iceberg-lakehouse
-    depends_on:
-      polaris:
-        condition: service_started
-      minio:
-        condition: service_started
-      flink-jobmanager:
-        condition: service_started
-    env_file:
-      - .env
-    environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_REGION: ${AWS_REGION}
-      S3_ENDPOINT: http://minio:9000
-      S3_PATH_STYLE_ACCESS: "true"
-      # Flink SQL job configuration (parameterized in SQL files)
-      POLARIS_URI: ${POLARIS_URI:-http://polaris:8181/api/catalog}
-      POLARIS_OAUTH_URI: ${POLARIS_OAUTH_URI:-http://polaris:8181/api/catalog/v1/oauth/tokens}
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka-broker:29092}
-      FLINK_PROPERTIES: |
-        jobmanager.rpc.address: flink-jobmanager
-        rest.address: flink-jobmanager
-        # Configure checkpoint storage to use S3/MinIO
-        execution.checkpointing.storage: filesystem
-        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
-        # Configure S3 filesystem (Hadoop S3A) for MinIO
-        s3.access-key: ${AWS_ACCESS_KEY_ID}
-        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
-        s3.endpoint: http://minio:9000
-        s3.path-style-access: true
-        # Hadoop S3A filesystem configuration
-        fs.s3a.endpoint: http://minio:9000
-        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
-        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
-        fs.s3a.path.style.access: true
-        fs.s3a.connection.ssl.enabled: false
-    stdin_open: true
-    tty: true
-
-  flink-job-submitter:
-    build:
-      context: .
-      dockerfile: flink/Dockerfile
-    container_name: flink-job-submitter
-    command: ["/opt/flink/entrypoint-submit.sh"]
-    networks:
-      - local-iceberg-lakehouse
-    depends_on:
-      flink-jobmanager:
-        condition: service_started
-      kafka-broker:
-        condition: service_healthy
-      polaris:
-        condition: service_started
-    volumes:
-      - ./flink/sql:/opt/flink/sql
-      - ./flink/entrypoint-submit.sh:/opt/flink/entrypoint-submit.sh
-    env_file:
-      - .env
-    environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_REGION: ${AWS_REGION}
-      S3_ENDPOINT: http://minio:9000
-      S3_PATH_STYLE_ACCESS: "true"
-      FLINK_JOBMANAGER: flink-jobmanager:8081
-      KAFKA_BROKER: kafka-broker:29092
-      POLARIS_HOST: polaris:8181
-      POLARIS_USER: ${POLARIS_USER}
-      POLARIS_PASSWORD: ${POLARIS_PASSWORD}
-      # Flink properties for S3 access
-      FLINK_PROPERTIES: |
-        jobmanager.rpc.address: flink-jobmanager
-        rest.address: flink-jobmanager
-        execution.checkpointing.storage: filesystem
-        execution.checkpointing.dir: s3a://warehouse/flink-checkpoints
-        s3.access-key: ${AWS_ACCESS_KEY_ID}
-        s3.secret-key: ${AWS_SECRET_ACCESS_KEY}
-        s3.endpoint: http://minio:9000
-        s3.path-style-access: true
-        fs.s3a.endpoint: http://minio:9000
-        fs.s3a.access.key: ${AWS_ACCESS_KEY_ID}
-        fs.s3a.secret.key: ${AWS_SECRET_ACCESS_KEY}
-        fs.s3a.path.style.access: true
-        fs.s3a.connection.ssl.enabled: false
 
   #####################################
   # LAKEHOUSE SERVICES
@@ -379,6 +210,16 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       # Trino connection for data quality monitoring
       TRINO_HOST: trino
+      # Payments DB connection for batch ingestion
+      PAYMENTS_DB_HOST: payments-db
+      PAYMENTS_DB_PORT: 5432
+      PAYMENTS_DB_USER: ${PAYMENTS_DB_USER:-payments}
+      PAYMENTS_DB_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
+      PAYMENTS_DB_NAME: ${PAYMENTS_DB_NAME:-payments}
+      # DBT project path for transformations
+      DBT_PROJECT_DIR: /app/dbt
+    volumes:
+      - ../../orchestration-dbt/dbt:/app/dbt
     expose:
       - "3030"
     healthcheck:
@@ -451,77 +292,6 @@ services:
         condition: service_healthy
       dagster-user-code:
         condition: service_started
-
-  #####################################
-  # JR GENERATOR SERVICES
-  #####################################
-
-  jr-charges:
-    build:
-      context: ./jr
-      dockerfile: Dockerfile
-    container_name: jr-charges
-    networks:
-      - local-iceberg-lakehouse
-    volumes:
-      - ./jr:/home/jr-user/templates
-    depends_on:
-      kafka-broker:
-        condition: service_healthy
-    restart: unless-stopped
-    profiles:
-      - generators
-
-  jr-refunds:
-    build:
-      context: ./jr
-      dockerfile: Dockerfile
-    container_name: jr-refunds
-    networks:
-      - local-iceberg-lakehouse
-    volumes:
-      - ./jr:/home/jr-user/templates
-    depends_on:
-      kafka-broker:
-        condition: service_healthy
-    restart: unless-stopped
-    profiles:
-      - generators
-    entrypoint: ["/usr/local/bin/generate-refunds.sh"]
-
-  jr-disputes:
-    build:
-      context: ./jr
-      dockerfile: Dockerfile
-    container_name: jr-disputes
-    networks:
-      - local-iceberg-lakehouse
-    volumes:
-      - ./jr:/home/jr-user/templates
-    depends_on:
-      kafka-broker:
-        condition: service_healthy
-    restart: unless-stopped
-    profiles:
-      - generators
-    entrypoint: ["/usr/local/bin/generate-disputes.sh"]
-
-  jr-subscriptions:
-    build:
-      context: ./jr
-      dockerfile: Dockerfile
-    container_name: jr-subscriptions
-    networks:
-      - local-iceberg-lakehouse
-    volumes:
-      - ./jr:/home/jr-user/templates
-    depends_on:
-      kafka-broker:
-        condition: service_healthy
-    restart: unless-stopped
-    profiles:
-      - generators
-    entrypoint: ["/usr/local/bin/generate-subscriptions.sh"]
 
   #####################################
   # PAYMENT GATEWAY SERVICES
@@ -607,12 +377,14 @@ services:
   payments-db:
     image: postgres:14
     container_name: payments-db
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_USER: ${PAYMENTS_DB_USER:-payments}
       POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
       POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${PAYMENTS_DB_USER:-payments} -d ${PAYMENTS_DB_NAME:-payments}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -632,7 +404,7 @@ services:
       POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:-temporal}
       POSTGRES_DB: ${TEMPORAL_DB_NAME:-temporal}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${TEMPORAL_DB_USER:-temporal} -d ${TEMPORAL_DB_NAME:-temporal}"]
       interval: 5s
       timeout: 5s
       retries: 10

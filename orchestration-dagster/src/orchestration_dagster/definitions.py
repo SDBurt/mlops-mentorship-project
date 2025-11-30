@@ -13,19 +13,12 @@ from dagster import (
     ScheduleDefinition,
     DefaultScheduleStatus,
 )
-from dagster_dbt import DbtCliResource
 
 from .resources.iceberg import create_iceberg_io_manager
-from .resources.trino import TrinoResource
 from .resources.postgres import PostgresResource
 from .resources.dbt import dbt_payment_assets, dbt_project
 
 from .sources.payment_ingestion import payment_events, payment_events_quarantine
-from .sources.payments import (
-    quarantine_charges_monitor,
-    quarantine_summary_monitor,
-    validation_flag_monitor
-)
 
 
 # =============================================================================
@@ -39,52 +32,91 @@ payment_ingestion_job = define_asset_job(
     description="Ingest payment events from PostgreSQL bronze layer to Iceberg",
 )
 
-# Job for DBT transformations
-dbt_transformation_job = define_asset_job(
-    name="dbt_transformation_job",
-    selection=AssetSelection.assets(dbt_payment_assets),
-    description="Run DBT transformations on payment Iceberg tables",
-)
+# =============================================================================
+# Assets
+# =============================================================================
 
-# Job for Payment Data Quality Monitoring
-payment_dq_monitoring_job = define_asset_job(
-    name="payment_dq_monitoring_job",
-    selection=AssetSelection.groups("data_quality_payments"),
-    description="Monitor payment quarantine tables and data quality metrics",
-)
+all_assets = [
+    # Payment ingestion assets (PostgreSQL -> Iceberg)
+    payment_events,
+    payment_events_quarantine,
+]
 
-# Full pipeline job (ingestion + DBT)
-payment_pipeline_job = define_asset_job(
-    name="payment_pipeline_job",
-    selection=AssetSelection.groups("payment_ingestion") | AssetSelection.assets(dbt_payment_assets),
-    description="Full payment pipeline: PostgreSQL ingestion + DBT transformations",
-)
+# =============================================================================
+# Resources
+# =============================================================================
 
+all_resources = {
+    # Iceberg IO Manager for persisting DataFrames to Iceberg tables
+    "iceberg_io_manager": create_iceberg_io_manager(
+        namespace="data",
+        backend="pandas"
+    ),
+
+    # PostgreSQL resource for reading payment events from bronze layer
+    # Host is configured via PAYMENTS_DB_HOST environment variable
+    # Defaults: "localhost" for local development, "payments-db" in Docker
+    "postgres_resource": PostgresResource(),
+}
+
+# =============================================================================
+# Jobs List
+# =============================================================================
+
+all_jobs = [
+    payment_ingestion_job,
+]
 
 # =============================================================================
 # Schedules
 # =============================================================================
 
-# Run payment ingestion every 15 minutes
-payment_ingestion_schedule = ScheduleDefinition(
-    job=payment_ingestion_job,
-    cron_schedule="*/15 * * * *",  # Every 15 minutes
-    default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
-)
+all_schedules = [
+    # Run payment ingestion every 15 minutes
+    ScheduleDefinition(
+        job=payment_ingestion_job,
+        cron_schedule="*/15 * * * *",  # Every 15 minutes
+        default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
+    ),
+]
 
-# Run DBT transformations hourly
-dbt_transformation_schedule = ScheduleDefinition(
-    job=dbt_transformation_job,
-    cron_schedule="0 * * * *",  # Every hour at minute 0
-    default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
-)
+# =============================================================================
+# DBT Integration (Optional)
+# =============================================================================
 
-# Run data quality monitoring hourly
-dq_monitoring_schedule = ScheduleDefinition(
-    job=payment_dq_monitoring_job,
-    cron_schedule="5 * * * *",  # Every hour at minute 5
-    default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
-)
+if dbt_payment_assets is not None and dbt_project is not None:
+    from dagster_dbt import DbtCliResource
+
+    # Add DBT assets
+    all_assets.append(dbt_payment_assets)
+
+    # Add DBT resource
+    all_resources["dbt"] = DbtCliResource(project_dir=dbt_project)
+
+    # Add DBT jobs
+    dbt_transformation_job = define_asset_job(
+        name="dbt_transformation_job",
+        selection=AssetSelection.assets(dbt_payment_assets),
+        description="Run DBT transformations on payment Iceberg tables",
+    )
+    all_jobs.append(dbt_transformation_job)
+
+    # Add full pipeline job (ingestion + DBT)
+    payment_pipeline_job = define_asset_job(
+        name="payment_pipeline_job",
+        selection=AssetSelection.groups("payment_ingestion") | AssetSelection.assets(dbt_payment_assets),
+        description="Full payment pipeline: PostgreSQL ingestion + DBT transformations",
+    )
+    all_jobs.append(payment_pipeline_job)
+
+    # Add DBT schedule
+    all_schedules.append(
+        ScheduleDefinition(
+            job=dbt_transformation_job,
+            cron_schedule="0 * * * *",  # Every hour at minute 0
+            default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
+        )
+    )
 
 
 # =============================================================================
@@ -92,53 +124,8 @@ dq_monitoring_schedule = ScheduleDefinition(
 # =============================================================================
 
 defs = Definitions(
-    assets=[
-        # Payment ingestion assets (PostgreSQL -> Iceberg)
-        payment_events,
-        payment_events_quarantine,
-
-        # DBT transformation assets
-        dbt_payment_assets,
-
-        # Payment data quality monitoring assets
-        quarantine_charges_monitor,
-        quarantine_summary_monitor,
-        validation_flag_monitor,
-    ],
-    resources={
-        # Iceberg IO Manager for persisting DataFrames to Iceberg tables
-        "iceberg_io_manager": create_iceberg_io_manager(
-            namespace="data",
-            backend="pandas"
-        ),
-
-        # PostgreSQL resource for reading payment events from bronze layer
-        # Host is configured via POSTGRES_HOST environment variable
-        # Defaults: "localhost" for local development, "payments-db" in Docker
-        "postgres_resource": PostgresResource(),
-
-        # Trino resource for data quality monitoring queries
-        # Host is configured via TRINO_HOST environment variable
-        # Defaults: "trino" in Kubernetes, "localhost" for local development
-        "trino_resource": TrinoResource(
-            port=8080,
-            catalog="iceberg",
-            schema="data",
-            user="dagster"
-        ),
-
-        # DBT CLI resource for running DBT commands
-        "dbt": DbtCliResource(project_dir=dbt_project),
-    },
-    jobs=[
-        payment_ingestion_job,
-        dbt_transformation_job,
-        payment_dq_monitoring_job,
-        payment_pipeline_job,
-    ],
-    schedules=[
-        payment_ingestion_schedule,
-        dbt_transformation_schedule,
-        dq_monitoring_schedule,
-    ],
+    assets=all_assets,
+    resources=all_resources,
+    jobs=all_jobs,
+    schedules=all_schedules,
 )
