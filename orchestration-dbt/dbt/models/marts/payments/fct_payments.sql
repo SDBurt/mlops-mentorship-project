@@ -12,8 +12,8 @@
     materialized='incremental',
     unique_key='payment_key',
     incremental_strategy='merge',
-    file_format='iceberg',
-    partition_by=['DATE(event_date)'],
+    format='PARQUET',
+    partition_by=['event_date'],
     tags=['marts', 'payments', 'facts']
   )
 }}
@@ -97,8 +97,8 @@ fact_payments AS (
         pe.schema_version,
 
         -- Audit columns
-        CURRENT_TIMESTAMP AS dw_created_at,
-        CURRENT_TIMESTAMP AS dw_updated_at
+        CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_created_at,
+        CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_updated_at
 
     FROM payment_events pe
 )

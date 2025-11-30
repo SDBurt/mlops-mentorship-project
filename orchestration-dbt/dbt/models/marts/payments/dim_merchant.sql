@@ -11,8 +11,7 @@
     materialized='incremental',
     unique_key='merchant_key',
     incremental_strategy='merge',
-    file_format='iceberg',
-    partition_by=['health_category'],
+    format='PARQUET',
     tags=['marts', 'payments', 'dimensions']
   )
 }}
@@ -79,21 +78,19 @@ dimensioned AS (
         merchant_tenure_days,
 
         -- SCD Type 2 columns
-        CURRENT_TIMESTAMP AS valid_from,
-        CAST(NULL AS TIMESTAMP) AS valid_to,
+        CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS valid_from,
+        CAST(NULL AS TIMESTAMP(6) WITH TIME ZONE) AS valid_to,
         TRUE AS is_current,
 
         -- Audit columns
-        CURRENT_TIMESTAMP AS dw_created_at,
-        CURRENT_TIMESTAMP AS dw_updated_at
+        CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_created_at,
+        CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_updated_at
 
     FROM merchant_metrics
 )
 
 SELECT * FROM dimensioned
-
 {% if is_incremental() %}
--- For incremental runs, only process changed merchants
 WHERE merchant_id IN (
     SELECT DISTINCT merchant_id
     FROM {{ source('bronze_payments', 'payment_events') }}

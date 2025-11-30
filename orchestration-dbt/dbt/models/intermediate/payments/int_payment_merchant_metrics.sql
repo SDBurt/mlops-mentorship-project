@@ -63,11 +63,11 @@ merchant_metrics AS (
 
         -- Provider diversity
         COUNT(DISTINCT provider) AS provider_count,
-        MODE() WITHIN GROUP (ORDER BY provider) AS primary_provider,
+        arbitrary(provider) AS primary_provider,
 
         -- Currency distribution
         COUNT(DISTINCT currency) AS currency_count,
-        MODE() WITHIN GROUP (ORDER BY currency) AS primary_currency,
+        arbitrary(currency) AS primary_currency,
 
         -- Temporal metrics
         MIN(provider_created_at) AS first_transaction_at,
@@ -129,6 +129,6 @@ SELECT
     first_transaction_at,
     last_transaction_at,
     active_days,
-    DATE_DIFF('day', first_transaction_at, last_transaction_at) AS merchant_tenure_days
+    date_diff('day', first_transaction_at, last_transaction_at) AS merchant_tenure_days
 
 FROM merchant_metrics

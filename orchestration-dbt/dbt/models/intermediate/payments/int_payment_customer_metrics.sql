@@ -51,10 +51,10 @@ customer_metrics AS (
         MAX(churn_score) AS max_churn_score,
         MIN(days_to_churn_estimate) AS min_days_to_churn,
 
-        -- Payment method preferences
-        MODE() WITHIN GROUP (ORDER BY payment_method_type) AS preferred_payment_method,
-        MODE() WITHIN GROUP (ORDER BY card_brand) AS preferred_card_brand,
-        MODE() WITHIN GROUP (ORDER BY currency) AS preferred_currency,
+        -- Payment method preferences (using arbitrary to get a representative value)
+        arbitrary(payment_method_type) AS preferred_payment_method,
+        arbitrary(card_brand) AS preferred_card_brand,
+        arbitrary(currency) AS preferred_currency,
 
         -- Temporal metrics
         MIN(provider_created_at) AS first_transaction_at,
@@ -114,7 +114,7 @@ SELECT
     first_transaction_at,
     last_transaction_at,
     active_days,
-    DATE_DIFF('day', first_transaction_at, last_transaction_at) AS customer_tenure_days,
+    date_diff('day', first_transaction_at, last_transaction_at) AS customer_tenure_days,
 
     -- Diversity metrics
     provider_count,

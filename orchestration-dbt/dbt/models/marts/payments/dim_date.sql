@@ -8,7 +8,7 @@
 {{
   config(
     materialized='table',
-    file_format='iceberg',
+    format='PARQUET',
     tags=['marts', 'payments', 'dimensions']
   )
 }}
@@ -38,8 +38,8 @@ SELECT
     MONTH(date_key) AS month,
     WEEK(date_key) AS week_of_year,
     DAY(date_key) AS day_of_month,
-    DAYOFWEEK(date_key) AS day_of_week,
-    DAYOFYEAR(date_key) AS day_of_year,
+    day_of_week(date_key) AS day_of_week,
+    day_of_year(date_key) AS day_of_year,
 
     -- Date names
     DATE_FORMAT(date_key, 'EEEE') AS day_name,
@@ -50,9 +50,9 @@ SELECT
     YEAR(date_key) AS fiscal_year,
     QUARTER(date_key) AS fiscal_quarter,
 
-    -- Flags
-    CASE WHEN DAYOFWEEK(date_key) IN (1, 7) THEN TRUE ELSE FALSE END AS is_weekend,
-    CASE WHEN DAYOFWEEK(date_key) NOT IN (1, 7) THEN TRUE ELSE FALSE END AS is_weekday,
+    -- Flags (day_of_week: 1=Monday, 7=Sunday in Trino)
+    CASE WHEN day_of_week(date_key) IN (6, 7) THEN TRUE ELSE FALSE END AS is_weekend,
+    CASE WHEN day_of_week(date_key) NOT IN (6, 7) THEN TRUE ELSE FALSE END AS is_weekday,
 
     -- Period keys for grouping
     CONCAT(CAST(YEAR(date_key) AS VARCHAR), '-', LPAD(CAST(MONTH(date_key) AS VARCHAR), 2, '0')) AS year_month,

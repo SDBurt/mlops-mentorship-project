@@ -2,265 +2,66 @@ version: 2
 
 models:
   # ==========================================================================
-  # Staging Model: Payment Charges
+  # Staging Model: Payment Events
   # ==========================================================================
-  - name: stg_payment_charges
+  - name: stg_payment_events
     description: |
-      Staging table for payment charge events with two-layer validation.
-      Layer 1 (Flink): Currency validation, amount bounds, customer_id required
-      Layer 2 (DBT): Business rules, suspicious pattern detection
-      Only includes records that passed both validation layers.
+      Staging table for all payment events from PostgreSQL bronze layer.
+      Includes ML enrichment fields (fraud score, churn prediction, retry strategy)
+      from Temporal workflow processing.
+      Ingested by Dagster from PostgreSQL to Iceberg.
     config:
-      tags: ['staging', 'payments', 'charges', 'butter']
-    tests:
-      - dbt_utils.expression_is_true:
-          expression: "validation_flag IS NOT NULL"
-          config:
-            severity: warn
+      tags: ['staging', 'payments']
     columns:
       - name: event_id
-        description: "Unique event identifier"
+        description: "Unique event identifier (provider:original_id format)"
         tests:
           - unique
           - not_null
 
-      - name: customer_id
-        description: "Customer identifier (validated not null by Flink)"
+      - name: provider
+        description: "Payment provider (stripe, square, etc.)"
         tests:
           - not_null
 
-      - name: charge_id
-        description: "Unique charge identifier"
+      - name: event_type
+        description: "Normalized event type"
         tests:
           - not_null
-
-      - name: amount
-        description: "Transaction amount (validated: > 0 and <= 1M)"
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: "> 0"
-              config:
-                error_if: ">10"
-                warn_if: ">5"
-          - dbt_utils.expression_is_true:
-              expression: "<= 1000000.00"
-
-      - name: currency
-        description: "Currency code (validated: USD, CAD, GBP, EUR, JPY)"
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY']
-
-      - name: status
-        description: "Charge status (succeeded, failed, pending)"
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['succeeded', 'failed', 'pending', 'canceled']
-
-      - name: failure_code
-        description: "Failure code if status = failed"
-        tests:
-          - dbt_utils.not_null_where:
-              where: "status = 'failed'"
-
-      - name: created_at
-        description: "Event timestamp"
-        tests:
-          - not_null
-
-      - name: validation_flag
-        description: "Flag for suspicious patterns (true = needs review)"
-        tests:
-          - not_null
-          - accepted_values:
-              values: [true, false]
-
-  # ==========================================================================
-  # Staging Model: Payment Refunds
-  # ==========================================================================
-  - name: stg_payment_refunds
-    description: |
-      Staging table for refund events with two-layer validation.
-      Includes reference to original charge via charge_id.
-    config:
-      tags: ['staging', 'payments', 'refunds', 'butter']
-    columns:
-      - name: event_id
-        tests: [unique, not_null]
-
-      - name: refund_id
-        description: "Unique refund identifier"
-        tests: [not_null]
 
       - name: customer_id
-        tests: [not_null]
+        description: "Customer identifier"
 
-      - name: charge_id
-        description: "Reference to original charge"
-        tests: [not_null]
+      - name: merchant_id
+        description: "Merchant identifier"
 
-      - name: amount
-        description: "Refund amount"
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: "> 0"
-          - dbt_utils.expression_is_true:
-              expression: "<= 1000000.00"
+      - name: amount_cents
+        description: "Transaction amount in cents"
 
       - name: currency
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY']
+        description: "ISO 4217 currency code"
 
       - name: status
+        description: "Payment status"
         tests:
           - not_null
+
+      - name: fraud_score
+        description: "Fraud probability score (0-1) from inference service"
+
+      - name: risk_level
+        description: "Risk level classification"
+
+      - name: churn_score
+        description: "Customer churn probability score (0-1)"
+
+      - name: event_category
+        description: "Derived event category (charge, refund, dispute, subscription, failed_payment, other)"
+        tests:
           - accepted_values:
-              values: ['succeeded', 'failed', 'pending', 'canceled']
+              values: ['charge', 'refund', 'dispute', 'subscription', 'failed_payment', 'other']
 
-      - name: failure_reason
-        description: "Failure reason if status = failed"
-        tests:
-          - dbt_utils.not_null_where:
-              where: "status = 'failed'"
-
-      - name: created_at
-        tests: [not_null]
-
-      - name: validation_flag
+      - name: ingested_at
+        description: "When Dagster ingested to Iceberg"
         tests:
           - not_null
-          - accepted_values:
-              values: [true, false]
-
-  # ==========================================================================
-  # Staging Model: Payment Disputes
-  # ==========================================================================
-  - name: stg_payment_disputes
-    description: |
-      Staging table for dispute/chargeback events with two-layer validation.
-      Includes dispute reason and evidence due dates.
-    config:
-      tags: ['staging', 'payments', 'disputes', 'butter']
-    columns:
-      - name: event_id
-        tests: [unique, not_null]
-
-      - name: dispute_id
-        description: "Unique dispute identifier"
-        tests: [not_null]
-
-      - name: customer_id
-        tests: [not_null]
-
-      - name: charge_id
-        description: "Reference to disputed charge"
-        tests: [not_null]
-
-      - name: amount
-        description: "Disputed amount"
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: "> 0"
-          - dbt_utils.expression_is_true:
-              expression: "<= 1000000.00"
-
-      - name: currency
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY']
-
-      - name: status
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['warning_needs_response', 'warning_under_review', 'warning_closed',
-                       'needs_response', 'under_review', 'charge_refunded', 'won', 'lost']
-
-      - name: reason
-        description: "Dispute reason"
-        tests: [not_null]
-
-      - name: created_at
-        tests: [not_null]
-
-      - name: validation_flag
-        tests:
-          - not_null
-          - accepted_values:
-              values: [true, false]
-
-  # ==========================================================================
-  # Staging Model: Payment Subscriptions
-  # ==========================================================================
-  - name: stg_payment_subscriptions
-    description: |
-      Staging table for subscription events with two-layer validation.
-      Includes plan details, billing intervals, and trial information.
-    config:
-      tags: ['staging', 'payments', 'subscriptions', 'butter']
-    columns:
-      - name: event_id
-        tests: [unique, not_null]
-
-      - name: subscription_id
-        description: "Unique subscription identifier"
-        tests: [not_null]
-
-      - name: customer_id
-        tests: [not_null]
-
-      - name: plan_id
-        description: "Subscription plan identifier"
-        tests: [not_null]
-
-      - name: amount
-        description: "Subscription amount (can be 0 for free trials)"
-        tests:
-          - dbt_utils.expression_is_true:
-              expression: ">= 0"
-          - dbt_utils.expression_is_true:
-              expression: "<= 1000000.00"
-
-      - name: currency
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['USD', 'CAD', 'GBP', 'EUR', 'JPY']
-
-      - name: interval
-        description: "Billing interval (day, week, month, year)"
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['day', 'week', 'month', 'year']
-
-      - name: interval_count
-        description: "Number of intervals between billings"
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: "> 0"
-
-      - name: status
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['active', 'canceled', 'incomplete', 'incomplete_expired',
-                       'past_due', 'trialing', 'unpaid', 'paused']
-
-      - name: created_at
-        tests: [not_null]
-
-      - name: validation_flag
-        tests:
-          - not_null
-          - accepted_values:
-              values: [true, false]

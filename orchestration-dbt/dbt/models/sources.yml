@@ -19,7 +19,7 @@ sources:
   # ============================================================================
   - name: bronze_payments
     description: "Enriched payment events ingested from PostgreSQL by Dagster"
-    database: lakehouse
+    database: iceberg
     schema: data
 
     # Freshness checks - batch ingestion runs every 15 minutes

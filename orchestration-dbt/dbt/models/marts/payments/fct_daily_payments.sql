@@ -12,8 +12,7 @@
     materialized='incremental',
     unique_key='date_key',
     incremental_strategy='merge',
-    file_format='iceberg',
-    partition_by=['YEAR(date_key)', 'MONTH(date_key)'],
+    format='PARQUET',
     tags=['marts', 'payments', 'facts', 'daily']
   )
 }}
@@ -80,7 +79,7 @@ SELECT
     other_method_transactions,
 
     -- Audit columns
-    CURRENT_TIMESTAMP AS dw_created_at,
-    CURRENT_TIMESTAMP AS dw_updated_at
+    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_created_at,
+    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_updated_at
 
 FROM daily_summary

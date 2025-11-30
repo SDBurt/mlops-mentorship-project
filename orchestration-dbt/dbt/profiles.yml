@@ -11,10 +11,10 @@ lakehouse:
       type: trino
       method: none  # No authentication for local development
       user: dbt_user  # Required by dbt-trino adapter
-      host: localhost
+      host: "{{ env_var('TRINO_HOST', 'trino') }}"  # Docker: trino, local: localhost with port-forward
       port: 8080
-      database: lakehouse  # Iceberg catalog name
-      schema: raw  # Default schema
+      database: iceberg  # Trino catalog name (connected to Polaris)
+      schema: data  # Namespace where Iceberg tables are stored
       threads: 4
       http_scheme: http
       session_properties:
@@ -26,8 +26,8 @@ lakehouse:
       user: dbt_user  # Required by dbt-trino adapter
       host: trino  # Kubernetes service DNS (same namespace)
       port: 8080
-      database: lakehouse
-      schema: raw
+      database: iceberg  # Trino catalog name (connected to Polaris)
+      schema: data  # Namespace where Iceberg tables are stored
       threads: 8
       http_scheme: http
       session_properties:
