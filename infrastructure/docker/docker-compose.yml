@@ -297,16 +297,36 @@ services:
         condition: service_started
 
   #####################################
-  # PAYMENT GATEWAY SERVICES
+  # TRAEFIK REVERSE PROXY
   #####################################
 
-  payment-gateway:
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    ports:
+      - "8000:8000"    # Webhook endpoint
+      - "8090:8080"    # Dashboard (dev only)
+    volumes:
+      - ../../payment-pipeline/docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../../payment-pipeline/docker/traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - local-iceberg-lakehouse
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - gateway
+
+  #####################################
+  # PROVIDER-SPECIFIC GATEWAYS
+  #####################################
+
+  stripe-gateway:
     build:
       context: ../../payment-pipeline
-      dockerfile: Dockerfile
-    container_name: payment-gateway
-    ports:
-      - "8000:8000"
+      dockerfile: docker/gateway/Dockerfile.stripe
+    container_name: stripe-gateway
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_secret_for_dev}
@@ -329,17 +349,102 @@ services:
     profiles:
       - gateway
 
+  square-gateway:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/gateway/Dockerfile.square
+    container_name: square-gateway
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      SQUARE_WEBHOOK_SIGNATURE_KEY: ${SQUARE_WEBHOOK_SIGNATURE_KEY:-sq_signature_key_for_dev}
+      SQUARE_NOTIFICATION_URL: ${SQUARE_NOTIFICATION_URL:-http://localhost:8000/webhooks/square/}
+      LOG_LEVEL: INFO
+      KAFKA_CONNECTION_RETRIES: 10
+      KAFKA_RETRY_DELAY: 2.0
+      KAFKA_RETRY_MAX_DELAY: 30.0
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - gateway
+
+  adyen-gateway:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/gateway/Dockerfile.adyen
+    container_name: adyen-gateway
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      ADYEN_HMAC_KEY: ${ADYEN_HMAC_KEY:-44782DEF547AAA06C910C43932B1EB0C71FC68D9D0C057550C48EC2ACF6BA056}
+      LOG_LEVEL: INFO
+      KAFKA_CONNECTION_RETRIES: 10
+      KAFKA_RETRY_DELAY: 2.0
+      KAFKA_RETRY_MAX_DELAY: 30.0
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - gateway
+
+  braintree-gateway:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/gateway/Dockerfile.braintree
+    container_name: braintree-gateway
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      BRAINTREE_ENVIRONMENT: ${BRAINTREE_ENVIRONMENT:-sandbox}
+      BRAINTREE_MERCHANT_ID: ${BRAINTREE_MERCHANT_ID:-test_merchant_id}
+      BRAINTREE_PUBLIC_KEY: ${BRAINTREE_PUBLIC_KEY:-test_public_key}
+      BRAINTREE_PRIVATE_KEY: ${BRAINTREE_PRIVATE_KEY:-test_private_key}
+      LOG_LEVEL: INFO
+      KAFKA_CONNECTION_RETRIES: 10
+      KAFKA_RETRY_DELAY: 2.0
+      KAFKA_RETRY_MAX_DELAY: 30.0
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - gateway
+
   webhook-simulator:
     build:
       context: ../../payment-pipeline
-      dockerfile: Dockerfile
+      dockerfile: docker/gateway/Dockerfile.stripe
     container_name: webhook-simulator
     command: ["python", "-m", "simulator.main", "generate", "--rate", "2", "--duration", "7200"]
     environment:
-      GATEWAY_URL: http://payment-gateway:8000/webhooks/stripe/
+      GATEWAY_URL: http://traefik:8000/webhooks/stripe/
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_secret_for_dev}
     depends_on:
-      payment-gateway:
+      stripe-gateway:
         condition: service_healthy
     networks:
       - local-iceberg-lakehouse
@@ -347,25 +452,86 @@ services:
       - simulator
 
   #####################################
-  # NORMALIZER SERVICE (Python)
+  # PROVIDER-SPECIFIC NORMALIZERS
   #####################################
 
-  normalizer:
+  stripe-normalizer:
     build:
       context: ../../payment-pipeline
-      dockerfile: Dockerfile.normalizer
-    container_name: payment-normalizer
+      dockerfile: docker/normalizer/Dockerfile.stripe
+    container_name: stripe-normalizer
     environment:
       NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
-      NORMALIZER_KAFKA_CONSUMER_GROUP: normalizer-group
-      NORMALIZER_INPUT_TOPICS: webhooks.stripe.payment_intent,webhooks.stripe.charge,webhooks.stripe.refund
       NORMALIZER_OUTPUT_TOPIC: payments.normalized
       NORMALIZER_DLQ_TOPIC: payments.validation.dlq
       NORMALIZER_LOG_LEVEL: INFO
     depends_on:
       kafka-broker:
         condition: service_healthy
-      payment-gateway:
+      stripe-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - normalizer
+
+  square-normalizer:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/normalizer/Dockerfile.square
+    container_name: square-normalizer
+    environment:
+      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      NORMALIZER_OUTPUT_TOPIC: payments.normalized
+      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
+      NORMALIZER_LOG_LEVEL: INFO
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      square-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - normalizer
+
+  adyen-normalizer:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/normalizer/Dockerfile.adyen
+    container_name: adyen-normalizer
+    environment:
+      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      NORMALIZER_OUTPUT_TOPIC: payments.normalized
+      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
+      NORMALIZER_LOG_LEVEL: INFO
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      adyen-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    restart: unless-stopped
+    profiles:
+      - normalizer
+
+  braintree-normalizer:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/normalizer/Dockerfile.braintree
+    container_name: braintree-normalizer
+    environment:
+      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      NORMALIZER_OUTPUT_TOPIC: payments.normalized
+      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
+      NORMALIZER_LOG_LEVEL: INFO
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+      braintree-gateway:
         condition: service_healthy
     networks:
       - local-iceberg-lakehouse

@@ -1,0 +1,30 @@
+# Traefik Static Configuration
+# Path-based routing for payment gateway providers
+
+entryPoints:
+  web:
+    address: ":8000"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+# API dashboard (for development)
+api:
+  dashboard: true
+  insecure: true
+
+# Logging
+log:
+  level: INFO
+
+# Access logs
+accessLog:
+  format: json
+  fields:
+    headers:
+      defaultMode: keep
+      names:
+        User-Agent: keep
+        X-Forwarded-For: keep
