@@ -11,6 +11,7 @@ from aiokafka.errors import KafkaConnectionError
 
 from .config import settings
 from .handlers.adyen import AdyenHandler
+from .handlers.braintree import BraintreeHandler
 from .handlers.square import SquareHandler
 from .handlers.stripe import StripeHandler
 
@@ -31,6 +32,7 @@ class NormalizerService:
         self.stripe_handler = StripeHandler()
         self.square_handler = SquareHandler()
         self.adyen_handler = AdyenHandler()
+        self.braintree_handler = BraintreeHandler()
         self._shutdown_event = asyncio.Event()
         self._stats = {
             "processed": 0,
@@ -207,6 +209,8 @@ class NormalizerService:
             return self.square_handler
         elif "adyen" in topic:
             return self.adyen_handler
+        elif "braintree" in topic:
+            return self.braintree_handler
         return None
 
     def request_shutdown(self) -> None:

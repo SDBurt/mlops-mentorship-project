@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Adyen Configuration
     adyen_hmac_key: str = ""  # Hex string from Adyen Customer Area
 
+    # Braintree Configuration
+    braintree_merchant_id: str = ""
+    braintree_public_key: str = ""
+    braintree_private_key: str = ""
+    braintree_environment: str = "sandbox"  # "sandbox" or "production"
+
     # Application
     debug: bool = False
     log_level: str = "INFO"
@@ -61,6 +67,10 @@ class Settings(BaseSettings):
     @property
     def adyen_topic_notification(self) -> str:
         return f"{self.kafka_topic_prefix}.adyen.notification"
+
+    @property
+    def braintree_topic_notification(self) -> str:
+        return f"{self.kafka_topic_prefix}.braintree.notification"
 
 
 settings = Settings()

@@ -122,6 +122,35 @@ ADYEN_EVENT_TYPE_MAP = {
     "PAYOUT_THIRDPARTY": "payout.third_party",
 }
 
+BRAINTREE_EVENT_TYPE_MAP = {
+    # Transaction events
+    "transaction_settled": "payment.settled",
+    "transaction_settlement_declined": "payment.settlement_declined",
+    "transaction_disbursed": "payment.disbursed",
+    # Subscription events
+    "subscription_charged_successfully": "subscription.charged",
+    "subscription_charged_unsuccessfully": "subscription.charge_failed",
+    "subscription_canceled": "subscription.canceled",
+    "subscription_expired": "subscription.expired",
+    "subscription_trial_ended": "subscription.trial_ended",
+    "subscription_went_active": "subscription.activated",
+    "subscription_went_past_due": "subscription.past_due",
+    # Dispute events
+    "dispute_opened": "dispute.created",
+    "dispute_won": "dispute.won",
+    "dispute_lost": "dispute.lost",
+    "dispute_accepted": "dispute.accepted",
+    "dispute_expired": "dispute.expired",
+    # Disbursement events
+    "disbursement": "disbursement.created",
+    "disbursement_exception": "disbursement.exception",
+    # Sub-merchant events
+    "sub_merchant_account_approved": "merchant.approved",
+    "sub_merchant_account_declined": "merchant.declined",
+    # Check/verification events
+    "check": "check.verified",
+}
+
 
 def normalize_event_type(provider: str, raw_type: str) -> str:
     """
@@ -140,4 +169,6 @@ def normalize_event_type(provider: str, raw_type: str) -> str:
         return SQUARE_EVENT_TYPE_MAP.get(raw_type, raw_type)
     elif provider == "adyen":
         return ADYEN_EVENT_TYPE_MAP.get(raw_type, raw_type.lower())
+    elif provider == "braintree":
+        return BRAINTREE_EVENT_TYPE_MAP.get(raw_type, raw_type.replace("_", "."))
     return raw_type

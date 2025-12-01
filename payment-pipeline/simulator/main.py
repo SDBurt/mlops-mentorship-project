@@ -8,6 +8,7 @@ import sys
 import click
 
 from simulator.adyen_generator import AdyenWebhookSimulator
+from simulator.braintree_generator import BraintreeWebhookSimulator
 from simulator.square_generator import SquareWebhookSimulator
 from simulator.stripe_generator import StripeWebhookSimulator
 
@@ -41,6 +42,14 @@ DEFAULT_ADYEN_GATEWAY_URL = os.getenv(
 DEFAULT_ADYEN_HMAC_KEY = os.getenv(
     "ADYEN_HMAC_KEY", "44782DEF547AAA06C910C43932B1EB0C71FC68D9D0C057550C48EC2ACF6BA056"  # pragma: allowlist secret
 )
+
+# Default values from environment - Braintree
+DEFAULT_BRAINTREE_GATEWAY_URL = os.getenv(
+    "BRAINTREE_GATEWAY_URL", "http://localhost:8000/webhooks/braintree/"
+)
+DEFAULT_BRAINTREE_MERCHANT_ID = os.getenv("BRAINTREE_MERCHANT_ID", "")
+DEFAULT_BRAINTREE_PUBLIC_KEY = os.getenv("BRAINTREE_PUBLIC_KEY", "")
+DEFAULT_BRAINTREE_PRIVATE_KEY = os.getenv("BRAINTREE_PRIVATE_KEY", "")
 
 # Available event types for help text
 AVAILABLE_EVENT_TYPES = [
@@ -674,6 +683,239 @@ def adyen_preview(event_code: str, hmac_key: str, success: bool):
 
         click.echo("Generated Adyen Notification Request:")
         click.echo(payload)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# Braintree Commands
+# =============================================================================
+
+AVAILABLE_BRAINTREE_KINDS = [
+    "transaction_settled",
+    "transaction_settlement_declined",
+    "transaction_disbursed",
+    "subscription_charged_successfully",
+    "subscription_charged_unsuccessfully",
+    "subscription_canceled",
+    "dispute_opened",
+    "dispute_won",
+    "dispute_lost",
+    "disbursement",
+]
+
+
+@cli.group()
+def braintree():
+    """Braintree webhook commands."""
+    pass
+
+
+@braintree.command("send")
+@click.option(
+    "--url",
+    default=DEFAULT_BRAINTREE_GATEWAY_URL,
+    help="Gateway webhook URL",
+    show_default=True,
+)
+@click.option(
+    "--merchant-id",
+    default=DEFAULT_BRAINTREE_MERCHANT_ID,
+    help="Braintree merchant ID (optional, for SDK mode)",
+)
+@click.option(
+    "--public-key",
+    default=DEFAULT_BRAINTREE_PUBLIC_KEY,
+    help="Braintree public key (optional, for SDK mode)",
+)
+@click.option(
+    "--private-key",
+    default=DEFAULT_BRAINTREE_PRIVATE_KEY,
+    help="Braintree private key (optional, for SDK mode)",
+)
+@click.option(
+    "--kind",
+    default="transaction_settled",
+    help="Notification kind to send",
+    show_default=True,
+)
+@click.option(
+    "--use-sdk",
+    is_flag=True,
+    help="Use Braintree SDK for sample notifications (requires credentials)",
+)
+@click.option(
+    "--count",
+    default=1,
+    help="Number of events to send",
+    show_default=True,
+)
+def braintree_send(
+    url: str,
+    merchant_id: str,
+    public_key: str,
+    private_key: str,
+    kind: str,
+    use_sdk: bool,
+    count: int,
+):
+    """Send one or more Braintree webhook notifications to the gateway."""
+    if kind not in AVAILABLE_BRAINTREE_KINDS:
+        click.echo(f"Warning: '{kind}' is not in the known notification kinds list.")
+        click.echo(f"Available kinds: {', '.join(AVAILABLE_BRAINTREE_KINDS)}")
+        if not click.confirm("Continue anyway?"):
+            sys.exit(1)
+
+    if use_sdk and not (merchant_id and public_key and private_key):
+        click.echo("Warning: --use-sdk requires merchant-id, public-key, and private-key")
+        click.echo("Falling back to mock notifications")
+        use_sdk = False
+
+    simulator = BraintreeWebhookSimulator(
+        gateway_url=url,
+        merchant_id=merchant_id,
+        public_key=public_key,
+        private_key=private_key,
+    )
+
+    async def run():
+        for i in range(count):
+            click.echo(f"Sending Braintree event {i + 1}/{count}: {kind}")
+            try:
+                response = await simulator.send_webhook(kind=kind, use_sdk=use_sdk)
+                click.echo(f"  HTTP Status: {response.status_code}")
+                if response.status_code == 200:
+                    result = response.json()
+                    click.echo(f"  Status: {result.get('status')}")
+                    click.echo(f"  Event ID: {result.get('event_id', 'N/A')}")
+                else:
+                    click.echo(f"  Response: {response.text[:100]}")
+            except Exception as e:
+                click.echo(f"  Error: {e}", err=True)
+
+    asyncio.run(run())
+
+
+@braintree.command("generate")
+@click.option(
+    "--url",
+    default=DEFAULT_BRAINTREE_GATEWAY_URL,
+    help="Gateway webhook URL",
+    show_default=True,
+)
+@click.option(
+    "--merchant-id",
+    default=DEFAULT_BRAINTREE_MERCHANT_ID,
+    help="Braintree merchant ID (optional, for SDK mode)",
+)
+@click.option(
+    "--public-key",
+    default=DEFAULT_BRAINTREE_PUBLIC_KEY,
+    help="Braintree public key (optional, for SDK mode)",
+)
+@click.option(
+    "--private-key",
+    default=DEFAULT_BRAINTREE_PRIVATE_KEY,
+    help="Braintree private key (optional, for SDK mode)",
+)
+@click.option(
+    "--rate",
+    default=1.0,
+    help="Events per second",
+    show_default=True,
+)
+@click.option(
+    "--duration",
+    default=60,
+    help="Duration in seconds",
+    show_default=True,
+)
+@click.option(
+    "--use-sdk",
+    is_flag=True,
+    help="Use Braintree SDK for sample notifications (requires credentials)",
+)
+def braintree_generate(
+    url: str,
+    merchant_id: str,
+    public_key: str,
+    private_key: str,
+    rate: float,
+    duration: int,
+    use_sdk: bool,
+):
+    """Generate continuous Braintree webhook traffic."""
+    if use_sdk and not (merchant_id and public_key and private_key):
+        click.echo("Warning: --use-sdk requires credentials, falling back to mock")
+        use_sdk = False
+
+    click.echo("Starting Braintree traffic generation:")
+    click.echo(f"  URL: {url}")
+    click.echo(f"  Rate: {rate} events/sec")
+    click.echo(f"  Duration: {duration} seconds")
+    click.echo(f"  Expected events: {int(rate * duration)}")
+    click.echo(f"  SDK mode: {use_sdk}")
+    click.echo()
+
+    simulator = BraintreeWebhookSimulator(
+        gateway_url=url,
+        merchant_id=merchant_id,
+        public_key=public_key,
+        private_key=private_key,
+    )
+
+    async def run():
+        stats = await simulator.generate_traffic(
+            events_per_second=rate,
+            duration_seconds=duration,
+            use_sdk=use_sdk,
+        )
+        click.echo()
+        click.echo("Results:")
+        click.echo(f"  Total sent: {stats['sent']}")
+        click.echo(f"  Successful: {stats['success']}")
+        click.echo(f"  Failed: {stats['failed']}")
+
+    asyncio.run(run())
+
+
+@braintree.command("list-events")
+def braintree_list_events():
+    """List all available Braintree notification kinds."""
+    click.echo("Available Braintree notification kinds:")
+    click.echo()
+    for kind in AVAILABLE_BRAINTREE_KINDS:
+        click.echo(f"  - {kind}")
+
+
+@braintree.command("preview")
+@click.option(
+    "--kind",
+    default="transaction_settled",
+    help="Notification kind to preview",
+)
+def braintree_preview(kind: str):
+    """Preview a generated Braintree webhook notification (without sending)."""
+    import json
+
+    simulator = BraintreeWebhookSimulator(gateway_url="http://example.com")
+
+    try:
+        notification = simulator.generate_notification(kind=kind, use_sdk=False)
+
+        click.echo("Generated Braintree Notification:")
+        click.echo()
+        click.echo(f"Kind: {notification['kind']}")
+        click.echo(f"SDK Generated: {notification['sdk_generated']}")
+        click.echo()
+        click.echo("Form Data:")
+        click.echo(f"  bt_signature: {notification['bt_signature'][:50]}...")
+        click.echo(f"  bt_payload: {notification['bt_payload'][:50]}...")
+        click.echo()
+        if notification.get("notification_data"):
+            click.echo("Decoded Payload:")
+            click.echo(json.dumps(notification["notification_data"], indent=2))
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

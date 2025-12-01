@@ -16,6 +16,7 @@ dependencies = [
     "aiokafka>=0.10.0",
     "httpx>=0.26.0",
     "click>=8.1.0",
+    "braintree>=4.40.0",
 ]
 
 [project.optional-dependencies]

@@ -273,3 +273,88 @@ def valid_adyen_failed_auth() -> dict:
         },
         "live": False,
     }
+
+
+# =============================================================================
+# Braintree Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def braintree_credentials() -> dict:
+    """Test Braintree credentials."""
+    return {
+        "merchant_id": "test_merchant_id",  # pragma: allowlist secret
+        "public_key": "test_public_key",  # pragma: allowlist secret
+        "private_key": "test_private_key",  # pragma: allowlist secret
+    }
+
+
+@pytest.fixture
+def valid_braintree_transaction_settled() -> dict:
+    """A valid Braintree transaction_settled notification."""
+    return {
+        "kind": "transaction_settled",
+        "timestamp": "2024-01-15T12:00:00+00:00",
+        "transaction": {
+            "id": "txn_1234567890",
+            "status": "settled",
+            "type": "sale",
+            "amount": "20.00",
+            "currency_iso_code": "USD",
+            "merchant_account_id": "merchant_account_123",
+            "customer_id": "customer_123",
+            "payment_instrument_type": "credit_card",
+            "card_details": {
+                "card_type": "Visa",
+                "last_4": "1111",
+            },
+        },
+    }
+
+
+@pytest.fixture
+def valid_braintree_subscription_charged() -> dict:
+    """A valid Braintree subscription_charged_successfully notification."""
+    return {
+        "kind": "subscription_charged_successfully",
+        "timestamp": "2024-01-15T13:00:00+00:00",
+        "subscription": {
+            "id": "sub_1234567890",
+            "status": "active",
+            "plan_id": "monthly_plan",
+        },
+        "transaction": {
+            "id": "txn_sub_1234567890",
+            "status": "submitted_for_settlement",
+            "type": "sale",
+            "amount": "9.99",
+            "currency_iso_code": "USD",
+            "merchant_account_id": "merchant_account_123",
+            "customer_id": "customer_456",
+            "payment_instrument_type": "credit_card",
+        },
+    }
+
+
+@pytest.fixture
+def valid_braintree_dispute_opened() -> dict:
+    """A valid Braintree dispute_opened notification."""
+    return {
+        "kind": "dispute_opened",
+        "timestamp": "2024-01-15T14:00:00+00:00",
+        "dispute": {
+            "id": "dispute_1234567890",
+            "status": "open",
+            "reason": "fraud",
+            "amount": "50.00",
+        },
+        "transaction": {
+            "id": "txn_disputed_123",
+            "status": "settled",
+            "type": "sale",
+            "amount": "50.00",
+            "currency_iso_code": "USD",
+            "merchant_account_id": "merchant_account_123",
+        },
+    }

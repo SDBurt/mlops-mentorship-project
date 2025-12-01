@@ -156,6 +156,11 @@ class TestNormalizeEventType:
         # AUTHORISATION -> payment.authorized
         assert normalize_event_type("adyen", "AUTHORISATION") == "payment.authorized"
 
+    def test_braintree_events_normalized(self):
+        """Test that Braintree events are normalized correctly."""
+        # transaction_settled -> payment.settled
+        assert normalize_event_type("braintree", "transaction_settled") == "payment.settled"
+
     def test_all_mapped_event_types(self):
         """Test that all mapped event types are covered."""
         for raw_type, normalized in STRIPE_EVENT_TYPE_MAP.items():

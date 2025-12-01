@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from payment_gateway.config import settings
 from payment_gateway.core.kafka_producer import KafkaProducerManager
 from payment_gateway.providers.adyen.router import router as adyen_router
+from payment_gateway.providers.braintree.router import router as braintree_router
 from payment_gateway.providers.square.router import router as square_router
 from payment_gateway.providers.stripe.router import router as stripe_router
 
@@ -63,6 +64,7 @@ app.add_middleware(
 app.include_router(stripe_router, prefix="/webhooks/stripe", tags=["stripe"])
 app.include_router(square_router, prefix="/webhooks/square", tags=["square"])
 app.include_router(adyen_router, prefix="/webhooks/adyen", tags=["adyen"])
+app.include_router(braintree_router, prefix="/webhooks/braintree", tags=["braintree"])
 
 
 @app.get("/health")
@@ -86,5 +88,6 @@ async def root():
             "stripe_webhooks": "/webhooks/stripe/",
             "square_webhooks": "/webhooks/square/",
             "adyen_webhooks": "/webhooks/adyen/",
+            "braintree_webhooks": "/webhooks/braintree/",
         },
     }
