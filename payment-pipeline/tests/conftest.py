@@ -98,3 +98,91 @@ def valid_charge_event() -> dict:
             "idempotency_key": None,
         },
     }
+
+
+# =============================================================================
+# Square Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def square_signature_key() -> str:
+    """Test Square webhook signature key."""
+    return "sq_signature_key_test_12345"
+
+
+@pytest.fixture
+def square_notification_url() -> str:
+    """Test Square notification URL."""
+    return "https://example.com/webhooks/square/"
+
+
+@pytest.fixture
+def valid_square_payment_event() -> dict:
+    """A valid Square payment.completed event payload."""
+    return {
+        "merchant_id": "MERCHANT123456789",
+        "type": "payment.completed",
+        "event_id": "evt_square_12345678",
+        "created_at": "2024-01-15T12:00:00Z",
+        "data": {
+            "type": "payment",
+            "id": "PAY_1234567890abcdef",
+            "object": {
+                "payment": {
+                    "id": "PAY_1234567890abcdef",
+                    "created_at": "2024-01-15T12:00:00Z",
+                    "updated_at": "2024-01-15T12:00:00Z",
+                    "amount_money": {
+                        "amount": 2000,
+                        "currency": "USD",
+                    },
+                    "total_money": {
+                        "amount": 2000,
+                        "currency": "USD",
+                    },
+                    "status": "COMPLETED",
+                    "source_type": "CARD",
+                    "location_id": "LOC_1234567890",
+                    "order_id": "ORD_1234567890",
+                    "customer_id": "CUS_1234567890",
+                    "card_details": {
+                        "card_brand": "VISA",
+                        "last_4": "4242",
+                        "exp_month": 12,
+                        "exp_year": 2025,
+                    },
+                }
+            },
+        },
+    }
+
+
+@pytest.fixture
+def valid_square_refund_event() -> dict:
+    """A valid Square refund.created event payload."""
+    return {
+        "merchant_id": "MERCHANT123456789",
+        "type": "refund.created",
+        "event_id": "evt_square_refund_123",
+        "created_at": "2024-01-15T13:00:00Z",
+        "data": {
+            "type": "refund",
+            "id": "REF_1234567890abcdef",
+            "object": {
+                "refund": {
+                    "id": "REF_1234567890abcdef",
+                    "created_at": "2024-01-15T13:00:00Z",
+                    "updated_at": "2024-01-15T13:00:00Z",
+                    "amount_money": {
+                        "amount": 1000,
+                        "currency": "USD",
+                    },
+                    "status": "PENDING",
+                    "payment_id": "PAY_1234567890abcdef",
+                    "location_id": "LOC_1234567890",
+                    "reason": "Customer requested refund",
+                }
+            },
+        },
+    }

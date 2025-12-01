@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     input_topics: str = (
         "webhooks.stripe.payment_intent,"
         "webhooks.stripe.charge,"
-        "webhooks.stripe.refund"
+        "webhooks.stripe.refund,"
+        "webhooks.square.payment,"
+        "webhooks.square.refund"
     )
 
     # Output topics

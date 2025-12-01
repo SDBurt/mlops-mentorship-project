@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Payment Pipeline is a webhook-driven payment processing system demonstrating upstream validation, real-time streaming, and distributed workflow orchestration. See `docs/guides/payment-pipeline.md` for the full design document.
+It's 2025. Payment Pipeline is a webhook-driven payment processing system demonstrating upstream validation, real-time streaming, and distributed workflow orchestration. See `docs/guides/payment-pipeline.md` for the full design document.
 
 **Architecture:** Webhooks -> Gateway -> Kafka -> Normalizer -> Kafka -> Temporal Orchestrator -> PostgreSQL (Dagster batch -> Iceberg)
 

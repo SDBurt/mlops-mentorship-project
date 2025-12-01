@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from payment_gateway.config import settings
 from payment_gateway.core.kafka_producer import KafkaProducerManager
+from payment_gateway.providers.square.router import router as square_router
 from payment_gateway.providers.stripe.router import router as stripe_router
 
 # Configure logging
@@ -59,6 +60,7 @@ app.add_middleware(
 
 # Include provider routers
 app.include_router(stripe_router, prefix="/webhooks/stripe", tags=["stripe"])
+app.include_router(square_router, prefix="/webhooks/square", tags=["square"])
 
 
 @app.get("/health")
@@ -80,5 +82,6 @@ async def root():
         "endpoints": {
             "health": "/health",
             "stripe_webhooks": "/webhooks/stripe/",
+            "square_webhooks": "/webhooks/square/",
         },
     }

@@ -87,6 +87,16 @@ STRIPE_EVENT_TYPE_MAP = {
     "refund.failed": "refund.failed",
 }
 
+SQUARE_EVENT_TYPE_MAP = {
+    # Payments
+    "payment.created": "payment.created",
+    "payment.updated": "payment.updated",
+    "payment.completed": "payment.succeeded",
+    # Refunds
+    "refund.created": "refund.created",
+    "refund.updated": "refund.updated",
+}
+
 
 def normalize_event_type(provider: str, raw_type: str) -> str:
     """
@@ -101,4 +111,6 @@ def normalize_event_type(provider: str, raw_type: str) -> str:
     """
     if provider == "stripe":
         return STRIPE_EVENT_TYPE_MAP.get(raw_type, raw_type)
+    elif provider == "square":
+        return SQUARE_EVENT_TYPE_MAP.get(raw_type, raw_type)
     return raw_type

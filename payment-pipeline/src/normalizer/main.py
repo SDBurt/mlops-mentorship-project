@@ -10,6 +10,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaConnectionError
 
 from .config import settings
+from .handlers.square import SquareHandler
 from .handlers.stripe import StripeHandler
 
 # Configure logging
@@ -27,6 +28,7 @@ class NormalizerService:
         self.consumer: AIOKafkaConsumer | None = None
         self.producer: AIOKafkaProducer | None = None
         self.stripe_handler = StripeHandler()
+        self.square_handler = SquareHandler()
         self._shutdown_event = asyncio.Event()
         self._stats = {
             "processed": 0,
@@ -199,7 +201,8 @@ class NormalizerService:
         """Get the appropriate handler for a topic."""
         if "stripe" in topic:
             return self.stripe_handler
-        # Add more handlers here as needed
+        elif "square" in topic:
+            return self.square_handler
         return None
 
     def request_shutdown(self) -> None:

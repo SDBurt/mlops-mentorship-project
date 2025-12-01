@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     stripe_signature_tolerance: int = 300  # seconds
 
+    # Square Configuration
+    square_webhook_signature_key: str = ""
+    square_notification_url: str = ""  # Required for signature verification
+
     # Application
     debug: bool = False
     log_level: str = "INFO"
@@ -42,6 +46,14 @@ class Settings(BaseSettings):
     @property
     def stripe_topic_refund(self) -> str:
         return f"{self.kafka_topic_prefix}.stripe.refund"
+
+    @property
+    def square_topic_payment(self) -> str:
+        return f"{self.kafka_topic_prefix}.square.payment"
+
+    @property
+    def square_topic_refund(self) -> str:
+        return f"{self.kafka_topic_prefix}.square.refund"
 
 
 settings = Settings()
