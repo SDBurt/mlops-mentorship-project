@@ -10,6 +10,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaConnectionError
 
 from .config import settings
+from .handlers.adyen import AdyenHandler
 from .handlers.square import SquareHandler
 from .handlers.stripe import StripeHandler
 
@@ -29,6 +30,7 @@ class NormalizerService:
         self.producer: AIOKafkaProducer | None = None
         self.stripe_handler = StripeHandler()
         self.square_handler = SquareHandler()
+        self.adyen_handler = AdyenHandler()
         self._shutdown_event = asyncio.Event()
         self._stats = {
             "processed": 0,
@@ -203,6 +205,8 @@ class NormalizerService:
             return self.stripe_handler
         elif "square" in topic:
             return self.square_handler
+        elif "adyen" in topic:
+            return self.adyen_handler
         return None
 
     def request_shutdown(self) -> None:

@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     square_webhook_signature_key: str = ""
     square_notification_url: str = ""  # Required for signature verification
 
+    # Adyen Configuration
+    adyen_hmac_key: str = ""  # Hex string from Adyen Customer Area
+
     # Application
     debug: bool = False
     log_level: str = "INFO"
@@ -54,6 +57,10 @@ class Settings(BaseSettings):
     @property
     def square_topic_refund(self) -> str:
         return f"{self.kafka_topic_prefix}.square.refund"
+
+    @property
+    def adyen_topic_notification(self) -> str:
+        return f"{self.kafka_topic_prefix}.adyen.notification"
 
 
 settings = Settings()

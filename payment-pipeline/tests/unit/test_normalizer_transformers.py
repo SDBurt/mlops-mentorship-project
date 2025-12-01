@@ -143,8 +143,18 @@ class TestNormalizeEventType:
         assert normalize_event_type("stripe", "unknown.event") == "unknown.event"
 
     def test_non_stripe_events_preserved(self):
-        """Test that non-Stripe events are passed through."""
-        assert normalize_event_type("square", "payment.completed") == "payment.completed"
+        """Test that non-Stripe/Square/Adyen events are passed through."""
+        assert normalize_event_type("unknown_provider", "some.event") == "some.event"
+
+    def test_square_events_normalized(self):
+        """Test that Square events are normalized correctly."""
+        # payment.completed -> payment.succeeded
+        assert normalize_event_type("square", "payment.completed") == "payment.succeeded"
+
+    def test_adyen_events_normalized(self):
+        """Test that Adyen events are normalized correctly."""
+        # AUTHORISATION -> payment.authorized
+        assert normalize_event_type("adyen", "AUTHORISATION") == "payment.authorized"
 
     def test_all_mapped_event_types(self):
         """Test that all mapped event types are covered."""

@@ -186,3 +186,90 @@ def valid_square_refund_event() -> dict:
             },
         },
     }
+
+
+# =============================================================================
+# Adyen Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def adyen_hmac_key() -> str:
+    """Test Adyen HMAC key (hex-encoded)."""
+    # 32-byte key in hex format (64 characters)
+    return "44782DEF547AAA06C910C43932B1EB0C71FC68D9D0C057550C48EC2ACF6BA056"  # pragma: allowlist secret
+
+
+@pytest.fixture
+def valid_adyen_notification_item() -> dict:
+    """A valid Adyen AUTHORISATION notification item."""
+    return {
+        "pspReference": "7914073381342284",
+        "originalReference": None,
+        "merchantAccountCode": "TestMerchant",
+        "merchantReference": "order_12345",
+        "amount": {
+            "value": 2000,
+            "currency": "USD",
+        },
+        "eventCode": "AUTHORISATION",
+        "success": True,
+        "eventDate": "2024-01-15T12:00:00+00:00",
+        "paymentMethod": "visa",
+        "reason": None,
+        "operations": ["CAPTURE", "CANCEL"],
+        "additionalData": {
+            "cardBin": "411111",
+            "cardSummary": "1111",
+        },
+        "live": False,
+    }
+
+
+@pytest.fixture
+def valid_adyen_refund_item() -> dict:
+    """A valid Adyen REFUND notification item."""
+    return {
+        "pspReference": "8814073381342285",
+        "originalReference": "7914073381342284",
+        "merchantAccountCode": "TestMerchant",
+        "merchantReference": "order_12345",
+        "amount": {
+            "value": 1000,
+            "currency": "USD",
+        },
+        "eventCode": "REFUND",
+        "success": True,
+        "eventDate": "2024-01-15T13:00:00+00:00",
+        "paymentMethod": "visa",
+        "reason": None,
+        "operations": [],
+        "additionalData": {},
+        "live": False,
+    }
+
+
+@pytest.fixture
+def valid_adyen_failed_auth() -> dict:
+    """A failed Adyen AUTHORISATION notification item."""
+    return {
+        "pspReference": "7914073381342286",
+        "originalReference": None,
+        "merchantAccountCode": "TestMerchant",
+        "merchantReference": "order_12346",
+        "amount": {
+            "value": 5000,
+            "currency": "EUR",
+        },
+        "eventCode": "AUTHORISATION",
+        "success": False,
+        "eventDate": "2024-01-15T14:00:00+00:00",
+        "paymentMethod": "mc",
+        "reason": "Refused",
+        "operations": [],
+        "additionalData": {
+            "cardBin": "510000",
+            "cardSummary": "0000",
+        },
+        "live": False,
+    }

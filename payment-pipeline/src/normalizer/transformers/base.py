@@ -97,6 +97,31 @@ SQUARE_EVENT_TYPE_MAP = {
     "refund.updated": "refund.updated",
 }
 
+ADYEN_EVENT_TYPE_MAP = {
+    # Authorization
+    "AUTHORISATION": "payment.authorized",
+    # Capture
+    "CAPTURE": "payment.captured",
+    # Cancellation
+    "CANCELLATION": "payment.canceled",
+    # Refunds
+    "REFUND": "refund.created",
+    "REFUND_FAILED": "refund.failed",
+    # Chargebacks/Disputes
+    "CHARGEBACK": "dispute.created",
+    "CHARGEBACK_REVERSED": "dispute.reversed",
+    "NOTIFICATION_OF_CHARGEBACK": "dispute.notification",
+    "SECOND_CHARGEBACK": "dispute.second_chargeback",
+    # Pending
+    "PENDING": "payment.pending",
+    # Report available
+    "REPORT_AVAILABLE": "report.available",
+    # Payout
+    "PAYOUT_DECLINE": "payout.declined",
+    "PAYOUT_EXPIRE": "payout.expired",
+    "PAYOUT_THIRDPARTY": "payout.third_party",
+}
+
 
 def normalize_event_type(provider: str, raw_type: str) -> str:
     """
@@ -113,4 +138,6 @@ def normalize_event_type(provider: str, raw_type: str) -> str:
         return STRIPE_EVENT_TYPE_MAP.get(raw_type, raw_type)
     elif provider == "square":
         return SQUARE_EVENT_TYPE_MAP.get(raw_type, raw_type)
+    elif provider == "adyen":
+        return ADYEN_EVENT_TYPE_MAP.get(raw_type, raw_type.lower())
     return raw_type

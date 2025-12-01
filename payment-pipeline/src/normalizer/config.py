@@ -17,7 +17,8 @@ class Settings(BaseSettings):
         "webhooks.stripe.charge,"
         "webhooks.stripe.refund,"
         "webhooks.square.payment,"
-        "webhooks.square.refund"
+        "webhooks.square.refund,"
+        "webhooks.adyen.notification"
     )
 
     # Output topics
