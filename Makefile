@@ -190,7 +190,10 @@ streaming-down:
 	@echo "Stopping streaming pipeline..."
 	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator stop \
 		orchestrator inference-service temporal-ui temporal temporal-db payments-db \
-		normalizer payment-gateway webhook-simulator kafka-broker 2>/dev/null || true
+		stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer \
+		traefik stripe-gateway square-gateway adyen-gateway braintree-gateway \
+		stripe-simulator square-simulator adyen-simulator braintree-simulator \
+		kafka-broker 2>/dev/null || true
 	@echo "Streaming pipeline stopped"
 
 # Show streaming pipeline status
@@ -298,16 +301,19 @@ analytics-status:
 	@if docker ps | grep -q dagster_user_code; then echo "  [OK] Dagster User Code"; else echo "  [--] Dagster User Code"; fi
 	@if docker ps | grep -q dagster-webserver; then echo "  [OK] Dagster Webserver"; else echo "  [--] Dagster Webserver"; fi
 	@if docker ps | grep -q dagster-daemon; then echo "  [OK] Dagster Daemon"; else echo "  [--] Dagster Daemon"; fi
+	@if docker ps --format "{{.Names}}" | grep -q "^superset$$"; then echo "  [OK] Superset"; else echo "  [--] Superset (run: make superset-up)"; fi
 	@echo ""
 	@echo "Access URLs:"
 	@echo "  Dagster:            http://localhost:3000"
 	@echo "  Trino:              http://localhost:8080"
+	@echo "  Superset:           http://localhost:8089"
 	@echo "  MinIO Console:      http://localhost:9001"
 	@echo "  Polaris API:        http://localhost:8181"
 	@echo ""
 	@echo "Commands:"
 	@echo "  make analytics-up       - Start analytics stack"
 	@echo "  make analytics-down     - Stop analytics stack"
+	@echo "  make superset-up        - Start Superset BI"
 	@echo "  make docker-logs        - View all logs"
 
 # Show status of all services
@@ -347,19 +353,20 @@ docker-status:
 	@echo ""
 	@echo "Container Status:"
 	@echo "----------------"
-	@cd $(DOCKER_DIR) && docker compose ps
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile superset ps
 	@echo ""
 	@echo "Service URLs & Ports:"
 	@echo "---------------------"
-	@echo "  Kafka Broker:      localhost:9092"
-	@echo "  Polaris API:       http://localhost:8181"
-	@echo "  MinIO Console:     http://localhost:9001 (admin/password)"
-	@echo "  MinIO S3 API:      http://localhost:9000"
-	@echo "  Trino:             http://localhost:8080"
-	@echo "  Dagster:           http://localhost:3000"
 	@echo "  Gateway API:       http://localhost:8000"
+	@echo "  Dagster:           http://localhost:3000"
+	@echo "  Trino:             http://localhost:8080"
 	@echo "  Temporal UI:       http://localhost:8088"
+	@echo "  Superset:          http://localhost:8089"
+	@echo "  Polaris API:       http://localhost:8181"
 	@echo "  Inference Service: http://localhost:8002"
+	@echo "  Kafka Broker:      localhost:9092"
+	@echo "  MinIO S3 API:      http://localhost:9000"
+	@echo "  MinIO Console:     http://localhost:9001 (admin/password)"
 	@echo ""
 
 # View logs from all Docker Compose services
@@ -442,7 +449,10 @@ pipeline-down:
 	@echo "Stopping Payment Pipeline..."
 	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator stop \
 		orchestrator inference-service temporal-ui temporal temporal-db \
-		normalizer payment-gateway webhook-simulator kafka-broker 2>/dev/null || true
+		stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer \
+		traefik stripe-gateway square-gateway adyen-gateway braintree-gateway \
+		stripe-simulator square-simulator adyen-simulator braintree-simulator \
+		kafka-broker 2>/dev/null || true
 	@echo "Payment Pipeline stopped"
 
 # Show all pipeline component status
@@ -451,7 +461,10 @@ pipeline-status: gateway-status normalizer-status orchestrator-status
 # View all pipeline logs
 pipeline-logs:
 	@echo "Viewing Pipeline logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator logs -f kafka-broker payment-gateway normalizer orchestrator inference-service temporal
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator logs -f \
+		kafka-broker traefik stripe-gateway square-gateway adyen-gateway braintree-gateway \
+		stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer \
+		orchestrator inference-service temporal
 
 ##################################################
 # PAYMENT GATEWAY COMMANDS
@@ -482,37 +495,42 @@ gateway-up:
 
 # Stop payment gateway
 gateway-down:
-	@echo "Stopping Payment Gateway..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop payment-gateway webhook-simulator
-	@echo "Payment Gateway stopped"
+	@echo "Stopping Payment Gateways..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop \
+		traefik stripe-gateway square-gateway adyen-gateway braintree-gateway \
+		stripe-simulator square-simulator adyen-simulator braintree-simulator
+	@echo "Payment Gateways stopped"
 
 # View payment gateway logs
 gateway-logs:
 	@echo "Viewing Payment Gateway logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose logs -f payment-gateway
+	@cd $(DOCKER_DIR) && docker compose logs -f traefik stripe-gateway square-gateway adyen-gateway braintree-gateway
 
-# Start webhook simulator
+# Start webhook simulators (all providers)
 gateway-simulator:
-	@echo "Starting Webhook Simulator..."
+	@echo "Starting Webhook Simulators (all providers)..."
 	@echo ""
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator up -d webhook-simulator
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator up -d \
+		stripe-simulator square-simulator adyen-simulator braintree-simulator
 	@echo ""
-	@echo "Webhook Simulator started! Generating webhooks at 2/sec for 5 minutes"
+	@echo "Simulators started! Generating webhooks at 2/sec per provider"
 	@echo ""
 	@echo "Commands:"
-	@echo "  make simulator-stop   - Stop simulator"
+	@echo "  make simulator-stop   - Stop all simulators"
 	@echo "  make simulator-logs   - View simulator logs"
 
-# Stop webhook simulator
+# Stop webhook simulators
 simulator-stop:
-	@echo "Stopping Webhook Simulator..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop webhook-simulator
-	@echo "Webhook Simulator stopped"
+	@echo "Stopping Webhook Simulators..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop \
+		stripe-simulator square-simulator adyen-simulator braintree-simulator
+	@echo "Webhook Simulators stopped"
 
 # View webhook simulator logs
 simulator-logs:
 	@echo "Viewing Simulator logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator logs -f webhook-simulator
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator logs -f \
+		stripe-simulator square-simulator adyen-simulator braintree-simulator
 
 # Build payment gateway Docker image
 gateway-build:
@@ -529,8 +547,8 @@ gateway-test:
 # Send a single test webhook
 gateway-test-send:
 	@echo "Sending test webhook to gateway..."
-	@if ! docker ps | grep -q payment-gateway; then \
-		echo "Error: Payment Gateway not running"; \
+	@if ! docker ps | grep -q stripe-gateway; then \
+		echo "Error: Stripe Gateway not running"; \
 		echo "   Start it first: make gateway-up"; \
 		exit 1; \
 	fi
@@ -547,24 +565,43 @@ gateway-status:
 	@echo ""
 	@echo "Container Status:"
 	@echo "-----------------"
-	@if docker ps | grep -q payment-gateway; then \
-		echo "  [OK] Payment Gateway: running"; \
-		docker ps --filter "name=payment-gateway" --format "    {{.Status}}  {{.Ports}}"; \
+	@if docker ps | grep -q traefik; then \
+		echo "  [OK] Traefik (Router): running"; \
 	else \
-		echo "  [--] Payment Gateway: not running"; \
+		echo "  [--] Traefik (Router): not running"; \
 	fi
-	@if docker ps | grep -q webhook-simulator; then \
-		echo "  [OK] Webhook Simulator: running"; \
+	@if docker ps | grep -q stripe-gateway; then \
+		echo "  [OK] Stripe Gateway: running"; \
 	else \
-		echo "  [--] Webhook Simulator: not running"; \
+		echo "  [--] Stripe Gateway: not running"; \
+	fi
+	@if docker ps | grep -q square-gateway; then \
+		echo "  [OK] Square Gateway: running"; \
+	else \
+		echo "  [--] Square Gateway: not running"; \
+	fi
+	@if docker ps | grep -q adyen-gateway; then \
+		echo "  [OK] Adyen Gateway: running"; \
+	else \
+		echo "  [--] Adyen Gateway: not running"; \
+	fi
+	@if docker ps | grep -q braintree-gateway; then \
+		echo "  [OK] Braintree Gateway: running"; \
+	else \
+		echo "  [--] Braintree Gateway: not running"; \
+	fi
+	@if docker ps | grep -q stripe-simulator; then \
+		echo "  [OK] Stripe Simulator: running"; \
+	else \
+		echo "  [--] Stripe Simulator: not running"; \
 	fi
 	@echo ""
 	@echo "Health Check:"
 	@echo "-------------"
-	@if docker ps | grep -q payment-gateway; then \
-		curl -s http://localhost:8000/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "  Gateway not responding"; \
+	@if docker ps | grep -q traefik; then \
+		curl -s http://localhost:8000/webhooks/stripe/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "  Stripe Gateway not responding"; \
 	else \
-		echo "  Gateway not running"; \
+		echo "  Traefik not running"; \
 	fi
 	@echo ""
 	@echo "Kafka Topics (webhooks.*):"
@@ -812,18 +849,24 @@ superset-up:
 	@echo "NOTE: Analytics stack (Trino, Polaris, MinIO) must be running."
 	@echo "      Run 'make analytics-up' first if not already started."
 	@echo ""
-	@echo "Starting Superset stack..."
-	@cd $(DOCKER_DIR) && docker compose --profile superset up -d
+	@echo "Starting Superset infrastructure (DB + Redis)..."
+	@cd $(DOCKER_DIR) && docker compose --profile superset up -d superset-db superset-redis
+	@echo "Waiting for database to be ready..."
+	@sleep 10
 	@echo ""
-	@echo "Waiting for initialization (this may take 30-60 seconds)..."
+	@echo "Running initialization (migrations + admin user)..."
+	@cd $(DOCKER_DIR) && docker compose --profile superset up -d superset-init
 	@sleep 30
+	@echo ""
+	@echo "Starting Superset application..."
+	@cd $(DOCKER_DIR) && docker compose --profile superset up -d superset superset-worker
 	@echo ""
 	@echo "=========================================="
 	@echo "   Apache Superset Started!"
 	@echo "=========================================="
 	@echo ""
 	@echo "Access URL:"
-	@echo "  Superset:  http://localhost:8088"
+	@echo "  Superset:  http://localhost:8089"
 	@echo ""
 	@echo "Login:"
 	@echo "  Username: admin"
@@ -876,7 +919,7 @@ superset-status:
 	@if docker ps | grep -q trino; then echo "  [OK] Trino: running"; else echo "  [--] Trino: not running (run: make analytics-up)"; fi
 	@echo ""
 	@echo "Access URL:"
-	@echo "  Superset:  http://localhost:8088"
+	@echo "  Superset:  http://localhost:8089"
 	@echo ""
 	@echo "Commands:"
 	@echo "  make superset-up      - Start Superset"
