@@ -24,30 +24,34 @@ async def lifespan(app: FastAPI):
     """
     Manage application lifecycle for Braintree gateway.
 
-    - Configure Braintree SDK on startup
+    - Configure Braintree SDK on startup (if credentials provided)
     - Start Kafka producer on startup
     - Stop Kafka producer on shutdown
     """
     # Startup
     logger.info("Starting Braintree Gateway...")
 
-    # Configure Braintree SDK
-    environment = (
-        braintree.Environment.Production
-        if settings.braintree_environment == "production"
-        else braintree.Environment.Sandbox
-    )
-
-    gateway = braintree.BraintreeGateway(
-        braintree.Configuration(
-            environment=environment,
-            merchant_id=settings.braintree_merchant_id,
-            public_key=settings.braintree_public_key,
-            private_key=settings.braintree_private_key,
+    # Configure Braintree SDK only if credentials are provided
+    if settings.braintree_merchant_id and settings.braintree_public_key and settings.braintree_private_key:
+        environment = (
+            braintree.Environment.Production
+            if settings.braintree_environment == "production"
+            else braintree.Environment.Sandbox
         )
-    )
-    app.state.braintree_gateway = gateway
-    logger.info("Braintree SDK configured for %s environment", settings.braintree_environment)
+
+        gateway = braintree.BraintreeGateway(
+            braintree.Configuration(
+                environment=environment,
+                merchant_id=settings.braintree_merchant_id,
+                public_key=settings.braintree_public_key,
+                private_key=settings.braintree_private_key,
+            )
+        )
+        app.state.braintree_gateway = gateway
+        logger.info("Braintree SDK configured for %s environment", settings.braintree_environment)
+    else:
+        app.state.braintree_gateway = None
+        logger.warning("Braintree credentials not configured - running in dev mode (signature verification disabled)")
 
     # Start Kafka
     kafka_manager = KafkaProducerManager()

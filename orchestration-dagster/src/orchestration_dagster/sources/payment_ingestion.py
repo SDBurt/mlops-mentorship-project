@@ -100,6 +100,7 @@ def _prepare_dataframe_for_iceberg(df: pd.DataFrame) -> pd.DataFrame:
     io_manager_key="iceberg_io_manager",
     metadata={
         "partition_expr": "ingested_at",
+        "write_mode": "append",  # Append new records (no duplicates since we only read unloaded)
     },
     group_name="payment_ingestion",
     compute_kind="postgres",
