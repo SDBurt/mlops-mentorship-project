@@ -6,6 +6,8 @@ online_store:
   type: redis
   connection_string: ${FEAST_REDIS_HOST}:${FEAST_REDIS_PORT}
 
+# Offline store: File-based (supports S3 paths via s3fs)
+# Feature data is exported by Dagster to MinIO s3://features/
 offline_store:
   type: file
 

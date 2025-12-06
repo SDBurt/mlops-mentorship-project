@@ -8,11 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Feast
+# Install Feast with S3 support
 RUN pip install --no-cache-dir \
     feast[redis]==0.40.1 \
     pandas \
-    pyarrow
+    pyarrow \
+    s3fs \
+    boto3
 
 # Copy feature repository
 COPY feature_repo/ /app/feature_repo/

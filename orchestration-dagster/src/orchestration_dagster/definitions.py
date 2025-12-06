@@ -20,6 +20,7 @@ from .resources.postgres import PostgresResource
 from .resources.dbt import dbt_payment_assets, dbt_project
 
 from .sources.payment_ingestion import payment_events, payment_events_quarantine, payment_events_daily
+from .sources.feature_export import customer_features_parquet, merchant_features_parquet
 from .partitions import payment_daily_partitions
 
 
@@ -53,6 +54,9 @@ all_assets = [
     payment_events_quarantine,
     # Daily partitioned asset for batch processing
     payment_events_daily,
+    # Feature export assets (DBT -> MinIO Parquet -> Feast)
+    customer_features_parquet,
+    merchant_features_parquet,
 ]
 
 # =============================================================================
@@ -80,6 +84,14 @@ all_jobs = [
     payment_ingestion_job,
     payment_daily_job,  # Daily batch processing
 ]
+
+# Job for feature export (DBT -> MinIO Parquet for Feast)
+feature_export_job = define_asset_job(
+    name="feature_export_job",
+    selection=AssetSelection.assets(customer_features_parquet, merchant_features_parquet),
+    description="Export DBT features to MinIO parquet for Feast feature store",
+)
+all_jobs.append(feature_export_job)
 
 # =============================================================================
 # Schedules

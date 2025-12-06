@@ -1,7 +1,12 @@
 """Create sample parquet files for Feast schema validation."""
 
+import os
 import pandas as pd
 from datetime import datetime, timezone
+
+# Output path - configurable via environment variable
+output_path = os.getenv("FEATURE_DATA_PATH", "/app/features")
+os.makedirs(output_path, exist_ok=True)
 
 # Create sample customer features
 customer_data = {
@@ -36,8 +41,8 @@ customer_data = {
 }
 
 customer_df = pd.DataFrame(customer_data)
-customer_df.to_parquet("/app/data/customer_features.parquet", index=False)
-print("Created customer_features.parquet")
+customer_df.to_parquet(os.path.join(output_path, "customer_features.parquet"), index=False)
+print(f"Created {output_path}/customer_features.parquet")
 
 # Create sample merchant features
 merchant_data = {
@@ -61,7 +66,7 @@ merchant_data = {
 }
 
 merchant_df = pd.DataFrame(merchant_data)
-merchant_df.to_parquet("/app/data/merchant_features.parquet", index=False)
-print("Created merchant_features.parquet")
+merchant_df.to_parquet(os.path.join(output_path, "merchant_features.parquet"), index=False)
+print(f"Created {output_path}/merchant_features.parquet")
 
 print("Sample data created successfully!")

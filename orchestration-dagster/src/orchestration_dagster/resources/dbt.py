@@ -91,7 +91,7 @@ if DBT_PROJECT_DIR is not None:
         @dbt_assets(
             manifest=_dbt_project_instance.manifest_path,
             project=_dbt_project_instance,
-            select="tag:payments",  # Only include payment-tagged models
+            select="tag:payments tag:features",  # Include payment and feature models
             dagster_dbt_translator=PaymentDbtTranslator(),
         )
         def dbt_payment_assets(context: AssetExecutionContext, dbt: DbtCliResource):

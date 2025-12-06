@@ -220,8 +220,11 @@ services:
       PAYMENTS_DB_NAME: ${PAYMENTS_DB_NAME:-payments}
       # DBT project path for transformations
       DBT_PROJECT_DIR: /app/dbt
+      # Feature export path for Feast integration
+      FEATURE_EXPORT_PATH: /app/features
     volumes:
       - ../../orchestration-dbt/dbt:/app/dbt
+      - feast-feature-data:/app/features
     expose:
       - "3030"
     healthcheck:
@@ -884,6 +887,29 @@ services:
   # MLOPS SERVICES (Feast + MLflow)
   #####################################
 
+  # Initialize features bucket in MinIO for Feast
+  feast-init:
+    image: minio/mc:latest
+    container_name: feast-init
+    depends_on:
+      minio:
+        condition: service_started
+    env_file:
+      - .env
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set minio http://minio:9000
+      ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}) do
+      echo '...waiting for MinIO...' && sleep 1; done;
+      mc mb --ignore-existing minio/features;
+      echo 'Feast features bucket ready';
+      "
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - mlops
+    restart: "no"
+
   # Redis for Feast online store
   feast-redis:
     image: redis:7
@@ -910,14 +936,20 @@ services:
     container_name: feast-server
     ports:
       - "6566:6566"
+    env_file:
+      - .env
     environment:
       FEAST_REDIS_HOST: feast-redis
       FEAST_REDIS_PORT: 6379
+      FEAST_USE_S3: "false"  # Use shared volume instead of S3
     volumes:
       - feast-registry:/app/data
+      - feast-feature-data:/app/features
     depends_on:
       feast-redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6566/health"]
       interval: 30s
@@ -1029,6 +1061,7 @@ volumes:
   polaris-data:
   feast-redis-data:
   feast-registry:
+  feast-feature-data:  # Shared volume for feature parquet files
   mlflow-db-data:
 
 networks:

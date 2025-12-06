@@ -4,6 +4,7 @@ This file defines all entities, feature views, and feature services
 for the payment feature store.
 """
 
+import os
 from datetime import timedelta
 
 from feast import Entity, FeatureService, FeatureView, Field, FileSource
@@ -28,16 +29,21 @@ merchant = Entity(
 # =============================================================================
 # DATA SOURCES
 # =============================================================================
+# Feature data is exported by Dagster feature_export_job to a shared volume
+# mounted at /app/features in both Dagster and Feast containers
+
+# Feature data path (shared volume between Dagster and Feast)
+_feature_path = os.getenv("FEATURE_DATA_PATH", "/app/features")
 
 customer_features_source = FileSource(
     name="customer_features_source",
-    path="/app/data/customer_features.parquet",
+    path=f"{_feature_path}/customer_features.parquet",
     timestamp_field="feature_timestamp",
 )
 
 merchant_features_source = FileSource(
     name="merchant_features_source",
-    path="/app/data/merchant_features.parquet",
+    path=f"{_feature_path}/merchant_features.parquet",
     timestamp_field="feature_timestamp",
 )
 

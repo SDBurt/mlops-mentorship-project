@@ -1,0 +1,92 @@
+version: 2
+
+models:
+  - name: feat_customer_features
+    description: Customer features for ML models (fraud, churn, retry)
+    config:
+      tags: ['features', 'ml']
+    columns:
+      - name: customer_id
+        description: Unique customer identifier (entity key)
+        tests:
+          - unique
+          - not_null
+      - name: feature_timestamp
+        description: Timestamp when features were computed
+        tests:
+          - not_null
+      - name: total_payments_30d
+        description: Total payment count in last 30 days
+      - name: total_payments_90d
+        description: Total payment count in last 90 days
+      - name: total_amount_cents_30d
+        description: Total payment amount in cents (30d)
+      - name: avg_amount_cents
+        description: Average payment amount in cents
+      - name: failed_payments_30d
+        description: Failed payment count (30d)
+      - name: failure_rate_30d
+        description: Payment failure rate (0.0-1.0)
+      - name: consecutive_failures
+        description: Count of consecutive failed payments
+      - name: recovered_payments_30d
+        description: Recovered payments after failures (30d)
+      - name: recovery_rate_30d
+        description: Recovery success rate (0.0-1.0)
+      - name: days_since_first_payment
+        description: Days since customer's first payment
+      - name: days_since_last_payment
+        description: Days since customer's last payment
+      - name: days_since_last_failure
+        description: Days since last payment failure
+      - name: payment_method_count
+        description: Number of distinct payment methods
+      - name: has_backup_payment_method
+        description: Whether customer has backup payment method (0/1)
+      - name: fraud_score_avg
+        description: Average fraud score from ML inference
+      - name: high_risk_payment_count
+        description: Count of high-risk payments
+      - name: customer_tier
+        description: Customer tier (platinum/gold/silver/bronze)
+      - name: subscription_age_days
+        description: Days since subscription started
+      - name: account_age_days
+        description: Days since account created
+
+  - name: feat_merchant_features
+    description: Merchant features for ML models (fraud detection)
+    config:
+      tags: ['features', 'ml']
+    columns:
+      - name: merchant_id
+        description: Unique merchant identifier (entity key)
+        tests:
+          - unique
+          - not_null
+      - name: feature_timestamp
+        description: Timestamp when features were computed
+        tests:
+          - not_null
+      - name: total_transactions_30d
+        description: Total transaction count (30d)
+      - name: total_volume_cents_30d
+        description: Total transaction volume in cents (30d)
+      - name: unique_customers_30d
+        description: Unique customer count (30d)
+      - name: avg_transaction_amount
+        description: Average transaction amount in cents
+      - name: failure_rate_30d
+        description: Transaction failure rate (0.0-1.0)
+      - name: dispute_rate_30d
+        description: Dispute rate (0.0-1.0)
+      - name: refund_rate_30d
+        description: Refund rate (0.0-1.0)
+      - name: chargeback_rate_30d
+        description: Chargeback rate (0.0-1.0)
+      - name: fraud_rate_30d
+        description: Fraud detection rate (0.0-1.0)
+      - name: high_risk_transaction_pct
+        description: Percentage of high-risk transactions
+      - name: merchant_health_score
+        description: Overall merchant health score (0-100)

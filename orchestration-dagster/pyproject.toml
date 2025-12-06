@@ -14,6 +14,7 @@ dependencies = [
     "pyarrow>=14.0.0",  # Arrow data format (required for dagster-iceberg)
     "sqlalchemy>=2.0.18",  # Required by PyIceberg (2.0.18+)
     "trino>=0.330.0",  # Trino Python client for querying Trino
+    "s3fs>=2024.2.0",  # S3-compatible filesystem for MinIO feature export
 ]
 
 [dependency-groups]
