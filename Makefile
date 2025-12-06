@@ -7,7 +7,8 @@
 	gateway-up gateway-down gateway-logs gateway-simulator simulator-stop simulator-logs gateway-build gateway-test gateway-status gateway-test-send \
 	normalizer-up normalizer-down normalizer-logs normalizer-build normalizer-status normalizer-counts \
 	orchestrator-up orchestrator-down orchestrator-logs orchestrator-build orchestrator-status temporal-logs inference-logs inference-build \
-	superset-up superset-down superset-logs superset-status
+	superset-up superset-down superset-logs superset-status \
+	mlops-up mlops-down mlops-logs mlops-status mlops-build feast-apply feast-status mlflow-ui
 
 # Variables
 DOCKER_DIR := infrastructure/docker
@@ -84,6 +85,16 @@ help:
 	@echo "  make superset-down          - Stop Superset services"
 	@echo "  make superset-logs          - View Superset logs"
 	@echo "  make superset-status        - Show Superset service status"
+	@echo ""
+	@echo "MLOps (Feast + MLflow):"
+	@echo "  make mlops-up               - Start MLOps stack (Feast, MLflow, Redis)"
+	@echo "  make mlops-down             - Stop MLOps services"
+	@echo "  make mlops-logs             - View MLOps service logs"
+	@echo "  make mlops-status           - Show MLOps service status"
+	@echo "  make mlops-build            - Build MLOps Docker images"
+	@echo "  make feast-apply            - Apply Feast feature definitions"
+	@echo "  make feast-status           - Show Feast feature store status"
+	@echo "  make mlflow-ui              - Open MLflow tracking UI info"
 	@echo ""
 	@echo "Workflows:"
 	@echo ""
@@ -925,3 +936,140 @@ superset-status:
 	@echo "  make superset-up      - Start Superset"
 	@echo "  make superset-logs    - View logs"
 	@echo "  make superset-down    - Stop Superset"
+
+##################################################
+# MLOPS COMMANDS (Feast + MLflow)
+##################################################
+
+# Start MLOps stack (Feast + MLflow)
+mlops-up:
+	@echo "=========================================="
+	@echo "   Starting MLOps Stack"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components:"
+	@echo "  - Feast Redis (online feature store)"
+	@echo "  - Feast Server (feature serving)"
+	@echo "  - MLflow DB (experiment metadata)"
+	@echo "  - MLflow Server (tracking & model registry)"
+	@echo ""
+	@echo "NOTE: MinIO must be running for MLflow artifacts."
+	@echo "      Run 'make analytics-up' first if not already started."
+	@echo ""
+	@echo "Starting MinIO (if not running)..."
+	@cd $(DOCKER_DIR) && docker compose up -d minio minio-client
+	@sleep 3
+	@echo ""
+	@echo "Starting MLOps infrastructure..."
+	@cd $(DOCKER_DIR) && docker compose --profile mlops up -d
+	@echo ""
+	@echo "Waiting for services to be ready..."
+	@sleep 10
+	@echo ""
+	@echo "=========================================="
+	@echo "   MLOps Stack Started!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  MLflow UI:          http://localhost:5001"
+	@echo "  Feast Server:       http://localhost:6566"
+	@echo "  MinIO Console:      http://localhost:9001"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Apply Feast features:  make feast-apply"
+	@echo "  2. Check status:          make mlops-status"
+	@echo "  3. View MLflow UI:        make mlflow-ui"
+
+# Stop MLOps stack
+mlops-down:
+	@echo "Stopping MLOps stack..."
+	@cd $(DOCKER_DIR) && docker compose --profile mlops stop \
+		feast-server feast-redis mlflow-server mlflow-db mlflow-init 2>/dev/null || true
+	@echo "MLOps stack stopped"
+
+# View MLOps logs
+mlops-logs:
+	@echo "Viewing MLOps logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile mlops logs -f \
+		feast-server feast-redis mlflow-server mlflow-db
+
+# Build MLOps Docker images
+mlops-build:
+	@echo "Building MLOps Docker images..."
+	@cd $(DOCKER_DIR) && docker compose --profile mlops build feast-server
+	@echo "MLOps images built"
+
+# Show MLOps status
+mlops-status:
+	@echo "=========================================="
+	@echo "   MLOps Stack Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Container Status:"
+	@echo "-----------------"
+	@if docker ps | grep -q feast-redis; then echo "  [OK] Feast Redis"; else echo "  [--] Feast Redis"; fi
+	@if docker ps | grep -q feast-server; then echo "  [OK] Feast Server"; else echo "  [--] Feast Server"; fi
+	@if docker ps | grep -q mlflow-db; then echo "  [OK] MLflow DB"; else echo "  [--] MLflow DB"; fi
+	@if docker ps | grep -q mlflow-server; then echo "  [OK] MLflow Server"; else echo "  [--] MLflow Server"; fi
+	@echo ""
+	@echo "MinIO (required for MLflow artifacts):"
+	@echo "--------------------------------------"
+	@if docker ps | grep -q minio; then echo "  [OK] MinIO: running"; else echo "  [--] MinIO: not running (run: make analytics-up)"; fi
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  MLflow UI:      http://localhost:5001"
+	@echo "  Feast Server:   http://localhost:6566"
+	@echo ""
+	@echo "Commands:"
+	@echo "  make mlops-up       - Start MLOps stack"
+	@echo "  make mlops-logs     - View logs"
+	@echo "  make feast-apply    - Apply Feast features"
+	@echo "  make mlops-down     - Stop MLOps stack"
+
+# Apply Feast feature definitions
+feast-apply:
+	@echo "Applying Feast feature definitions..."
+	@if ! docker ps | grep -q feast-server; then \
+		echo "Error: Feast server not running"; \
+		echo "   Start it first: make mlops-up"; \
+		exit 1; \
+	fi
+	@docker compose -f $(DOCKER_DIR)/docker-compose.yml exec feast-server feast apply
+	@echo ""
+	@echo "Feast features applied!"
+
+# Show Feast feature store status
+feast-status:
+	@echo "=========================================="
+	@echo "   Feast Feature Store Status"
+	@echo "=========================================="
+	@echo ""
+	@if docker ps | grep -q feast-server; then \
+		echo "Feature Views:"; \
+		docker compose -f $(DOCKER_DIR)/docker-compose.yml exec feast-server feast feature-views list 2>/dev/null || echo "  Run 'make feast-apply' first"; \
+		echo ""; \
+		echo "Feature Services:"; \
+		docker compose -f $(DOCKER_DIR)/docker-compose.yml exec feast-server feast feature-services list 2>/dev/null || echo "  Run 'make feast-apply' first"; \
+	else \
+		echo "Feast server not running. Start with: make mlops-up"; \
+	fi
+
+# Show MLflow UI info
+mlflow-ui:
+	@echo "=========================================="
+	@echo "   MLflow Tracking Server"
+	@echo "=========================================="
+	@echo ""
+	@if docker ps | grep -q mlflow-server; then \
+		echo "MLflow UI:        http://localhost:5001"; \
+		echo ""; \
+		echo "To use MLflow from Python:"; \
+		echo "  import mlflow"; \
+		echo "  mlflow.set_tracking_uri('http://localhost:5001')"; \
+		echo ""; \
+		echo "Environment variables for training containers:"; \
+		echo "  MLFLOW_TRACKING_URI=http://mlflow-server:5000"; \
+		echo "  MLFLOW_S3_ENDPOINT_URL=http://minio:9000"; \
+	else \
+		echo "MLflow server not running. Start with: make mlops-up"; \
+	fi

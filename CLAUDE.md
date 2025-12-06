@@ -101,6 +101,13 @@ make pipeline-down       # Stop full pipeline
 make orchestrator-up     # Start orchestrator with Temporal
 make gateway-simulator   # Start webhook simulator
 
+# MLOps (Feast + MLflow)
+make mlops-up            # Start MLOps stack (Feast, MLflow, Redis)
+make mlops-down          # Stop MLOps services
+make mlops-status        # Show MLOps service status
+make feast-apply         # Apply Feast feature definitions
+make mlflow-ui           # Show MLflow tracking UI info
+
 # Get help
 make help                # Show all available commands
 ```
@@ -322,10 +329,12 @@ def payment_events(context, postgres_resource: PostgresResource) -> pd.DataFrame
 - Apache Superset dashboards (planned)
 - RBAC and data lineage tracking (planned)
 
-**Phase 4 (MLOps):** Planned
-- Feast feature store for customer/merchant features
-- ML model training (fraud, churn, retry)
-- Kubeflow pipelines
+**Phase 4 (MLOps):** In Progress
+- Feast feature store for customer/merchant features (infrastructure deployed)
+- MLflow tracking server for experiment management (infrastructure deployed)
+- Feature definitions for fraud, churn, and retry models (defined)
+- ML model training pipelines (planned)
+- Model serving to replace mock inference service (planned)
 
 ## Troubleshooting
 

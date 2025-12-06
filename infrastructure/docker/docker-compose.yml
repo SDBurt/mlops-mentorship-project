@@ -880,6 +880,141 @@ services:
     profiles:
       - superset
 
+  #####################################
+  # MLOPS SERVICES (Feast + MLflow)
+  #####################################
+
+  # Redis for Feast online store
+  feast-redis:
+    image: redis:7
+    container_name: feast-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - feast-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - mlops
+
+  # Feast feature server
+  feast-server:
+    build:
+      context: ../../mlops/feature-store
+      dockerfile: Dockerfile
+    container_name: feast-server
+    ports:
+      - "6566:6566"
+    environment:
+      FEAST_REDIS_HOST: feast-redis
+      FEAST_REDIS_PORT: 6379
+    volumes:
+      - feast-registry:/app/data
+    depends_on:
+      feast-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6566/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - mlops
+
+  # PostgreSQL for MLflow backend store
+  mlflow-db:
+    image: postgres:14
+    container_name: mlflow-db
+    environment:
+      POSTGRES_USER: ${MLFLOW_DB_USER:-mlflow}
+      POSTGRES_PASSWORD: ${MLFLOW_DB_PASSWORD:-mlflow}
+      POSTGRES_DB: ${MLFLOW_DB_NAME:-mlflow}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MLFLOW_DB_USER:-mlflow} -d ${MLFLOW_DB_NAME:-mlflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mlflow-db-data:/var/lib/postgresql/data
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - mlops
+
+  # MLflow tracking server
+  mlflow-server:
+    image: ghcr.io/mlflow/mlflow:v2.17.0
+    container_name: mlflow-server
+    ports:
+      - "5001:5000"
+    environment:
+      # Backend store (PostgreSQL)
+      MLFLOW_BACKEND_STORE_URI: postgresql://${MLFLOW_DB_USER:-mlflow}:${MLFLOW_DB_PASSWORD:-mlflow}@mlflow-db:5432/${MLFLOW_DB_NAME:-mlflow}
+      # Artifact store (MinIO/S3)
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # Server config
+      MLFLOW_TRACKING_URI: http://localhost:5000
+    command:
+      - mlflow
+      - server
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - postgresql://${MLFLOW_DB_USER:-mlflow}:${MLFLOW_DB_PASSWORD:-mlflow}@mlflow-db:5432/${MLFLOW_DB_NAME:-mlflow}
+      - --artifacts-destination
+      - s3://warehouse/mlflow-artifacts
+      - --serve-artifacts
+    depends_on:
+      mlflow-db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - mlops
+
+  # MLflow artifact bucket initialization
+  mlflow-init:
+    image: minio/mc:latest
+    container_name: mlflow-init
+    depends_on:
+      minio:
+        condition: service_started
+    env_file:
+      - .env
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set minio http://minio:9000
+      ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}) do
+      echo '...waiting for MinIO...' && sleep 1; done;
+      mc mb --ignore-existing minio/warehouse/mlflow-artifacts;
+      echo 'MLflow artifact bucket ready';
+      "
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - mlops
+    restart: "no"
+
 volumes:
   postgres-data:
   dagster-io:
@@ -889,6 +1024,9 @@ volumes:
   superset-redis-data:
   minio-data:
   polaris-data:
+  feast-redis-data:
+  feast-registry:
+  mlflow-db-data:
 
 networks:
   local-iceberg-lakehouse:
