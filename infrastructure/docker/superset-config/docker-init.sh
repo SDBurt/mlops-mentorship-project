@@ -30,7 +30,7 @@ superset fab create-admin \
 echo "==> Superset initialization complete!"
 echo ""
 echo "NOTE: Add Trino database connection manually:"
-echo "  1. Login to Superset at http://localhost:8088"
+echo "  1. Login to Superset at http://localhost:8089"
 echo "  2. Go to Settings > Database Connections"
 echo "  3. Click '+ Database'"
 echo "  4. Select 'Trino' and use this SQLAlchemy URI:"

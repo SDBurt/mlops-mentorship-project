@@ -10,6 +10,7 @@ RUN apt-get update && \
 # Copy project files
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
+COPY simulator/ ./simulator/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -e .

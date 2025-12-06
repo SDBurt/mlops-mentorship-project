@@ -58,9 +58,8 @@ services:
       test:
         - "CMD-SHELL"
         - >
-          curl -f http://localhost:8181/api/catalog/v1/config >/dev/null 2>&1 ||
-          curl -f http://localhost:8182/health >/dev/null 2>&1 ||
-          timeout 1 bash -c "</dev/tcp/localhost/8182" 2>/dev/null ||
+          curl -f http://localhost:8182/q/health >/dev/null 2>&1 ||
+          timeout 1 bash -c "</dev/tcp/localhost/8181" 2>/dev/null ||
           exit 1
       interval: 10s
       timeout: 5s
@@ -357,7 +356,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
       SQUARE_WEBHOOK_SIGNATURE_KEY: ${SQUARE_WEBHOOK_SIGNATURE_KEY:-sq_signature_key_for_dev}
-      SQUARE_NOTIFICATION_URL: ${SQUARE_NOTIFICATION_URL:-http://localhost:8000/webhooks/square/}
+      SQUARE_NOTIFICATION_URL: http://traefik:8000/webhooks/square/
       LOG_LEVEL: INFO
       KAFKA_CONNECTION_RETRIES: 10
       KAFKA_RETRY_DELAY: 2.0
@@ -411,10 +410,11 @@ services:
     container_name: braintree-gateway
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      # Empty credentials enable dev mode (skips signature verification)
       BRAINTREE_ENVIRONMENT: ${BRAINTREE_ENVIRONMENT:-sandbox}
-      BRAINTREE_MERCHANT_ID: ${BRAINTREE_MERCHANT_ID:-test_merchant_id}
-      BRAINTREE_PUBLIC_KEY: ${BRAINTREE_PUBLIC_KEY:-test_public_key}
-      BRAINTREE_PRIVATE_KEY: ${BRAINTREE_PRIVATE_KEY:-test_private_key}
+      BRAINTREE_MERCHANT_ID: ${BRAINTREE_MERCHANT_ID:-}
+      BRAINTREE_PUBLIC_KEY: ${BRAINTREE_PUBLIC_KEY:-}
+      BRAINTREE_PRIVATE_KEY: ${BRAINTREE_PRIVATE_KEY:-}
       LOG_LEVEL: INFO
       KAFKA_CONNECTION_RETRIES: 10
       KAFKA_RETRY_DELAY: 2.0
@@ -434,17 +434,77 @@ services:
     profiles:
       - gateway
 
-  webhook-simulator:
+  #####################################
+  # PROVIDER-SPECIFIC SIMULATORS
+  #####################################
+
+  stripe-simulator:
     build:
       context: ../../payment-pipeline
       dockerfile: docker/gateway/Dockerfile.stripe
-    container_name: webhook-simulator
+    container_name: stripe-simulator
     command: ["python", "-m", "simulator.main", "generate", "--rate", "2", "--duration", "7200"]
     environment:
       GATEWAY_URL: http://traefik:8000/webhooks/stripe/
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_secret_for_dev}
     depends_on:
       stripe-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - simulator
+
+  square-simulator:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/gateway/Dockerfile.square
+    container_name: square-simulator
+    command: ["python", "-m", "simulator.main", "square", "generate", "--rate", "2", "--duration", "7200"]
+    environment:
+      SQUARE_GATEWAY_URL: http://traefik:8000/webhooks/square/
+      SQUARE_WEBHOOK_SIGNATURE_KEY: ${SQUARE_WEBHOOK_SIGNATURE_KEY:-sq_signature_key_for_dev}
+      SQUARE_NOTIFICATION_URL: http://traefik:8000/webhooks/square/
+    depends_on:
+      square-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - simulator
+
+  adyen-simulator:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/gateway/Dockerfile.adyen
+    container_name: adyen-simulator
+    command: ["python", "-m", "simulator.main", "adyen", "generate", "--rate", "2", "--duration", "7200"]
+    environment:
+      ADYEN_GATEWAY_URL: http://traefik:8000/webhooks/adyen/
+      ADYEN_HMAC_KEY: ${ADYEN_HMAC_KEY:-44782DEF547AAA06C910C43932B1EB0C71FC68D9D0C057550C48EC2ACF6BA056}
+    depends_on:
+      adyen-gateway:
+        condition: service_healthy
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - simulator
+
+  braintree-simulator:
+    build:
+      context: ../../payment-pipeline
+      dockerfile: docker/gateway/Dockerfile.braintree
+    container_name: braintree-simulator
+    command: ["python", "-m", "simulator.main", "braintree", "generate", "--rate", "2", "--duration", "7200"]
+    environment:
+      BRAINTREE_GATEWAY_URL: http://traefik:8000/webhooks/braintree/
+      # Empty credentials enable dev mode (skips signature verification)
+      BRAINTREE_ENVIRONMENT: ${BRAINTREE_ENVIRONMENT:-sandbox}
+      BRAINTREE_MERCHANT_ID: ${BRAINTREE_MERCHANT_ID:-}
+      BRAINTREE_PUBLIC_KEY: ${BRAINTREE_PUBLIC_KEY:-}
+      BRAINTREE_PRIVATE_KEY: ${BRAINTREE_PRIVATE_KEY:-}
+    depends_on:
+      braintree-gateway:
         condition: service_healthy
     networks:
       - local-iceberg-lakehouse
