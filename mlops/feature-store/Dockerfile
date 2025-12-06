@@ -20,7 +20,10 @@ COPY feature_repo/ /app/feature_repo/
 # Create data directory for registry and sample data
 RUN mkdir -p /app/data
 
+# Make entrypoint executable
+RUN chmod +x /app/feature_repo/entrypoint.sh
+
 WORKDIR /app/feature_repo
 
-# Default command: run Feast feature server
-CMD ["feast", "serve", "--host", "0.0.0.0", "--port", "6566"]
+# Use entrypoint to initialize data and apply feast on first run
+ENTRYPOINT ["/app/feature_repo/entrypoint.sh"]

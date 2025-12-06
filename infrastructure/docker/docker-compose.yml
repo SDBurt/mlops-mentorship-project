@@ -951,7 +951,10 @@ services:
 
   # MLflow tracking server
   mlflow-server:
-    image: ghcr.io/mlflow/mlflow:v2.17.0
+    build:
+      context: ./mlflow
+      dockerfile: Dockerfile
+    image: mlflow-server:latest
     container_name: mlflow-server
     ports:
       - "5001:5000"

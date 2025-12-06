@@ -364,7 +364,7 @@ docker-status:
 	@echo ""
 	@echo "Container Status:"
 	@echo "----------------"
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile superset ps
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile superset --profile mlops ps
 	@echo ""
 	@echo "Service URLs & Ports:"
 	@echo "---------------------"
@@ -378,6 +378,11 @@ docker-status:
 	@echo "  Kafka Broker:      localhost:9092"
 	@echo "  MinIO S3 API:      http://localhost:9000"
 	@echo "  MinIO Console:     http://localhost:9001 (admin/password)"
+	@echo ""
+	@echo "MLOps Services:"
+	@echo "---------------"
+	@echo "  MLflow UI:         http://localhost:5001"
+	@echo "  Feast Server:      http://localhost:6566"
 	@echo ""
 
 # View logs from all Docker Compose services
