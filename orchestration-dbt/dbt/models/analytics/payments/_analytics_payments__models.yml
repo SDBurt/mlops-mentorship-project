@@ -2,28 +2,29 @@ version: 2
 
 models:
   # ==========================================================================
-  # Analytics: Payment Summary KPIs
+  # Analytics: Payment Summary KPIs (15-minute intervals)
   # ==========================================================================
   - name: analytics_payment_summary
     description: |
-      High-level payment KPIs for executive dashboards.
-      Includes overall metrics, period-over-period comparisons, and growth rates.
-      Best used for: Executive dashboards, KPI scorecards
+      High-level payment KPIs in 15-minute intervals for real-time dashboards.
+      Includes transaction counts, revenue, rates, and provider breakdown.
+      Best used for: Real-time dashboards, KPI monitoring
     config:
-      tags: ['analytics', 'payments', 'kpis']
+      tags: ['analytics', 'payments', 'kpis', 'intervals']
     columns:
-      - name: snapshot_at
-        description: "When this snapshot was generated"
+      - name: interval_key
+        description: "Unique key for the 15-minute interval"
+        tests:
+          - unique
+          - not_null
+      - name: interval_label
+        description: "Human-readable interval label (YYYY-MM-DD HH:MM)"
       - name: total_transactions
-        description: "Total number of payment transactions"
+        description: "Total number of payment transactions in this interval"
       - name: total_revenue_dollars
-        description: "Total revenue in dollars"
+        description: "Total revenue in dollars for this interval"
       - name: success_rate_pct
         description: "Percentage of successful transactions"
-      - name: transaction_growth_pct
-        description: "Week-over-week transaction growth"
-      - name: revenue_growth_pct
-        description: "Week-over-week revenue growth"
 
   # ==========================================================================
   # Analytics: Payment Trends
@@ -81,48 +82,82 @@ models:
         description: "Percentage of total revenue from this segment"
 
   # ==========================================================================
-  # Analytics: Risk Overview
+  # Analytics: Risk Overview (15-minute intervals)
   # ==========================================================================
   - name: analytics_risk_overview
     description: |
-      Fraud and risk metrics for monitoring and alerting.
-      Breakdowns by risk category, provider, and payment method.
-      Best used for: Risk dashboards, fraud monitoring, alerts
+      Fraud and risk metrics in 15-minute intervals for monitoring.
+      Includes risk category distribution, scores, and provider breakdown.
+      Best used for: Risk dashboards, fraud monitoring, real-time alerts
     config:
-      tags: ['analytics', 'payments', 'risk']
+      tags: ['analytics', 'payments', 'risk', 'intervals']
     columns:
-      - name: metric_type
-        description: "Type of metric breakdown"
-        tests:
-          - not_null
-      - name: dimension
-        description: "Dimension value for the metric"
-      - name: transaction_count
-        description: "Number of transactions"
-      - name: avg_fraud_score
-        description: "Average fraud score for this segment"
-
-  # ==========================================================================
-  # Analytics: Provider Comparison
-  # ==========================================================================
-  - name: analytics_provider_comparison
-    description: |
-      Payment provider performance comparison.
-      Includes volume, revenue, rates, risk, and customer metrics per provider.
-      Best used for: Provider analysis, strategic decisions, vendor management
-    config:
-      tags: ['analytics', 'payments', 'providers']
-    columns:
-      - name: provider
-        description: "Payment provider name"
+      - name: interval_key
+        description: "Unique key for the 15-minute interval"
         tests:
           - unique
           - not_null
-      - name: transaction_share_pct
-        description: "Provider's share of total transactions"
-      - name: revenue_share_pct
-        description: "Provider's share of total revenue"
+      - name: interval_label
+        description: "Human-readable interval label (YYYY-MM-DD HH:MM)"
+      - name: total_transactions
+        description: "Number of transactions in this interval"
+      - name: high_risk_count
+        description: "Number of high-risk transactions"
+      - name: avg_fraud_score
+        description: "Average fraud score for this interval"
+
+  # ==========================================================================
+  # Analytics: Provider Comparison (15-minute intervals)
+  # ==========================================================================
+  - name: analytics_provider_comparison
+    description: |
+      Payment provider performance in 15-minute intervals.
+      One row per provider per interval for time-series analysis.
+      Best used for: Provider trend analysis, real-time comparison
+    config:
+      tags: ['analytics', 'payments', 'providers', 'intervals']
+    columns:
+      - name: interval_provider_key
+        description: "Unique key for interval + provider combination"
+        tests:
+          - unique
+          - not_null
+      - name: interval_label
+        description: "Human-readable interval label (YYYY-MM-DD HH:MM)"
+      - name: provider
+        description: "Payment provider name"
+        tests:
+          - not_null
+      - name: total_transactions
+        description: "Transactions for this provider in this interval"
       - name: success_rate_pct
         description: "Transaction success rate for this provider"
-      - name: failure_rate_pct
-        description: "Transaction failure rate for this provider"
+      - name: total_revenue_dollars
+        description: "Revenue in dollars for this provider"
+
+  # ==========================================================================
+  # Analytics: Payment Intervals (15-minute buckets)
+  # ==========================================================================
+  - name: analytics_payment_intervals
+    description: |
+      Aggregated payment metrics in 15-minute intervals.
+      Core time-series model with transaction, revenue, risk, and provider breakdown.
+      Best used for: Real-time monitoring, throughput analysis
+    config:
+      tags: ['analytics', 'payments', 'intervals', 'realtime']
+    columns:
+      - name: interval_key
+        description: "Unique key for the 15-minute interval"
+        tests:
+          - unique
+          - not_null
+      - name: interval_label
+        description: "Human-readable interval label (YYYY-MM-DD HH:MM)"
+      - name: transaction_count
+        description: "Total transactions in this interval"
+      - name: revenue_dollars
+        description: "Total revenue in dollars"
+      - name: success_rate_pct
+        description: "Transaction success rate"
+      - name: transactions_per_minute
+        description: "Average throughput (transactions/minute)"

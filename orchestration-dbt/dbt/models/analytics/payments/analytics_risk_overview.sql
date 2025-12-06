@@ -1,150 +1,149 @@
 -- ============================================================================
--- Analytics Model: Risk Overview
+-- Analytics Model: Risk Overview (15-minute intervals)
 -- ============================================================================
--- Purpose: Risk and fraud metrics for monitoring dashboards
--- Materialization: Table (refreshed frequently)
+-- Purpose: Risk and fraud metrics over time for monitoring dashboards
+-- Materialization: Incremental (15-minute buckets)
 -- ============================================================================
 
 {{
   config(
-    materialized='table',
+    materialized='incremental',
+    unique_key='interval_key',
+    incremental_strategy='merge',
     format='PARQUET',
-    tags=['analytics', 'payments', 'risk']
+    tags=['analytics', 'payments', 'risk', 'intervals']
   )
 }}
 
-WITH payment_facts AS (
-    SELECT * FROM {{ ref('fct_payments') }}
+WITH payment_events AS (
+    SELECT * FROM {{ ref('stg_payment_events') }}
+    {% if is_incremental() %}
+    -- Lookback 30 minutes to catch late-arriving events for recent intervals
+    WHERE ingested_at > (SELECT MAX(interval_end) - INTERVAL '30' MINUTE FROM {{ this }})
+    {% endif %}
 ),
 
--- Risk score distribution
-risk_distribution AS (
+-- Create 15-minute interval buckets with risk metrics
+interval_metrics AS (
     SELECT
-        fraud_risk_category,
-        COUNT(*) AS transaction_count,
+        -- Time bucketing
+        DATE_TRUNC('hour', ingested_at) +
+            INTERVAL '15' MINUTE * FLOOR(EXTRACT(MINUTE FROM ingested_at) / 15) AS interval_start,
+        DATE_TRUNC('hour', ingested_at) +
+            INTERVAL '15' MINUTE * (FLOOR(EXTRACT(MINUTE FROM ingested_at) / 15) + 1) AS interval_end,
+        CAST(ingested_at AS DATE) AS event_date,
+        EXTRACT(HOUR FROM ingested_at) AS event_hour,
+
+        -- Transaction counts
+        COUNT(*) AS total_transactions,
+        COUNT(CASE WHEN status = 'succeeded' THEN 1 END) AS successful_count,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END) AS failed_count,
+
+        -- Revenue
         SUM(amount_cents) AS total_amount_cents,
+        SUM(CASE WHEN status = 'succeeded' THEN amount_cents ELSE 0 END) AS successful_amount_cents,
+
+        -- Risk category distribution
+        COUNT(CASE WHEN risk_level = 'high' THEN 1 END) AS high_risk_count,
+        COUNT(CASE WHEN risk_level = 'medium' THEN 1 END) AS medium_risk_count,
+        COUNT(CASE WHEN risk_level = 'low' THEN 1 END) AS low_risk_count,
+
+        -- Risk amounts
+        SUM(CASE WHEN risk_level = 'high' THEN amount_cents ELSE 0 END) AS high_risk_amount_cents,
+        SUM(CASE WHEN risk_level = 'medium' THEN amount_cents ELSE 0 END) AS medium_risk_amount_cents,
+        SUM(CASE WHEN risk_level = 'low' THEN amount_cents ELSE 0 END) AS low_risk_amount_cents,
+
+        -- Fraud score stats
         AVG(fraud_score) AS avg_fraud_score,
         MIN(fraud_score) AS min_fraud_score,
         MAX(fraud_score) AS max_fraud_score,
-        SUM(is_successful) AS successful_count,
-        SUM(is_failed) AS failed_count
-    FROM payment_facts
-    GROUP BY fraud_risk_category
-),
 
--- Risk by provider
-risk_by_provider AS (
-    SELECT
-        provider,
-        COUNT(*) AS transaction_count,
-        AVG(fraud_score) AS avg_fraud_score,
-        COUNT(CASE WHEN fraud_risk_category = 'high' THEN 1 END) AS high_risk_count,
-        SUM(CASE WHEN fraud_risk_category = 'high' THEN amount_cents ELSE 0 END) AS high_risk_amount_cents
-    FROM payment_facts
-    GROUP BY provider
-),
+        -- Churn score stats
+        AVG(churn_score) AS avg_churn_score,
+        MIN(churn_score) AS min_churn_score,
+        MAX(churn_score) AS max_churn_score,
 
--- Risk by payment method
-risk_by_method AS (
-    SELECT
-        payment_method_type,
-        COUNT(*) AS transaction_count,
-        AVG(fraud_score) AS avg_fraud_score,
-        COUNT(CASE WHEN fraud_risk_category = 'high' THEN 1 END) AS high_risk_count
-    FROM payment_facts
-    WHERE payment_method_type IS NOT NULL
-    GROUP BY payment_method_type
-),
+        -- Risk by provider
+        COUNT(CASE WHEN provider = 'stripe' AND risk_level = 'high' THEN 1 END) AS stripe_high_risk,
+        COUNT(CASE WHEN provider = 'square' AND risk_level = 'high' THEN 1 END) AS square_high_risk,
+        COUNT(CASE WHEN provider = 'adyen' AND risk_level = 'high' THEN 1 END) AS adyen_high_risk,
+        COUNT(CASE WHEN provider = 'braintree' AND risk_level = 'high' THEN 1 END) AS braintree_high_risk,
 
--- Daily risk trends (last 30 days)
-daily_risk AS (
-    SELECT
-        event_date,
-        COUNT(*) AS transaction_count,
-        AVG(fraud_score) AS avg_fraud_score,
-        COUNT(CASE WHEN fraud_risk_category = 'high' THEN 1 END) AS high_risk_count,
-        SUM(CASE WHEN fraud_risk_category = 'high' THEN amount_cents ELSE 0 END) AS high_risk_amount_cents
-    FROM payment_facts
-    WHERE event_date >= CURRENT_DATE - INTERVAL '30' DAY
-    GROUP BY event_date
-),
+        -- Risk by payment method
+        COUNT(CASE WHEN payment_method_type = 'card' AND risk_level = 'high' THEN 1 END) AS card_high_risk,
+        COUNT(CASE WHEN (payment_method_type = 'bank_transfer' OR payment_method_type = 'us_bank_account') AND risk_level = 'high' THEN 1 END) AS bank_high_risk
 
--- Overall stats
-overall_stats AS (
-    SELECT
-        COUNT(*) AS total_transactions,
-        SUM(amount_cents) AS total_amount_cents,
-        AVG(fraud_score) AS overall_avg_fraud_score,
-        COUNT(CASE WHEN fraud_risk_category = 'high' THEN 1 END) AS total_high_risk,
-        COUNT(CASE WHEN fraud_risk_category = 'medium' THEN 1 END) AS total_medium_risk,
-        COUNT(CASE WHEN fraud_risk_category = 'low' THEN 1 END) AS total_low_risk,
-        SUM(CASE WHEN fraud_risk_category = 'high' THEN amount_cents ELSE 0 END) AS high_risk_amount_cents
-    FROM payment_facts
+    FROM payment_events
+    WHERE ingested_at IS NOT NULL
+    GROUP BY 1, 2, 3, 4
 )
 
--- Risk category breakdown
 SELECT
-    'risk_category' AS metric_type,
-    rd.fraud_risk_category AS dimension,
-    CAST(NULL AS VARCHAR) AS sub_dimension,
-    rd.transaction_count,
-    rd.total_amount_cents,
-    ROUND(rd.total_amount_cents / 100.0, 2) AS total_amount_dollars,
-    ROUND(rd.transaction_count * 100.0 / os.total_transactions, 2) AS transaction_pct,
-    ROUND(rd.avg_fraud_score, 4) AS avg_fraud_score,
-    rd.successful_count,
-    rd.failed_count,
-    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS snapshot_at
-FROM risk_distribution rd
-CROSS JOIN overall_stats os
+    -- Unique key for merge
+    {{ dbt_utils.generate_surrogate_key(['interval_start']) }} AS interval_key,
 
-UNION ALL
+    -- Time dimensions
+    interval_start,
+    interval_end,
+    event_date,
+    event_hour,
+    CONCAT(
+        CAST(event_date AS VARCHAR), ' ',
+        LPAD(CAST(event_hour AS VARCHAR), 2, '0'), ':',
+        LPAD(CAST(EXTRACT(MINUTE FROM interval_start) AS VARCHAR), 2, '0')
+    ) AS interval_label,
 
--- Risk by provider
-SELECT
-    'provider' AS metric_type,
-    rp.provider AS dimension,
-    CAST(NULL AS VARCHAR) AS sub_dimension,
-    rp.transaction_count,
-    NULL AS total_amount_cents,
-    NULL AS total_amount_dollars,
-    ROUND(rp.high_risk_count * 100.0 / NULLIF(rp.transaction_count, 0), 2) AS transaction_pct,
-    ROUND(rp.avg_fraud_score, 4) AS avg_fraud_score,
-    NULL AS successful_count,
-    rp.high_risk_count AS failed_count,
-    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS snapshot_at
-FROM risk_by_provider rp
+    -- Transaction metrics
+    total_transactions,
+    successful_count,
+    failed_count,
 
-UNION ALL
+    -- Amount metrics
+    total_amount_cents,
+    ROUND(total_amount_cents / 100.0, 2) AS total_amount_dollars,
+    successful_amount_cents,
+    ROUND(successful_amount_cents / 100.0, 2) AS successful_amount_dollars,
 
--- Risk by payment method
-SELECT
-    'payment_method' AS metric_type,
-    rm.payment_method_type AS dimension,
-    CAST(NULL AS VARCHAR) AS sub_dimension,
-    rm.transaction_count,
-    NULL AS total_amount_cents,
-    NULL AS total_amount_dollars,
-    ROUND(rm.high_risk_count * 100.0 / NULLIF(rm.transaction_count, 0), 2) AS transaction_pct,
-    ROUND(rm.avg_fraud_score, 4) AS avg_fraud_score,
-    NULL AS successful_count,
-    rm.high_risk_count AS failed_count,
-    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS snapshot_at
-FROM risk_by_method rm
+    -- Risk category counts
+    high_risk_count,
+    medium_risk_count,
+    low_risk_count,
 
-UNION ALL
+    -- Risk category percentages
+    ROUND(high_risk_count * 100.0 / NULLIF(total_transactions, 0), 2) AS high_risk_pct,
+    ROUND(medium_risk_count * 100.0 / NULLIF(total_transactions, 0), 2) AS medium_risk_pct,
+    ROUND(low_risk_count * 100.0 / NULLIF(total_transactions, 0), 2) AS low_risk_pct,
 
--- Overall summary row
-SELECT
-    'overall' AS metric_type,
-    'all' AS dimension,
-    CAST(NULL AS VARCHAR) AS sub_dimension,
-    os.total_transactions AS transaction_count,
-    os.total_amount_cents,
-    ROUND(os.total_amount_cents / 100.0, 2) AS total_amount_dollars,
-    ROUND(os.total_high_risk * 100.0 / NULLIF(os.total_transactions, 0), 2) AS transaction_pct,
-    ROUND(os.overall_avg_fraud_score, 4) AS avg_fraud_score,
-    os.total_low_risk AS successful_count,
-    os.total_high_risk AS failed_count,
-    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS snapshot_at
-FROM overall_stats os
+    -- Risk amounts
+    high_risk_amount_cents,
+    ROUND(high_risk_amount_cents / 100.0, 2) AS high_risk_amount_dollars,
+    medium_risk_amount_cents,
+    ROUND(medium_risk_amount_cents / 100.0, 2) AS medium_risk_amount_dollars,
+    low_risk_amount_cents,
+    ROUND(low_risk_amount_cents / 100.0, 2) AS low_risk_amount_dollars,
+
+    -- Fraud score metrics
+    ROUND(COALESCE(avg_fraud_score, 0), 4) AS avg_fraud_score,
+    ROUND(COALESCE(min_fraud_score, 0), 4) AS min_fraud_score,
+    ROUND(COALESCE(max_fraud_score, 0), 4) AS max_fraud_score,
+
+    -- Churn score metrics
+    ROUND(COALESCE(avg_churn_score, 0), 4) AS avg_churn_score,
+    ROUND(COALESCE(min_churn_score, 0), 4) AS min_churn_score,
+    ROUND(COALESCE(max_churn_score, 0), 4) AS max_churn_score,
+
+    -- Provider risk breakdown
+    stripe_high_risk,
+    square_high_risk,
+    adyen_high_risk,
+    braintree_high_risk,
+
+    -- Payment method risk breakdown
+    card_high_risk,
+    bank_high_risk,
+
+    -- Audit
+    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_updated_at
+
+FROM interval_metrics
+ORDER BY interval_start

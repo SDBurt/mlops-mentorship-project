@@ -1,140 +1,132 @@
 -- ============================================================================
--- Analytics Model: Payment Summary KPIs
+-- Analytics Model: Payment Summary KPIs (15-minute intervals)
 -- ============================================================================
--- Purpose: High-level KPIs for executive dashboards
--- Materialization: Table (refreshed on schedule)
+-- Purpose: High-level KPIs over time for dashboards
+-- Materialization: Incremental (15-minute buckets)
 -- ============================================================================
 
 {{
   config(
-    materialized='table',
+    materialized='incremental',
+    unique_key='interval_key',
+    incremental_strategy='merge',
     format='PARQUET',
-    tags=['analytics', 'payments', 'kpis']
+    tags=['analytics', 'payments', 'kpis', 'intervals']
   )
 }}
 
-WITH payment_facts AS (
-    SELECT * FROM {{ ref('fct_payments') }}
+WITH payment_events AS (
+    SELECT * FROM {{ ref('stg_payment_events') }}
+    {% if is_incremental() %}
+    -- Lookback 30 minutes to catch late-arriving events for recent intervals
+    WHERE ingested_at > (SELECT MAX(interval_end) - INTERVAL '30' MINUTE FROM {{ this }})
+    {% endif %}
 ),
 
-daily_facts AS (
-    SELECT * FROM {{ ref('fct_daily_payments') }}
-),
-
--- Overall metrics
-overall_metrics AS (
+-- Create 15-minute interval buckets with KPIs
+interval_metrics AS (
     SELECT
+        -- Time bucketing
+        DATE_TRUNC('hour', ingested_at) +
+            INTERVAL '15' MINUTE * FLOOR(EXTRACT(MINUTE FROM ingested_at) / 15) AS interval_start,
+        DATE_TRUNC('hour', ingested_at) +
+            INTERVAL '15' MINUTE * (FLOOR(EXTRACT(MINUTE FROM ingested_at) / 15) + 1) AS interval_end,
+        CAST(ingested_at AS DATE) AS event_date,
+        EXTRACT(HOUR FROM ingested_at) AS event_hour,
+
+        -- Transaction counts
         COUNT(*) AS total_transactions,
-        SUM(is_successful) AS successful_transactions,
-        SUM(is_failed) AS failed_transactions,
-        SUM(is_refund) AS refunds,
-        SUM(is_dispute) AS disputes,
+        COUNT(CASE WHEN status = 'succeeded' THEN 1 END) AS successful_transactions,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END) AS failed_transactions,
+        COUNT(CASE WHEN event_category = 'refund' THEN 1 END) AS refunds,
+        COUNT(CASE WHEN event_category = 'dispute' THEN 1 END) AS disputes,
 
-        SUM(CASE WHEN is_successful = 1 THEN amount_cents ELSE 0 END) AS total_revenue_cents,
-        SUM(CASE WHEN is_refund = 1 THEN amount_cents ELSE 0 END) AS total_refunds_cents,
+        -- Revenue metrics
+        SUM(CASE WHEN status = 'succeeded' THEN amount_cents ELSE 0 END) AS total_revenue_cents,
+        SUM(CASE WHEN event_category = 'refund' THEN amount_cents ELSE 0 END) AS total_refunds_cents,
+        AVG(CASE WHEN status = 'succeeded' THEN amount_cents ELSE NULL END) AS avg_transaction_cents,
 
-        AVG(CASE WHEN is_successful = 1 THEN amount_cents ELSE NULL END) AS avg_transaction_cents,
-
-        -- Success rate
-        CAST(SUM(is_successful) AS DOUBLE) / NULLIF(COUNT(*), 0) * 100 AS success_rate,
-        CAST(SUM(is_failed) AS DOUBLE) / NULLIF(COUNT(*), 0) * 100 AS failure_rate,
-        CAST(SUM(is_refund) AS DOUBLE) / NULLIF(COUNT(*), 0) * 100 AS refund_rate,
+        -- Rate calculations
+        CAST(COUNT(CASE WHEN status = 'succeeded' THEN 1 END) AS DOUBLE) / NULLIF(COUNT(*), 0) AS success_rate,
+        CAST(COUNT(CASE WHEN status = 'failed' THEN 1 END) AS DOUBLE) / NULLIF(COUNT(*), 0) AS failure_rate,
+        CAST(COUNT(CASE WHEN event_category = 'refund' THEN 1 END) AS DOUBLE) / NULLIF(COUNT(*), 0) AS refund_rate,
 
         -- Risk metrics
         AVG(fraud_score) AS avg_fraud_score,
-        COUNT(CASE WHEN fraud_risk_category = 'high' THEN 1 END) AS high_risk_transactions,
+        COUNT(CASE WHEN risk_level = 'high' THEN 1 END) AS high_risk_transactions,
 
-        -- Customer metrics
+        -- Entity metrics
         COUNT(DISTINCT customer_id) AS unique_customers,
         COUNT(DISTINCT merchant_id) AS unique_merchants,
 
-        -- Time boundaries
-        MIN(event_date) AS first_transaction_date,
-        MAX(event_date) AS last_transaction_date
+        -- Provider counts
+        COUNT(CASE WHEN provider = 'stripe' THEN 1 END) AS stripe_transactions,
+        COUNT(CASE WHEN provider = 'square' THEN 1 END) AS square_transactions,
+        COUNT(CASE WHEN provider = 'adyen' THEN 1 END) AS adyen_transactions,
+        COUNT(CASE WHEN provider = 'braintree' THEN 1 END) AS braintree_transactions
 
-    FROM payment_facts
-),
-
--- Period comparisons (last 7 days vs prior 7 days)
-recent_metrics AS (
-    SELECT
-        SUM(total_transactions) AS last_7d_transactions,
-        SUM(total_revenue_cents) AS last_7d_revenue_cents,
-        AVG(failure_rate) AS last_7d_failure_rate
-    FROM daily_facts
-    WHERE date_key >= CURRENT_DATE - INTERVAL '7' DAY
-),
-
-prior_metrics AS (
-    SELECT
-        SUM(total_transactions) AS prior_7d_transactions,
-        SUM(total_revenue_cents) AS prior_7d_revenue_cents,
-        AVG(failure_rate) AS prior_7d_failure_rate
-    FROM daily_facts
-    WHERE date_key >= CURRENT_DATE - INTERVAL '14' DAY
-      AND date_key < CURRENT_DATE - INTERVAL '7' DAY
+    FROM payment_events
+    WHERE ingested_at IS NOT NULL
+    GROUP BY 1, 2, 3, 4
 )
 
 SELECT
-    -- Snapshot timestamp
-    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS snapshot_at,
+    -- Unique key for merge
+    {{ dbt_utils.generate_surrogate_key(['interval_start']) }} AS interval_key,
 
-    -- Overall KPIs
-    o.total_transactions,
-    o.successful_transactions,
-    o.failed_transactions,
-    o.refunds,
-    o.disputes,
+    -- Time dimensions
+    interval_start,
+    interval_end,
+    event_date,
+    event_hour,
+    CONCAT(
+        CAST(event_date AS VARCHAR), ' ',
+        LPAD(CAST(event_hour AS VARCHAR), 2, '0'), ':',
+        LPAD(CAST(EXTRACT(MINUTE FROM interval_start) AS VARCHAR), 2, '0')
+    ) AS interval_label,
 
-    o.total_revenue_cents,
-    ROUND(o.total_revenue_cents / 100.0, 2) AS total_revenue_dollars,
-    o.total_refunds_cents,
-    ROUND(o.total_refunds_cents / 100.0, 2) AS total_refunds_dollars,
-    o.total_revenue_cents - o.total_refunds_cents AS net_revenue_cents,
-    ROUND((o.total_revenue_cents - o.total_refunds_cents) / 100.0, 2) AS net_revenue_dollars,
+    -- Transaction KPIs
+    total_transactions,
+    successful_transactions,
+    failed_transactions,
+    refunds,
+    disputes,
 
-    o.avg_transaction_cents,
-    ROUND(o.avg_transaction_cents / 100.0, 2) AS avg_transaction_dollars,
+    -- Revenue KPIs
+    total_revenue_cents,
+    ROUND(total_revenue_cents / 100.0, 2) AS total_revenue_dollars,
+    total_refunds_cents,
+    ROUND(total_refunds_cents / 100.0, 2) AS total_refunds_dollars,
+    total_revenue_cents - total_refunds_cents AS net_revenue_cents,
+    ROUND((total_revenue_cents - total_refunds_cents) / 100.0, 2) AS net_revenue_dollars,
 
-    -- Rates
-    ROUND(o.success_rate, 2) AS success_rate_pct,
-    ROUND(o.failure_rate, 2) AS failure_rate_pct,
-    ROUND(o.refund_rate, 2) AS refund_rate_pct,
+    -- Average transaction
+    ROUND(COALESCE(avg_transaction_cents, 0) / 100.0, 2) AS avg_transaction_dollars,
 
-    -- Risk
-    ROUND(o.avg_fraud_score, 4) AS avg_fraud_score,
-    o.high_risk_transactions,
+    -- Rate KPIs (as percentages)
+    ROUND(COALESCE(success_rate, 0) * 100, 2) AS success_rate_pct,
+    ROUND(COALESCE(failure_rate, 0) * 100, 2) AS failure_rate_pct,
+    ROUND(COALESCE(refund_rate, 0) * 100, 2) AS refund_rate_pct,
 
-    -- Entity counts
-    o.unique_customers,
-    o.unique_merchants,
+    -- Risk KPIs
+    ROUND(COALESCE(avg_fraud_score, 0), 4) AS avg_fraud_score,
+    high_risk_transactions,
 
-    -- Time range
-    o.first_transaction_date,
-    o.last_transaction_date,
+    -- Entity KPIs
+    unique_customers,
+    unique_merchants,
 
-    -- Period over period
-    r.last_7d_transactions,
-    r.last_7d_revenue_cents,
-    ROUND(r.last_7d_revenue_cents / 100.0, 2) AS last_7d_revenue_dollars,
+    -- Provider distribution
+    stripe_transactions,
+    square_transactions,
+    adyen_transactions,
+    braintree_transactions,
 
-    p.prior_7d_transactions,
-    p.prior_7d_revenue_cents,
-    ROUND(p.prior_7d_revenue_cents / 100.0, 2) AS prior_7d_revenue_dollars,
+    -- Throughput
+    ROUND(total_transactions / 15.0, 2) AS transactions_per_minute,
 
-    -- Growth rates
-    CASE
-        WHEN p.prior_7d_transactions > 0
-        THEN ROUND((r.last_7d_transactions - p.prior_7d_transactions) * 100.0 / p.prior_7d_transactions, 2)
-        ELSE NULL
-    END AS transaction_growth_pct,
+    -- Audit
+    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6) WITH TIME ZONE) AS dw_updated_at
 
-    CASE
-        WHEN p.prior_7d_revenue_cents > 0
-        THEN ROUND((r.last_7d_revenue_cents - p.prior_7d_revenue_cents) * 100.0 / p.prior_7d_revenue_cents, 2)
-        ELSE NULL
-    END AS revenue_growth_pct
-
-FROM overall_metrics o
-CROSS JOIN recent_metrics r
-CROSS JOIN prior_metrics p
+FROM interval_metrics
+ORDER BY interval_start
