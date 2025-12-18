@@ -116,7 +116,7 @@ help:
 # GRANULAR STARTUP COMMANDS
 ##################################################
 
-# Start ALL services (streaming + analytics)
+# Start ALL services (streaming + analytics + mlops + simulators)
 all-up:
 	@echo "=========================================="
 	@echo "   Starting ALL Services"
@@ -125,9 +125,11 @@ all-up:
 	@echo "This starts the complete stack:"
 	@echo "  - Streaming: Kafka, Gateway, Normalizer, Temporal, Orchestrator"
 	@echo "  - Analytics: MinIO, Polaris, Trino, Dagster"
+	@echo "  - MLOps: Feast, Redis, MLflow"
+	@echo "  - Simulators: Webhook traffic generators (all providers)"
 	@echo "  - Storage: Payments DB, Dagster DB"
 	@echo ""
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator up -d --build
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator --profile mlops up -d --build
 	@echo ""
 	@echo "=========================================="
 	@echo "   All Services Started!"
@@ -141,16 +143,17 @@ all-up:
 	@echo "  Polaris API:        http://localhost:8181"
 	@echo "  Temporal UI:        http://localhost:8088"
 	@echo "  Inference Service:  http://localhost:8002"
+	@echo "  MLflow UI:          http://localhost:5001"
+	@echo "  Feast Server:       http://localhost:6566"
 	@echo ""
 	@echo "Next steps:"
-	@echo "  make gateway-simulator   - Start webhook traffic"
 	@echo "  make all-status          - Check all services"
 	@echo "  make docker-logs         - View all logs"
 
 # Stop ALL services
 all-down:
 	@echo "Stopping ALL services..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator down
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator --profile mlops down
 	@echo "All services stopped"
 
 # Start streaming pipeline only (Kafka + Gateway + Normalizer + Temporal + Orchestrator)

@@ -1,13 +1,19 @@
 project: payment_features
-registry: /app/data/registry.db
+
+# Registry stored in PostgreSQL for Kubernetes portability
+registry:
+  registry_type: sql
+  path: postgresql+psycopg://${FEAST_REGISTRY_DB_USER}:${FEAST_REGISTRY_DB_PASSWORD}@${FEAST_REGISTRY_DB_HOST}:5432/${FEAST_REGISTRY_DB_NAME}
+
 provider: local
 
 online_store:
   type: redis
   connection_string: ${FEAST_REDIS_HOST}:${FEAST_REDIS_PORT}
 
-# Offline store: File-based (supports S3 paths via s3fs)
+# Offline store: File-based with S3 paths
 # Feature data is exported by Dagster to MinIO s3://features/
+# Uses fsspec/s3fs under the hood for S3 access
 offline_store:
   type: file
 

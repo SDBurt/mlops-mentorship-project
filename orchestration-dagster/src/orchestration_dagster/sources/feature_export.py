@@ -1,46 +1,50 @@
 """
 Feature Export Assets for Feast Feature Store
 
-This module exports DBT-computed features to parquet files in a shared volume
+This module exports DBT-computed features to parquet files in MinIO (S3-compatible)
 that Feast can use as data sources for materialization to Redis.
 
 Flow:
-    DBT Feature Tables (Iceberg) -> Trino Query -> Parquet Export -> Shared Volume
+    DBT Feature Tables (Iceberg) -> Trino Query -> Parquet Export -> MinIO (S3)
                                                                           |
                                                                           v
                                                                     Feast Server
                                                                           |
                                                                           v
                                                                     Redis (Online Store)
+
+Note: Using S3 storage instead of shared volumes makes this Kubernetes-ready.
 """
 
-from dagster import asset, AssetExecutionContext, Config
+from dagster import asset, AssetExecutionContext, Config, AssetKey
 import pandas as pd
 import os
 
 
 class FeatureExportConfig(Config):
-    """Configuration for feature export."""
-    # Use shared volume path (mounted in both Dagster and Feast containers)
-    feature_export_path: str = os.getenv("FEATURE_EXPORT_PATH", "/app/features")
+    """Configuration for feature export to MinIO/S3."""
+    s3_bucket: str = os.getenv("FEATURE_S3_BUCKET", "features")
+    s3_endpoint: str = os.getenv("FEATURE_S3_ENDPOINT", "http://minio:9000")
 
 
 @asset(
     key_prefix=["mlops", "features"],
     group_name="feature_export",
-    description="Export customer features from DBT to parquet for Feast",
+    description="Export customer features from DBT to parquet in MinIO for Feast",
     compute_kind="python",
+    deps=[AssetKey("feat_customer_features")],
 )
 def customer_features_parquet(
     context: AssetExecutionContext,
     config: FeatureExportConfig,
 ) -> dict:
     """
-    Export customer features from DBT intermediate tables to parquet.
+    Export customer features from DBT intermediate tables to parquet in MinIO.
 
-    Queries the feat_customer_features table via Trino and writes to a shared
-    volume as a parquet file that Feast can read.
+    Queries the feat_customer_features table via Trino and writes to MinIO (S3)
+    as a parquet file that Feast can read.
     """
+    import s3fs
     from trino.dbapi import connect
 
     # Query features from Trino
@@ -100,39 +104,48 @@ def customer_features_parquet(
         context.log.warning("No customer features found")
         return {"status": "empty", "rows": 0}
 
-    # Ensure output directory exists
-    os.makedirs(config.feature_export_path, exist_ok=True)
+    # Write to MinIO/S3
+    s3_path = f"s3://{config.s3_bucket}/customer_features.parquet"
+    context.log.info(f"Writing to {s3_path} via {config.s3_endpoint}")
 
-    output_path = os.path.join(config.feature_export_path, "customer_features.parquet")
-    context.log.info(f"Writing to {output_path}")
+    # Configure S3 filesystem for MinIO
+    fs = s3fs.S3FileSystem(
+        key=os.getenv("AWS_ACCESS_KEY_ID"),
+        secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        endpoint_url=config.s3_endpoint,
+    )
 
-    df.to_parquet(output_path, index=False)
+    # Write parquet to S3
+    with fs.open(s3_path, "wb") as f:
+        df.to_parquet(f, index=False)
 
-    context.log.info(f"Exported {len(df)} customer features to {output_path}")
+    context.log.info(f"Exported {len(df)} customer features to {s3_path}")
 
     return {
         "status": "success",
         "rows": len(df),
-        "path": output_path,
+        "path": s3_path,
     }
 
 
 @asset(
     key_prefix=["mlops", "features"],
     group_name="feature_export",
-    description="Export merchant features from DBT to parquet for Feast",
+    description="Export merchant features from DBT to parquet in MinIO for Feast",
     compute_kind="python",
+    deps=[AssetKey("feat_merchant_features")],
 )
 def merchant_features_parquet(
     context: AssetExecutionContext,
     config: FeatureExportConfig,
 ) -> dict:
     """
-    Export merchant features from DBT intermediate tables to parquet.
+    Export merchant features from DBT intermediate tables to parquet in MinIO.
 
-    Queries the feat_merchant_features table via Trino and writes to a shared
-    volume as a parquet file that Feast can read.
+    Queries the feat_merchant_features table via Trino and writes to MinIO (S3)
+    as a parquet file that Feast can read.
     """
+    import s3fs
     from trino.dbapi import connect
 
     # Query features from Trino
@@ -184,18 +197,25 @@ def merchant_features_parquet(
         context.log.warning("No merchant features found")
         return {"status": "empty", "rows": 0}
 
-    # Ensure output directory exists
-    os.makedirs(config.feature_export_path, exist_ok=True)
+    # Write to MinIO/S3
+    s3_path = f"s3://{config.s3_bucket}/merchant_features.parquet"
+    context.log.info(f"Writing to {s3_path} via {config.s3_endpoint}")
 
-    output_path = os.path.join(config.feature_export_path, "merchant_features.parquet")
-    context.log.info(f"Writing to {output_path}")
+    # Configure S3 filesystem for MinIO
+    fs = s3fs.S3FileSystem(
+        key=os.getenv("AWS_ACCESS_KEY_ID"),
+        secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        endpoint_url=config.s3_endpoint,
+    )
 
-    df.to_parquet(output_path, index=False)
+    # Write parquet to S3
+    with fs.open(s3_path, "wb") as f:
+        df.to_parquet(f, index=False)
 
-    context.log.info(f"Exported {len(df)} merchant features to {output_path}")
+    context.log.info(f"Exported {len(df)} merchant features to {s3_path}")
 
     return {
         "status": "success",
         "rows": len(df),
-        "path": output_path,
+        "path": s3_path,
     }

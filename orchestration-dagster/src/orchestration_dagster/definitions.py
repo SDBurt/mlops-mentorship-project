@@ -21,6 +21,8 @@ from .resources.dbt import dbt_payment_assets, dbt_project
 
 from .sources.payment_ingestion import payment_events, payment_events_quarantine, payment_events_daily
 from .sources.feature_export import customer_features_parquet, merchant_features_parquet
+from .ml.training import fraud_detection_model, churn_prediction_model
+from .ml.data_quality import validate_customer_features, validate_merchant_features
 from .partitions import payment_daily_partitions
 
 
@@ -57,6 +59,12 @@ all_assets = [
     # Feature export assets (DBT -> MinIO Parquet -> Feast)
     customer_features_parquet,
     merchant_features_parquet,
+    # ML data quality assets
+    validate_customer_features,
+    validate_merchant_features,
+    # ML training assets (Feast + MLflow)
+    fraud_detection_model,
+    churn_prediction_model,
 ]
 
 # =============================================================================
@@ -93,6 +101,19 @@ feature_export_job = define_asset_job(
 )
 all_jobs.append(feature_export_job)
 
+# Job for ML model training (Feast + MLflow)
+ml_training_job = define_asset_job(
+    name="ml_training_job",
+    selection=AssetSelection.assets(
+        validate_customer_features,
+        validate_merchant_features,
+        fraud_detection_model,
+        churn_prediction_model
+    ),
+    description="Train ML models using Feast features and log to MLflow. Uses champion/challenger pattern - only promotes to Production if F1 score improves.",
+)
+all_jobs.append(ml_training_job)
+
 # =============================================================================
 # Schedules
 # =============================================================================
@@ -109,6 +130,13 @@ all_schedules = [
         job=payment_daily_job,
         hour_of_day=2,
         minute_of_hour=0,
+    ),
+    # Hourly ML model training with champion/challenger
+    # Models are only promoted to Production if they beat the current champion's F1 score
+    ScheduleDefinition(
+        job=ml_training_job,
+        cron_schedule="0 * * * *",  # Every hour at minute 0
+        default_status=DefaultScheduleStatus.RUNNING,  # Enabled for dev
     ),
 ]
 

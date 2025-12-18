@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     # Model settings
     model_version: str = "mock-v1"
 
+    # MLOps settings
+    feast_repo_path: str = "/app/feature_repo"
+    mlflow_tracking_uri: str = "http://mlflow-server:5000"
+    feast_redis_host: str = "feast-redis"
+    feast_redis_port: int = 6379
+
     # Simulated latency (ms)
     min_latency_ms: int = 10
     max_latency_ms: int = 100

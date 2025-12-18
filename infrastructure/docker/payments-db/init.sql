@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS payment_events (
     churn_risk_level VARCHAR(20),
     days_to_churn_estimate INTEGER,
 
+    -- Model tracking
+    fraud_model_version VARCHAR(50),
+    churn_model_version VARCHAR(50),
+
     -- Validation metadata
     validation_status VARCHAR(20) DEFAULT 'passed',
     validation_errors JSONB DEFAULT '[]'::jsonb,

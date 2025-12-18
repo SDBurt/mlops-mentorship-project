@@ -82,6 +82,7 @@ async def get_churn_prediction(event_data: dict[str, Any]) -> dict[str, Any]:
                 "churn_risk_factors": result.get("risk_factors", []),
                 "days_to_churn_estimate": result.get("days_to_churn_estimate"),
                 "churn_recommended_actions": result.get("recommended_actions", []),
+                "model_version": result.get("model_version"),
             }
 
     except httpx.TimeoutException as e:

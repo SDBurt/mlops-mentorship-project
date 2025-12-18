@@ -1,12 +1,20 @@
-"""Create sample parquet files for Feast schema validation."""
+"""Create sample parquet files for Feast schema validation on S3."""
 
 import os
 import pandas as pd
+import s3fs
 from datetime import datetime, timezone
 
-# Output path - configurable via environment variable
-output_path = os.getenv("FEATURE_DATA_PATH", "/app/features")
-os.makedirs(output_path, exist_ok=True)
+# S3 configuration
+s3_bucket = os.getenv("FEATURE_S3_BUCKET", "features")
+s3_endpoint = os.getenv("AWS_ENDPOINT_URL", "http://minio:9000")
+
+# Configure S3 filesystem for MinIO
+fs = s3fs.S3FileSystem(
+    key=os.getenv("AWS_ACCESS_KEY_ID"),
+    secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    endpoint_url=s3_endpoint,
+)
 
 # Create sample customer features
 customer_data = {
@@ -41,8 +49,10 @@ customer_data = {
 }
 
 customer_df = pd.DataFrame(customer_data)
-customer_df.to_parquet(os.path.join(output_path, "customer_features.parquet"), index=False)
-print(f"Created {output_path}/customer_features.parquet")
+customer_path = f"s3://{s3_bucket}/customer_features.parquet"
+with fs.open(customer_path, "wb") as f:
+    customer_df.to_parquet(f, index=False)
+print(f"Created {customer_path}")
 
 # Create sample merchant features
 merchant_data = {
@@ -66,7 +76,9 @@ merchant_data = {
 }
 
 merchant_df = pd.DataFrame(merchant_data)
-merchant_df.to_parquet(os.path.join(output_path, "merchant_features.parquet"), index=False)
-print(f"Created {output_path}/merchant_features.parquet")
+merchant_path = f"s3://{s3_bucket}/merchant_features.parquet"
+with fs.open(merchant_path, "wb") as f:
+    merchant_df.to_parquet(f, index=False)
+print(f"Created {merchant_path}")
 
-print("Sample data created successfully!")
+print("Sample data created successfully on S3!")

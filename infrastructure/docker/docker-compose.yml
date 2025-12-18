@@ -36,7 +36,7 @@ services:
   #####################################
 
   polaris:
-    image: apache/polaris:latest
+    image: apache/polaris:1.1.0-incubating
     platform: linux/amd64
     ports:
       - "8181:8181"
@@ -69,7 +69,7 @@ services:
       - local-iceberg-lakehouse
 
   polaris-init:
-    image: alpine:latest
+    image: alpine:3.21
     container_name: polaris-init
     depends_on:
       polaris:
@@ -99,7 +99,7 @@ services:
     restart: "no"
 
   trino:
-    image: trinodb/trino:latest
+    image: trinodb/trino:478
     ports:
       - "8080:8080"
     env_file:
@@ -121,7 +121,7 @@ services:
       - local-iceberg-lakehouse
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     env_file:
       - .env
     environment:
@@ -143,7 +143,7 @@ services:
           - warehouse.minio
 
   minio-client:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2025-05-21T01-59-54Z
     depends_on:
       - minio
     env_file:
@@ -220,11 +220,11 @@ services:
       PAYMENTS_DB_NAME: ${PAYMENTS_DB_NAME:-payments}
       # DBT project path for transformations
       DBT_PROJECT_DIR: /app/dbt
-      # Feature export path for Feast integration
-      FEATURE_EXPORT_PATH: /app/features
+      # Feature export to MinIO (S3-compatible) for Feast
+      FEATURE_S3_BUCKET: features
+      FEATURE_S3_ENDPOINT: http://minio:9000
     volumes:
       - ../../orchestration-dbt/dbt:/app/dbt
-      - feast-feature-data:/app/features
     expose:
       - "3030"
     healthcheck:
@@ -889,7 +889,7 @@ services:
 
   # Initialize features bucket in MinIO for Feast
   feast-init:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2025-05-21T01-59-54Z
     container_name: feast-init
     depends_on:
       minio:
@@ -928,6 +928,26 @@ services:
     profiles:
       - mlops
 
+  # PostgreSQL for Feast registry (separate from MLflow)
+  feast-db:
+    image: postgres:14
+    container_name: feast-db
+    environment:
+      POSTGRES_USER: ${FEAST_DB_USER:-feast}
+      POSTGRES_PASSWORD: ${FEAST_DB_PASSWORD:-feast}
+      POSTGRES_DB: ${FEAST_DB_NAME:-feast_registry}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FEAST_DB_USER:-feast} -d ${FEAST_DB_NAME:-feast_registry}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - feast-db-data:/var/lib/postgresql/data
+    networks:
+      - local-iceberg-lakehouse
+    profiles:
+      - mlops
+
   # Feast feature server
   feast-server:
     build:
@@ -939,17 +959,26 @@ services:
     env_file:
       - .env
     environment:
+      # Redis online store
       FEAST_REDIS_HOST: feast-redis
       FEAST_REDIS_PORT: 6379
-      FEAST_USE_S3: "false"  # Use shared volume instead of S3
-    volumes:
-      - feast-registry:/app/data
-      - feast-feature-data:/app/features
+      # PostgreSQL registry
+      FEAST_REGISTRY_DB_HOST: feast-db
+      FEAST_REGISTRY_DB_USER: ${FEAST_DB_USER:-feast}
+      FEAST_REGISTRY_DB_PASSWORD: ${FEAST_DB_PASSWORD:-feast}
+      FEAST_REGISTRY_DB_NAME: ${FEAST_DB_NAME:-feast_registry}
+      # S3/MinIO for feature data
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_ENDPOINT_URL: http://minio:9000
+      FEATURE_S3_BUCKET: features
     depends_on:
       feast-redis:
         condition: service_healthy
-      minio:
-        condition: service_started
+      feast-db:
+        condition: service_healthy
+      feast-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6566/health"]
       interval: 30s
@@ -1029,7 +1058,7 @@ services:
 
   # MLflow artifact bucket initialization
   mlflow-init:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2025-05-21T01-59-54Z
     container_name: mlflow-init
     depends_on:
       minio:
@@ -1060,8 +1089,7 @@ volumes:
   minio-data:
   polaris-data:
   feast-redis-data:
-  feast-registry:
-  feast-feature-data:  # Shared volume for feature parquet files
+  feast-db-data:  # PostgreSQL for Feast registry
   mlflow-db-data:
 
 networks:

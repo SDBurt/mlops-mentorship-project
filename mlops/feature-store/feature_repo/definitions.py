@@ -29,22 +29,32 @@ merchant = Entity(
 # =============================================================================
 # DATA SOURCES
 # =============================================================================
-# Feature data is exported by Dagster feature_export_job to a shared volume
-# mounted at /app/features in both Dagster and Feast containers
+# Feature data is exported by Dagster feature_export_job to MinIO (S3-compatible)
+# Feast uses s3fs/fsspec to read parquet files from S3
+#
+# S3 credentials are configured via environment variables:
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL
 
-# Feature data path (shared volume between Dagster and Feast)
-_feature_path = os.getenv("FEATURE_DATA_PATH", "/app/features")
+# Feature data path on MinIO
+_feature_bucket = os.getenv("FEATURE_S3_BUCKET", "features")
+_s3_endpoint = os.getenv("AWS_ENDPOINT_URL", "http://minio:9000")
+
+# S3 paths for feature data
+_customer_features_path = f"s3://{_feature_bucket}/customer_features.parquet"
+_merchant_features_path = f"s3://{_feature_bucket}/merchant_features.parquet"
 
 customer_features_source = FileSource(
     name="customer_features_source",
-    path=f"{_feature_path}/customer_features.parquet",
+    path=_customer_features_path,
     timestamp_field="feature_timestamp",
+    s3_endpoint_override=_s3_endpoint,
 )
 
 merchant_features_source = FileSource(
     name="merchant_features_source",
-    path=f"{_feature_path}/merchant_features.parquet",
+    path=_merchant_features_path,
     timestamp_field="feature_timestamp",
+    s3_endpoint_override=_s3_endpoint,
 )
 
 # =============================================================================

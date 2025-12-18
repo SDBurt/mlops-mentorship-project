@@ -120,6 +120,7 @@ class PaymentEventWorkflow:
                 event_data["fraud_score"] = self._fraud_score
                 event_data["risk_level"] = self._risk_level
                 event_data["risk_factors"] = fraud_result.get("risk_factors", [])
+                event_data["fraud_model_version"] = fraud_result.get("model_version")
             except Exception as e:
                 workflow.logger.warning(f"Fraud scoring failed for {event_id}: {e}")
                 # Continue without fraud score - it's not critical
@@ -172,6 +173,7 @@ class PaymentEventWorkflow:
             event_data["churn_score"] = self._churn_score
             event_data["churn_risk_level"] = self._churn_risk_level
             event_data["days_to_churn_estimate"] = churn_result.get("days_to_churn_estimate")
+            event_data["churn_model_version"] = churn_result.get("model_version")
         except Exception as e:
             workflow.logger.warning(f"Churn prediction failed for {event_id}: {e}")
             # Continue without churn prediction - it's not critical

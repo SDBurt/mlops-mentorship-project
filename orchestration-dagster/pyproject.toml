@@ -15,6 +15,9 @@ dependencies = [
     "sqlalchemy>=2.0.18",  # Required by PyIceberg (2.0.18+)
     "trino>=0.330.0",  # Trino Python client for querying Trino
     "s3fs>=2024.2.0",  # S3-compatible filesystem for MinIO feature export
+    # MLOps dependencies
+    "mlflow==2.17.0",  # Experiment tracking and model registry (pinned to match server)
+    "scikit-learn>=1.4.0",  # ML algorithms for training
 ]
 
 [dependency-groups]

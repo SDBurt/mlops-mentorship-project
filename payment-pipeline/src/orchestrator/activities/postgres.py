@@ -44,6 +44,12 @@ async def persist_to_postgres(event_data: dict[str, Any]) -> dict[str, Any]:
         ingested_at = datetime.now(timezone.utc)
 
         # Build record
+        metadata = event_data.get("metadata", {})
+        if event_data.get("fraud_model_version"):
+            metadata["fraud_model_version"] = event_data.get("fraud_model_version")
+        if event_data.get("churn_model_version"):
+            metadata["churn_model_version"] = event_data.get("churn_model_version")
+
         record = {
             "event_id": event_data.get("event_id"),
             "provider": event_data.get("provider"),
@@ -71,7 +77,7 @@ async def persist_to_postgres(event_data: dict[str, Any]) -> dict[str, Any]:
             "provider_created_at": provider_created_at,
             "processed_at": processed_at,
             "ingested_at": ingested_at,
-            "metadata": json.dumps(event_data.get("metadata", {})),
+            "metadata": json.dumps(metadata),
             "schema_version": event_data.get("schema_version", 1),
         }
 
