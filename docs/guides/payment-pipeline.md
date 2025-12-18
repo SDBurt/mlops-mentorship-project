@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document outlines the design and implementation of a webhook-driven payment processing pipeline demonstrating upstream validation, real-time streaming, and distributed workflow orchestration. The system ingests simulated payment webhooks, validates and normalizes them through a streaming layer, and orchestrates per-event workflows with ML integration before persisting to PostgreSQL. A separate Dagster batch layer ingests from PostgreSQL into the Iceberg lakehouse.
+This document outlines the design and implementation of a webhook-driven payment processing pipeline demonstrating upstream validation, real-time streaming, and distributed workflow orchestration. The system ingests simulated payment webhooks, validates and normalizes them through a streaming layer, and orchestrates per-event workflows with live ML integration via **Feast** and **MLflow** before persisting to PostgreSQL. A separate Dagster MLOps layer handles feature engineering, data quality validation, and model retraining.
 
 ---
 
@@ -19,8 +19,8 @@ This document outlines the design and implementation of a webhook-driven payment
 | Phase 1 | Gateway (Stripe webhook ingestion) | Complete |
 | Phase 2 | Normalizer (Python aiokafka validation) | Complete |
 | Phase 3 | Orchestrator (Temporal workflows) | Complete |
-| Phase 4 | Inference Service (ML mock endpoints) | Complete |
-| Phase 5 | Analytics Layer (Dagster + DBT) | Not Started |
+| Phase 4 | MLOps (Feast Features + MLflow Models) | Complete |
+| Phase 5 | Analytics Layer (Dagster + DBT + Superset) | Complete |
 | Phase 6 | Documentation & Polish | In Progress |
 
 ---
@@ -57,94 +57,36 @@ This document outlines the design and implementation of a webhook-driven payment
 | System 1 | **Gateway** | FastAPI + aiokafka | Webhook reception, signature verification, Kafka production |
 | System 2 | **Normalizer** | Python + aiokafka | Content validation, schema normalization, DLQ routing |
 | System 3 | **Orchestrator** | Temporal + Kafka Consumer | Per-event workflow execution, ML integration, PostgreSQL persistence |
-| Support | **Inference** | FastAPI | Mock ML service for fraud, retry, churn, and recovery |
-| Support | **Analytics** | Dagster + DBT | Batch transformations, Silver/Gold layer management (future) |
+| MLOps | **Inference** | FastAPI + Feast + MLflow | Real-time enrichment and serving for fraud, churn, and recovery |
+| MLOps | **Feature Store** | Feast + Redis | Millisecond-latency feature retrieval for online models |
+| MLOps | **Retraining** | Dagster + MLflow | Automated training pipelines with data quality checks |
+| Analytics | **BI** | DBT + Trino + Superset | Star schema modeling and executive dashboards |
 
 ---
 
-## Project Structure (Implemented)
+## Project Structure
 
 ```
-payment-pipeline/
+.
+├── payment-pipeline/           # Streaming payment processing
+│   ├── src/
+│   │   ├── payment_gateway/    # System 1: Gateway (FastAPI)
+│   │   ├── normalizer/         # System 2: Normalizer (aiokafka)
+│   │   └── orchestrator/       # System 3: Orchestrator (Temporal)
+│   ├── inference_service/      # Live ML inference (Feast + MLflow)
+│   └── tests/                  # Unit & integration tests
 │
-├── README.md
-├── CLAUDE.md                         # Claude Code guidance
-├── pyproject.toml                    # Shared dependencies (uv)
-├── uv.lock
+├── mlops/                      # MLOps Infrastructure
+│   ├── feature-store/          # Feast repository and server
+│   ├── training/               # Model training scripts
+│   └── serving/                # Model serving configuration
 │
-├── src/
-│   ├── payment_gateway/              # System 1: Gateway
-│   │   ├── main.py                   # FastAPI application
-│   │   ├── config.py                 # Pydantic settings
-│   │   ├── core/
-│   │   │   ├── base_models.py        # Shared Pydantic models
-│   │   │   ├── exceptions.py         # Custom exceptions
-│   │   │   └── kafka_producer.py     # Async Kafka producer
-│   │   └── providers/
-│   │       └── stripe/
-│   │           ├── models.py         # Stripe webhook Pydantic models
-│   │           ├── validator.py      # HMAC-SHA256 signature verification
-│   │           └── router.py         # /webhooks/stripe endpoint
-│   │
-│   ├── normalizer/                   # System 2: Normalizer
-│   │   ├── main.py                   # Async Kafka consumer loop
-│   │   ├── config.py                 # Pydantic settings (NORMALIZER_ prefix)
-│   │   ├── validators/
-│   │   │   ├── base.py               # ValidationError, ValidationResult
-│   │   │   ├── currency.py           # ISO 4217 validation (20 currencies)
-│   │   │   ├── nulls.py              # Null string normalization
-│   │   │   └── amount.py             # Amount bounds (0 to $1M)
-│   │   ├── transformers/
-│   │   │   ├── base.py               # UnifiedPaymentEvent schema
-│   │   │   └── stripe.py             # StripeTransformer
-│   │   └── handlers/
-│   │       └── stripe.py             # StripeHandler, ProcessingResult
-│   │
-│   └── orchestrator/                 # System 3: Orchestrator
-│       ├── main.py                   # Entrypoint (consumer + worker)
-│       ├── config.py                 # Pydantic settings (ORCHESTRATOR_ prefix)
-│       ├── consumer.py               # Kafka → Temporal bridge
-│       ├── models/
-│       │   └── inference.py          # Inference request/response models
-│       ├── workflows/
-│       │   ├── payment_event.py      # PaymentEventWorkflow
-│       │   └── dlq_review.py         # DLQReviewWorkflow
-│       └── activities/
-│           ├── validation.py         # Business rule validation
-│           ├── fraud.py              # Call inference /fraud/score
-│           ├── retry_strategy.py     # Call inference /retry/strategy
-│           ├── churn.py              # Call inference /churn/predict
-│           └── postgres.py           # Persist to PostgreSQL
-│
-├── inference_service/                # Support: Mock ML Service
-│   ├── main.py                       # FastAPI application
-│   ├── config.py                     # Pydantic settings (INFERENCE_ prefix)
-│   └── routes/
-│       ├── fraud.py                  # POST /fraud/score
-│       ├── retry.py                  # POST /retry/strategy
-│       ├── churn.py                  # POST /churn/predict
-│       └── recovery.py               # POST /recovery/recommend
-│
-├── simulator/                        # Webhook generator CLI
-│   ├── main.py                       # Click CLI (send, generate commands)
-│   └── stripe_generator.py           # Mock Stripe webhook payloads
-│
-├── tests/
-│   ├── unit/
-│   │   ├── test_stripe_models.py
-│   │   ├── test_stripe_validator.py
-│   │   ├── test_normalizer_validators.py
-│   │   ├── test_normalizer_transformers.py
-│   │   ├── test_normalizer_handlers.py
-│   │   ├── test_orchestrator_activities.py
-│   │   ├── test_orchestrator_workflows.py
-│   │   └── test_inference_service.py
-│   └── integration/
-│
-├── Dockerfile                        # Gateway image
-├── Dockerfile.normalizer             # Normalizer image
-├── Dockerfile.orchestrator           # Orchestrator image
-└── Dockerfile.inference              # Inference service image
+├── orchestration-dagster/      # Pipeline orchestration & ML training
+├── orchestration-dbt/          # SQL transformations (Medallion)
+├── infrastructure/
+│   ├── kubernetes/             # Helm values, K8s manifests
+│   └── docker/                 # Docker Compose for local dev
+└── docs/                       # Architecture & guides
 ```
 
 ---
@@ -291,20 +233,22 @@ Temporal provides durable execution - workflows survive service restarts. The wo
 
 ### Inference Service
 
-The Inference service is a mock ML service that simulates predictions. It returns deterministic results based on input features for reproducibility.
+The Inference service is a production-grade ML serving layer that integrates with **Feast** for real-time feature retrieval and **MLflow** for model lifecycle management.
 
 **Endpoints:**
 
 | Endpoint | Purpose | Key Features |
 |----------|---------|--------------|
-| `POST /fraud/score` | Fraud probability scoring | Amount thresholds, guest checkout, card brand risk |
-| `POST /retry/strategy` | Retry timing recommendations | Failure code analysis, exponential backoff |
-| `POST /churn/predict` | Customer churn prediction | Payment history, consecutive failures |
-| `POST /recovery/recommend` | Failed payment recovery | Multi-step plans, backup payment methods |
+| `POST /fraud/score` | Fraud probability scoring | Real-time Feast features, MLflow Production model |
+| `POST /retry/strategy` | Retry timing recommendations | Failure code analysis, historical recovery rates |
+| `POST /churn/predict` | Customer churn prediction | Behavioral features from Feast, dynamic risk factors |
+| `POST /recovery/recommend` | Failed payment recovery | Multi-step plans based on customer lifetime value |
 
-**Mock Logic:**
+**ML Integration:**
 
-Fraud score is computed based on amount, customer history flags, and card type. Retry strategy considers failure codes and previous attempt count. Churn prediction analyzes payment patterns. Recovery recommends optimal actions based on failure type and customer value.
+- **Feast**: Fetches latest customer and merchant metrics (e.g., `total_payments_30d`, `fraud_score_avg`) with millisecond latency from the Redis online store.
+- **MLflow**: Automatically loads the latest model versions tagged as "Production" for each endpoint, ensuring seamless deployments.
+- **Fallback**: Includes robust fallback logic to mock predictors if MLOps infrastructure is unavailable.
 
 ---
 
@@ -349,27 +293,25 @@ Fraud score is computed based on amount, customer history flags, and card type. 
 
 ---
 
-### Phase 4: Inference Service (Complete)
+### Phase 4: MLOps Integration (Complete)
 
 **Implemented:**
-- FastAPI application with 4 ML endpoints
-- Fraud scoring based on event features
-- Retry strategy recommendations
-- Churn prediction (added based on Butter Payments focus)
-- Payment recovery planning (added for involuntary churn reduction)
-- Deterministic mock logic for testing
+- **Feast** online store (Redis) for real-time feature retrieval
+- **MLflow** Model Registry for governing "Production" model versions
+- Automated feature export from Lakehouse to Feast
+- FastAPI integration with Feast SDK and MLflow client
+- Sub-100ms inference latency with live feature enrichment
 
 ---
 
-### Phase 5: Analytics Layer (Not Started)
+### Phase 5: Analytics & Governance (Complete)
 
-**Planned:**
-- Dagster integration with Iceberg resources
-- DBT models for Silver/Gold transformations
-- Data quality tests
-- Quarantine rate monitoring
-
-**Note:** Analytics layer exists in parent repository (`orchestration-dagster/`, `transformations/dbt/`).
+**Implemented:**
+- **Dagster** orchestration for batch ingestion (Postgres -> Iceberg)
+- **DBT** Medallion architecture (Bronze -> Silver -> Gold)
+- **Data Quality** validation assets for ML feature monitoring
+- **Superset** dashboards for payment performance and model drift
+- **Champion/Challenger** logic for automated model promotion
 
 ---
 
@@ -429,11 +371,11 @@ uv run pytest tests/unit/ -v
 
 ## Future Enhancements
 
-1. **Additional Payment Providers**: Square, PayPal, Adyen
-2. **Real ML Models**: Replace mock inference with trained models
-3. **Schema Registry**: Avro schemas with Confluent Schema Registry
-4. **Monitoring**: Prometheus metrics, Grafana dashboards
-5. **Kubernetes Deployment**: Helm charts for production deployment
+1. **Additional Payment Providers**: Square, PayPal, Adyen (Normalizers & Gateways)
+2. **Streaming Features**: Real-time feature aggregation via Kafka Streams or Flink
+3. **Schema Registry**: Avro/Protobuf schemas with Confluent Schema Registry
+4. **Advanced Monitoring**: Prometheus/Grafana for service health and model observability
+5. **Kubernetes Autoscaling**: HPA based on Kafka consumer lag and Inference RPS
 
 ---
 
@@ -444,9 +386,13 @@ uv run pytest tests/unit/ -v
 | Python | 3.11+ | All services |
 | Apache Kafka | 3.6+ | Via Docker Compose |
 | Temporal | 1.22+ | Via Docker Compose |
-| PostgreSQL | 15+ | Orchestrator persistence (Dagster ingests to Iceberg) |
-| FastAPI | 0.109+ | Gateway, Inference |
-| aiokafka | 0.10+ | Gateway, Normalizer, Orchestrator |
-| psycopg | 3.1+ | Orchestrator PostgreSQL driver |
+| Feast | 0.36+ | Feature store with Redis online provider |
+| MLflow | 2.19+ | Model registry and experiment tracking |
+| Apache Iceberg | 1.5+ | Data lakehouse format |
+| Apache Polaris | 0.1+ | Iceberg REST catalog |
+| Trino | 440+ | Distributed SQL query engine |
+| DBT | 1.7+ | SQL transformations |
+| Apache Superset | 3.1+ | BI and data visualization |
+| FastAPI | 0.115+ | Gateway, Inference services |
 | Pydantic | 2.5+ | All services |
 | temporalio | 1.5+ | Orchestrator |

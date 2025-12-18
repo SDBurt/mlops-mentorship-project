@@ -8,8 +8,10 @@ By the end of this guide, you'll have:
 - A running Kubernetes-based data lakehouse platform
 - MinIO S3 storage with Iceberg tables
 - Apache Polaris REST catalog with RBAC
-- Dagster for data orchestration
+- Dagster for data orchestration and ML training
 - Trino for distributed SQL queries
+- **Feast** feature store for real-time ML features
+- **MLflow** for model tracking and registration
 - All services configured and ready to use
 
 ## Prerequisites
@@ -451,10 +453,13 @@ make port-forward-start
 ```
 
 **Services Available**:
-- **Dagster UI**: http://localhost:3000 (data orchestration)
+- **Dagster UI**: http://localhost:3000 (data orchestration & ML training)
+- **MLflow UI**: http://localhost:5001 (model registry)
+- **Feast API**: http://localhost:6566 (feature store)
 - **Trino UI**: http://localhost:8080 (SQL queries)
 - **MinIO Console**: http://localhost:9001 (S3 storage, login: admin/YOUR_MINIO_PASSWORD_HERE)
 - **Polaris REST API**: http://localhost:8181 (catalog API)
+- **Superset**: http://localhost:8089 (dashboards)
 
 **Check port-forward status**:
 ```bash

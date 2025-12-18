@@ -30,6 +30,12 @@ This document provides visual representations of the payment pipeline system arc
 - [Dagster Asset Lineage](#dagster-asset-lineage)
 - [Connection Configuration Summary](#connection-configuration-summary)
 
+### MLOps Platform
+- [MLOps Data Loop](#mlops-data-loop)
+- [Feature Store Architecture](#feature-store-architecture)
+- [Model Training Pipeline](#model-training-pipeline)
+- [Champion/Challenger Promotion](#champion-challenger-promotion)
+
 ---
 
 ## System Overview
@@ -71,13 +77,17 @@ flowchart TB
     subgraph Orchestration["Orchestration Layer"]
         Temporal[Temporal Server]
         Orchestrator[Payment Orchestrator]
-        Inference[Inference Service<br/>Fraud/Churn/Retry]
+        subgraph MLOps["MLOps Platform"]
+            Inference[Inference Service<br/>FastAPI]
+            Feast[(Feast Online Store<br/>Redis)]
+            MLflow[(MLflow Registry<br/>PostgreSQL)]
+        end
     end
 
     subgraph Storage["Storage Layer"]
         PostgreSQL[(PostgreSQL<br/>Bronze Events)]
         subgraph Lakehouse["Data Lakehouse"]
-            Dagster[Dagster]
+            Dagster[Dagster<br/>ETL + Training]
             Iceberg[(Apache Iceberg)]
             Trino[Trino]
         end
@@ -91,9 +101,13 @@ flowchart TB
     Kafka --> Orchestrator
     Orchestrator <--> Temporal
     Orchestrator --> Inference
+    Inference --> Feast
+    Inference --> MLflow
     Orchestrator --> PostgreSQL
     PostgreSQL --> Dagster
     Dagster --> Iceberg
+    Dagster --> MLflow
+    Dagster --> Feast
     Iceberg --> Trino
 ```
 
@@ -141,9 +155,10 @@ flowchart LR
 
     subgraph Enrichment["ML Enrichment"]
         INF[Inference Service]
+        FST[(Feast Store)]
+        REG[(MLflow Registry)]
         FS[Fraud Score]
         CS[Churn Score]
-        RS[Retry Strategy]
     end
 
     subgraph Persistence["Persistence"]
@@ -159,9 +174,11 @@ flowchart LR
     NT --> ORC
     DLQ2 --> ORC
     ORC --> INF
-    INF --> FS
-    INF --> CS
-    INF --> RS
+    INF --> FST
+    INF --> REG
+    FST --> FS
+    FST --> CS
+    REG --> INF
     ORC --> PG
 ```
 
@@ -340,8 +357,9 @@ flowchart TB
 
     subgraph Inference["Inference Service"]
         FS["POST /fraud/score"]
-        RS["POST /retry/strategy"]
         CS["POST /churn/predict"]
+        FST["Feast Online"]
+        REG["MLflow Production"]
     end
 
     subgraph Storage["PostgreSQL"]
@@ -357,9 +375,12 @@ flowchart TB
     V --> F
     F --> FS
     V --> R
-    R --> RS
     V --> C
     C --> CS
+    FS <--> FST
+    FS <--> REG
+    CS <--> FST
+    CS <--> REG
     F --> P
     R --> P
     C --> P
@@ -456,6 +477,14 @@ flowchart TB
         ORC[orchestrator]
     end
 
+    subgraph MLOps["Profile: mlops"]
+        Feast[feast-server]
+        Redis[feast-redis]
+        MLflow[mlflow-server]
+        MF_DB[mlflow-db]
+        F_DB[feast-db]
+    end
+
     subgraph Superset["Profile: superset"]
         SS_DB[superset-db]
         SS_R[superset-redis]
@@ -469,7 +498,9 @@ flowchart TB
     Gateway --> Normalizer
     Normalizer --> Orchestrator
     Orchestrator --> Dagster
-    Dagster --> Trino
+    Orchestrator --> MLOps
+    Dagster --> Iceberg
+    Dagster --> MLOps
     Trino --> Superset
 ```
 
@@ -492,6 +523,8 @@ flowchart TB
             P9092[":9092 - Kafka"]
             P3000[":3000 - Dagster"]
             P8181[":8181 - Polaris"]
+            P5001[":5001 - MLflow UI"]
+            P6566[":6566 - Feast API"]
         end
 
         subgraph Internal["Internal Services"]
@@ -502,6 +535,9 @@ flowchart TB
             TM[temporal:7233]
             INF[inference-service:8002]
             PDB[payments-db:5432]
+            MF[mlflow-server:5000]
+            FS[feast-server:6566]
+            FR[feast-redis:6379]
         end
     end
 
@@ -513,6 +549,8 @@ flowchart TB
     KB --> ORC
     ORC --> TM
     ORC --> INF
+    INF --> FS & MF
+    FS --> FR
     ORC --> PDB
 ```
 
@@ -996,3 +1034,110 @@ flowchart TB
 | Dagster | `http://polaris:8181/api/catalog` | `http://minio:9000` | OAuth2 client credentials |
 | Trino | `http://polaris:8181/api/catalog/` | `http://minio:9000` | OAuth2 client credentials |
 | DBT | N/A (via Trino) | N/A (via Trino) | None (Trino handles) |
+
+## MLOps Data Loop
+
+End-to-end integration from feature engineering to real-time serving.
+
+```mermaid
+flowchart LR
+    subgraph Offline["Offline (Batch)"]
+        IT[Iceberg Tables]
+        DAG[Dagster]
+        DQ[Data Quality]
+        TRAIN[Training]
+        REG[MLflow Registry]
+    end
+
+    subgraph Online["Online (Real-time)"]
+        FST[Feast Store]
+        INF[Inference Service]
+        ORC[Orchestrator]
+    end
+
+    IT --> DAG
+    DAG --> DQ
+    DQ -->|success| TRAIN
+    TRAIN --> REG
+    DAG -->|export| FST
+    REG -->|load Production| INF
+    FST -->|get features| INF
+    ORC -->|request| INF
+    INF -->|prediction| ORC
+```
+
+---
+
+## Feature Store Architecture
+
+Feast integration with the Lakehouse and Redis.
+
+```mermaid
+flowchart TB
+    subgraph Sources["Source Data"]
+        IT[Iceberg Feature Tables]
+    end
+
+    subgraph Feast["Feast Feature Store"]
+        REPO[Feature Repo]
+        REG[(PostgreSQL Registry)]
+        OFF[Offline Store<br/>S3/Parquet]
+        ON[Online Store<br/>Redis]
+    end
+
+    subgraph Consumers["Serving Clients"]
+        INF[Inference Service]
+    end
+
+    IT -->|Dagster Sync| OFF
+    REPO -->|feast apply| REG
+    OFF -->|feast materialize| ON
+    ON -->|millisecond lookup| INF
+    REG -->|schema info| INF
+```
+
+---
+
+## Model Training Pipeline
+
+Dagster orchestration of the ML lifecycle.
+
+```mermaid
+flowchart TB
+    subgraph Data["Data Preparation"]
+        FEAT[DBT Feature Models]
+        VAL[validate_features asset]
+    end
+
+    subgraph ML["Training & Tracking"]
+        MF[ml_training_job]
+        EXP[MLflow Experiments]
+        MOD[MLflow Models]
+    end
+
+    subgraph Serve["Production Serving"]
+        INF[Inference Service]
+    end
+
+    FEAT --> VAL
+    VAL --> MF
+    MF -->|log params/metrics| EXP
+    MF -->|register version| MOD
+    MOD -->|promote to Production| INF
+```
+
+---
+
+## Champion/Challenger Promotion
+
+Automated governance logic for model deployment.
+
+```mermaid
+flowchart TB
+    Start([New Model Trained]) --> GetChamp[Get Production Model F1]
+    GetChamp --> Compare{New F1 > Champ F1?}
+    Compare -->|Yes| Promote[Promote to Production]
+    Compare -->|No| Keep[Keep in Staging]
+    Promote --> Archive[Archive Old Champion]
+    Keep --> Notify[Notify Data Scientist]
+```
