@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Feast with S3 and PostgreSQL registry support
 RUN pip install --no-cache-dir \
-    feast[redis,postgres]==0.40.1 \
+    feast[redis,postgres]>=0.41.0 \
     pandas \
     pyarrow \
     s3fs \
