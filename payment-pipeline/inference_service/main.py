@@ -27,11 +27,11 @@ feature_store: FeatureStore = None
 async def lifespan(app: FastAPI):
     """Lifespan context manager for loading models and feature store."""
     global feature_store
-    
+
     # Initialize MLflow
     logger.info(f"Setting MLflow tracking URI to: {settings.mlflow_tracking_uri}")
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
-    
+
     # Load models
     model_names = ["fraud-detection", "churn-prediction"]
     for name in model_names:
@@ -44,19 +44,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to load model {name}: {e}. Falling back to mock logic.")
             models[name] = None
-            
+
     # Initialize Feast FeatureStore
     try:
-        # In Docker environment, FEAST_REPO_PATH should point to the directory 
+        # In Docker environment, FEAST_REPO_PATH should point to the directory
         # containing feature_store.yaml
         feature_store = FeatureStore(repo_path=settings.feast_repo_path)
         logger.info(f"Feast FeatureStore initialized from {settings.feast_repo_path}")
     except Exception as e:
         logger.error(f"Failed to initialize Feast FeatureStore: {e}")
         feature_store = None
-        
+
     yield
-    
+
     # Cleanup
     models.clear()
     if feature_store:

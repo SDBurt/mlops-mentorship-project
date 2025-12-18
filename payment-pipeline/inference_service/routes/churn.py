@@ -99,7 +99,7 @@ def get_risk_level(probability: float) -> str:
 async def predict_churn(request: ChurnPredictionRequest) -> ChurnPredictionResponse:
     """
     Predict churn probability for a customer.
-    
+
     Tries to use Feast for real-time features and MLflow for the model.
     Falls back to mock logic if MLOps components are unavailable.
     """
@@ -146,7 +146,7 @@ async def predict_churn(request: ChurnPredictionRequest) -> ChurnPredictionRespo
             # 3. Predict using MLflow model
             churn_probability = float(model.predict_proba(X)[0, 1])
             model_version = "v1-feast"
-            
+
             # Add dynamic risk factors based on features
             if X["consecutive_failures"].iloc[0] >= 2:
                 risk_factors.append("multiple_consecutive_failures")

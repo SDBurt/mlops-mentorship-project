@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from ..config import settings
-# We'll import these inside the route to avoid circular imports 
+# We'll import these inside the route to avoid circular imports
 # or use a dependency injection pattern if this were larger
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ def get_risk_level(score: float) -> str:
 async def get_fraud_score(request: FraudScoreRequest) -> FraudScoreResponse:
     """
     Get fraud score for a payment event.
-    
+
     Tries to use Feast for real-time features and MLflow for the model.
     Falls back to mock logic if MLOps components are unavailable.
     """
