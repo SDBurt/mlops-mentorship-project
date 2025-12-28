@@ -50,14 +50,14 @@ computeLogManager:
   #     useSsl: false
   #     # Access keys will be provided via envSecrets
 
-# User Code Deployments - orchestration-dagster with Iceberg integration
+# User Code Deployments - dagster-user-code with Iceberg integration
 dagster-user-deployments:
   enabled: true
   enableSubchart: true
   deployments:
-    - name: "orchestration-dagster"
+    - name: "dagster-user-code"
       image:
-        repository: "orchestration-dagster"
+        repository: "dagster-user-code"
         tag: "latest"
         pullPolicy: IfNotPresent
       port: 3030
