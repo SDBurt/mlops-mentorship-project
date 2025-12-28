@@ -1,0 +1,76 @@
+# Traefik Dynamic Configuration
+# Path-based routing to provider-specific gateways
+
+http:
+  routers:
+    # Stripe webhooks
+    stripe-router:
+      rule: "PathPrefix(`/webhooks/stripe`)"
+      service: stripe-gateway
+      entryPoints:
+        - web
+
+    # Square webhooks
+    square-router:
+      rule: "PathPrefix(`/webhooks/square`)"
+      service: square-gateway
+      entryPoints:
+        - web
+
+    # Adyen webhooks
+    adyen-router:
+      rule: "PathPrefix(`/webhooks/adyen`)"
+      service: adyen-gateway
+      entryPoints:
+        - web
+
+    # Braintree webhooks
+    braintree-router:
+      rule: "PathPrefix(`/webhooks/braintree`)"
+      service: braintree-gateway
+      entryPoints:
+        - web
+
+    # Health check aggregator (routes to any healthy gateway)
+    health-router:
+      rule: "Path(`/health`)"
+      service: stripe-gateway
+      entryPoints:
+        - web
+
+  services:
+    stripe-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://stripe-gateway:8000"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
+
+    square-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://square-gateway:8000"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
+
+    adyen-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://adyen-gateway:8000"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
+
+    braintree-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://braintree-gateway:8000"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
