@@ -37,12 +37,12 @@ This is a **mentorship learning project** focused on building an end-to-end MLOp
 **Data Flow:**
 ```
 Payment Pipeline (Primary):
-Stripe Webhook --> Gateway (FastAPI) --> Kafka --> Normalizer (Python) --> Kafka
+Stripe Webhook --> Gateway (FastAPI) --> Kafka --> Transformer (Python) --> Kafka
                         |                              |
                      [DLQ]                          [DLQ]
                                                        |
                                                        v
-                                          Temporal Orchestrator
+                                            Temporal Worker
                                                        |
                       +--------------------------------+
                       |                                |
@@ -96,9 +96,9 @@ make port-forward-stop   # Stop all port-forwards
 make port-forward-status # Show active port-forwards
 
 # Payment Pipeline (Docker Compose)
-make pipeline-up         # Start full pipeline (Kafka + Gateway + Normalizer + Temporal)
+make pipeline-up         # Start full pipeline (Kafka + Gateway + Transformer + Temporal)
 make pipeline-down       # Stop full pipeline
-make orchestrator-up     # Start orchestrator with Temporal
+make temporal-worker-up  # Start Temporal worker with dependencies
 make gateway-simulator   # Start webhook simulator
 
 # MLOps (Feast + MLflow)
@@ -124,7 +124,7 @@ make status                   # Check deployment
 ### Dagster Development
 
 ```bash
-cd orchestration-dagster
+cd services/dagster
 
 # Install dependencies
 uv sync
@@ -146,7 +146,7 @@ dagster asset materialize -m orchestration_dagster.definitions -a payment_events
 ### DBT Transformations
 
 ```bash
-cd orchestration-dbt/dbt
+cd dbt
 
 dbt parse                        # Validate syntax
 dbt compile                      # Generate SQL
@@ -160,17 +160,27 @@ dbt docs generate && dbt docs serve  # Generate documentation
 ### Testing
 
 ```bash
-# orchestration-dagster tests
-cd orchestration-dagster
+# Dagster tests
+cd services/dagster
 uv run pytest
 
-# payment-pipeline tests
-cd payment-pipeline
-uv run pytest tests/unit/ -v                    # All unit tests
-uv run pytest tests/unit/test_gateway.py -v     # Specific test file
-uv run pytest -k "fraud" -v                     # Tests matching pattern
+# Gateway tests
+cd services/gateway
+uv run pytest tests/ -v
 
-# Linting (payment-pipeline)
+# Transformer tests
+cd services/transformer
+uv run pytest tests/ -v
+
+# Temporal worker tests
+cd services/temporal
+uv run pytest tests/ -v
+
+# Inference service tests
+cd services/inference
+uv run pytest tests/ -v
+
+# Linting (any service)
 uv run ruff check .
 uv run ruff format .
 ```
@@ -194,8 +204,8 @@ SELECT * FROM lakehouse.data.dim_customer LIMIT 10;
 
 The payment pipeline is the primary data source:
 - **Gateway**: Webhook ingestion with signature verification
-- **Normalizer**: Validation and schema normalization
-- **Orchestrator**: Temporal workflows with ML inference enrichment
+- **Transformer**: Validation and schema normalization
+- **Temporal Worker**: Temporal workflows with ML inference enrichment
 - **PostgreSQL Bronze Layer**: Enriched events with fraud_score, churn_score, retry_strategy
 
 ### Dagster-DBT Integration
@@ -223,10 +233,40 @@ DBT models are orchestrated as Dagster assets using `dagster-dbt`:
 
 ## File Structure
 
-### orchestration-dagster Structure
+### Project Structure
 
 ```
-orchestration-dagster/
+mlops-mentorship-project/
+├── contracts/                  # Shared schemas package
+│   ├── pyproject.toml
+│   └── schemas/
+│       ├── payment_event.py    # UnifiedPaymentEvent
+│       ├── inference.py        # Fraud/Retry models
+│       ├── dlq.py              # DLQPayload
+│       └── iceberg.py          # PyArrow schemas
+├── services/                   # Microservices
+│   ├── gateway/                # Webhook ingestion (FastAPI)
+│   ├── transformer/            # Event validation & normalization
+│   ├── temporal/               # Temporal workflow worker
+│   ├── inference/              # ML inference service
+│   ├── dagster/                # Batch orchestration
+│   └── feast/                  # Feature store
+├── tools/
+│   └── simulator/              # Webhook simulator
+├── dbt/                        # DBT transformations
+├── infrastructure/
+│   └── docker/
+│       ├── docker-compose.yml
+│       └── traefik/
+├── Makefile
+├── CLAUDE.md
+└── README.md
+```
+
+### Dagster Structure
+
+```
+services/dagster/
 ├── src/orchestration_dagster/
 │   ├── definitions.py          # Asset/job/resource/schedule definitions
 │   ├── resources/
@@ -244,7 +284,7 @@ orchestration-dagster/
 ### DBT Project Structure
 
 ```
-orchestration-dbt/dbt/
+dbt/
 ├── dbt_project.yml             # Project config: lakehouse_analytics
 ├── profiles.yml                # Trino connection
 ├── macros/
@@ -270,15 +310,15 @@ orchestration-dbt/dbt/
 
 **Components:**
 - **Gateway** (FastAPI): Webhook receiver with HMAC-SHA256 signature verification
-- **Normalizer** (Python + aiokafka): ISO 4217 validation, null normalization, unified schema
-- **Orchestrator** (Temporal): Durable workflow execution with per-activity retry policies
+- **Transformer** (Python + aiokafka): ISO 4217 validation, null normalization, unified schema
+- **Temporal Worker** (Temporal): Durable workflow execution with per-activity retry policies
 
 **Kafka Topics:**
 - Input: `webhooks.stripe.payment_intent`, `webhooks.stripe.charge`, `webhooks.stripe.refund`
 - Output: `payments.normalized`
 - DLQ: `payments.validation.dlq`
 
-See `payment-pipeline/CLAUDE.md` for detailed payment pipeline guidance.
+See `docs/guides/payment-pipeline.md` for detailed payment pipeline guidance.
 
 ### Dagster PostgreSQL Ingestion
 
@@ -319,7 +359,7 @@ def payment_events(context, postgres_resource: PostgresResource) -> pd.DataFrame
 - Kubernetes infrastructure, MinIO, Dagster, Trino, Polaris
 
 **Phase 2 (Analytics):** Complete
-- Payment pipeline (Gateway + Normalizer + Temporal Orchestrator)
+- Payment pipeline (Gateway + Transformer + Temporal Worker)
 - Dagster PostgreSQL ingestion to Iceberg
 - dagster-dbt integration
 - DBT star schema (dim_customer, dim_merchant, fct_payments)
@@ -370,7 +410,7 @@ curl http://localhost:8181/api/catalog/v1/config
 
 ```bash
 # Check Trino connection
-cd orchestration-dbt/dbt
+cd dbt
 dbt debug
 
 # Run specific model with verbose output
@@ -379,12 +419,12 @@ dbt run --select fct_payments --full-refresh
 
 ## References
 
-**Payment Pipeline:**
-- [payment-pipeline/CLAUDE.md](payment-pipeline/CLAUDE.md) - Payment pipeline specific guidance
-- [payment-pipeline/README.md](payment-pipeline/README.md) - Gateway, Normalizer, Orchestrator docs
-
-**Dagster Integration:**
-- [orchestration-dagster/README.md](orchestration-dagster/README.md)
+**Services:**
+- [services/gateway/](services/gateway/) - Webhook ingestion gateway
+- [services/transformer/](services/transformer/) - Event validation & normalization
+- [services/temporal/](services/temporal/) - Temporal workflow worker
+- [services/inference/](services/inference/) - ML inference service
+- [services/dagster/README.md](services/dagster/README.md) - Dagster orchestration
 
 **Architecture:**
 - [infrastructure/README.md](infrastructure/README.md) - Component docs

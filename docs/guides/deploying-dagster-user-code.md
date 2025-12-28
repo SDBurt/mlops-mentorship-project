@@ -1,6 +1,6 @@
 # Deploying Dagster User Code
 
-This guide covers building and deploying the Dagster user code (orchestration-dagster) to Kubernetes using Docker.
+This guide covers building and deploying the Dagster user code (services/dagster) to Kubernetes using Docker.
 
 ## Overview
 
@@ -87,11 +87,11 @@ stringData:
 
 ### Step 2: Build Docker Image
 
-Navigate to the orchestration-dagster directory and build:
+Navigate to the services/dagster directory and build:
 
 ```bash
-cd orchestration-dagster
-docker build -t orchestration-dagster:latest .
+cd services/dagster
+docker build -t dagster-user-code:latest .
 ```
 
 **Note**: The Dockerfile uses `python:3.10-slim` base image and installs dependencies from `pyproject.toml`.
@@ -101,14 +101,14 @@ docker build -t orchestration-dagster:latest .
 For production, you may want to tag with a version:
 
 ```bash
-docker build -t orchestration-dagster:v1.0.0 .
-docker build -t orchestration-dagster:latest .
+docker build -t dagster-user-code:v1.0.0 .
+docker build -t dagster-user-code:latest .
 ```
 
 For a specific registry:
 
 ```bash
-docker build -t my-registry.io/orchestration-dagster:latest .
+docker build -t my-registry.io/dagster-user-code:latest .
 ```
 
 ### Step 3: Apply ConfigMap
@@ -149,17 +149,17 @@ Restart the Dagster user code deployment to pick up changes:
 
 ```bash
 # Restart the deployment
-kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestration-dagster -n lakehouse
+kubectl rollout restart deployment/dagster-dagster-user-deployments-dagster-user-code -n lakehouse
 
 # Wait for rollout to complete
-kubectl rollout status deployment/dagster-dagster-user-deployments-orchestration-dagster -n lakehouse --timeout=120s
+kubectl rollout status deployment/dagster-dagster-user-deployments-dagster-user-code -n lakehouse --timeout=120s
 ```
 
 **Alternative**: If the deployment doesn't exist yet, scale it up:
 
 ```bash
 # Scale up the deployment
-kubectl scale deployment/dagster-dagster-user-deployments-orchestration-dagster \
+kubectl scale deployment/dagster-dagster-user-deployments-dagster-user-code \
   --replicas=1 -n lakehouse
 
 # Wait for pod to be ready
@@ -177,14 +177,14 @@ make deploy-dagster-code
 ```
 
 **What it does:**
-1. Builds Docker image: `cd orchestration-dagster && docker build -t orchestration-dagster:latest .`
+1. Builds Docker image: `cd services/dagster && docker build -t dagster-user-code:latest .`
 2. Applies ConfigMap: `kubectl apply -f infrastructure/kubernetes/dagster/user-code-env-configmap.yaml`
 3. Checks and applies secrets: Validates `user-code-secrets.yaml` exists, then applies it
 4. Restarts deployment: Restarts and waits for rollout
 
 **Expected Output:**
 ```
-Rebuilding and deploying orchestration-dagster user code...
+Rebuilding and deploying Dagster user code...
 
 Step 1/4: Building Docker image...
 ✓ Docker image built
@@ -248,13 +248,13 @@ When you make changes to your orchestration code:
 ### 1. Rebuild Docker Image
 
 ```bash
-cd orchestration-dagster
-docker build -t orchestration-dagster:latest .
+cd services/dagster
+docker build -t dagster-user-code:latest .
 ```
 
 **Tip**: Use version tags for production:
 ```bash
-docker build -t orchestration-dagster:v1.1.0 .
+docker build -t dagster-user-code:v1.1.0 .
 ```
 
 ### 2. Redeploy
@@ -265,8 +265,8 @@ make deploy-dagster-code
 
 Or manually:
 ```bash
-kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestration-dagster -n lakehouse
-kubectl rollout status deployment/dagster-dagster-user-deployments-orchestration-dagster -n lakehouse
+kubectl rollout restart deployment/dagster-dagster-user-deployments-dagster-user-code -n lakehouse
+kubectl rollout status deployment/dagster-dagster-user-deployments-dagster-user-code -n lakehouse
 ```
 
 ### 3. Verify Changes
@@ -290,7 +290,7 @@ kubectl apply -f infrastructure/kubernetes/dagster/user-code-secrets.yaml
 ### 3. Restart Deployment
 
 ```bash
-kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestration-dagster -n lakehouse
+kubectl rollout restart deployment/dagster-dagster-user-deployments-dagster-user-code -n lakehouse
 ```
 
 **Note**: Secrets are mounted as environment variables, so pods need to restart to pick up changes.
@@ -312,7 +312,7 @@ kubectl apply -f infrastructure/kubernetes/dagster/user-code-env-configmap.yaml
 ### 3. Restart Deployment
 
 ```bash
-kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestration-dagster -n lakehouse
+kubectl rollout restart deployment/dagster-dagster-user-deployments-dagster-user-code -n lakehouse
 ```
 
 ## Troubleshooting
@@ -324,12 +324,12 @@ kubectl rollout restart deployment/dagster-dagster-user-deployments-orchestratio
 **Solution**:
 ```bash
 # Verify pyproject.toml is correct
-cd orchestration-dagster
+cd services/dagster
 cat pyproject.toml
 
 # Test build locally
-docker build -t orchestration-dagster:test .
-docker run --rm orchestration-dagster:test dagster --version
+docker build -t dagster-user-code:test .
+docker run --rm dagster-user-code:test dagster --version
 ```
 
 ### Secrets File Not Found
@@ -378,7 +378,7 @@ kubectl logs <pod-name> -n lakehouse | grep "code-server"
 kubectl logs <pod-name> -n lakehouse | grep -i error
 
 # Verify deployment is using correct image
-kubectl get deployment dagster-dagster-user-deployments-orchestration-dagster \
+kubectl get deployment dagster-dagster-user-deployments-dagster-user-code \
   -n lakehouse -o jsonpath='{.spec.template.spec.containers[0].image}'
 
 # Restart Dagster webserver (sometimes needed)
