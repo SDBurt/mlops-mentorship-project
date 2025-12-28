@@ -12,18 +12,16 @@ from dagster import (
     define_asset_job,
     ScheduleDefinition,
     DefaultScheduleStatus,
-    build_schedule_from_partitioned_job,
 )
 
 from .resources.iceberg import create_iceberg_io_manager
 from .resources.postgres import PostgresResource
 from .resources.dbt import dbt_payment_assets, dbt_project
 
-from .sources.payment_ingestion import payment_events, payment_events_quarantine, payment_events_daily
+from .sources.payment_ingestion import payment_events, payment_events_quarantine
 from .sources.feature_export import customer_features_parquet, merchant_features_parquet
 from .ml.training import fraud_detection_model, churn_prediction_model
 from .ml.data_quality import validate_customer_features, validate_merchant_features
-from .partitions import payment_daily_partitions
 
 
 # =============================================================================
@@ -38,14 +36,6 @@ payment_ingestion_job = define_asset_job(
     description="Ingest payment events from PostgreSQL bronze layer to Iceberg",
 )
 
-# Job for daily batch processing of payment events
-payment_daily_job = define_asset_job(
-    name="payment_daily_job",
-    selection=AssetSelection.assets(payment_events_daily),
-    partitions_def=payment_daily_partitions,
-    description="Daily batch processing of payment events by date partition",
-)
-
 # =============================================================================
 # Assets
 # =============================================================================
@@ -54,8 +44,6 @@ all_assets = [
     # Payment ingestion assets (PostgreSQL -> Iceberg)
     payment_events,
     payment_events_quarantine,
-    # Daily partitioned asset for batch processing
-    payment_events_daily,
     # Feature export assets (DBT -> MinIO Parquet -> Feast)
     customer_features_parquet,
     merchant_features_parquet,
@@ -72,10 +60,11 @@ all_assets = [
 # =============================================================================
 
 all_resources = {
-    # Iceberg IO Manager for persisting DataFrames to Iceberg tables
+    # Iceberg IO Manager for persisting PyArrow Tables to Iceberg tables
+    # Uses PyArrow backend for explicit schema control and Iceberg v2 compatibility
     "iceberg_io_manager": create_iceberg_io_manager(
         namespace="data",
-        backend="pandas"
+        backend="pyarrow"
     ),
 
     # PostgreSQL resource for reading payment events from bronze layer
@@ -90,7 +79,6 @@ all_resources = {
 
 all_jobs = [
     payment_ingestion_job,
-    payment_daily_job,  # Daily batch processing
 ]
 
 # Job for feature export (DBT -> MinIO Parquet for Feast)
@@ -124,12 +112,6 @@ all_schedules = [
         job=payment_ingestion_job,
         cron_schedule="*/15 * * * *",  # Every 15 minutes
         default_status=DefaultScheduleStatus.STOPPED,  # Enable when ready
-    ),
-    # Daily batch processing - runs at 2 AM UTC, processes previous day's partition
-    build_schedule_from_partitioned_job(
-        job=payment_daily_job,
-        hour_of_day=2,
-        minute_of_hour=0,
     ),
     # Hourly ML model training with champion/challenger
     # Models are only promoted to Production if they beat the current champion's F1 score

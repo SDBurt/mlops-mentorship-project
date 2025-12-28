@@ -1,8 +1,9 @@
 # Payment Pipeline Platform - Makefile
 # Docker Compose automation for payment processing and analytics
 
-.PHONY: help docker-up docker-down docker-build docker-restart docker-status docker-logs docker-polaris-init \
-	all-up all-down all-status streaming-up streaming-down streaming-status analytics-up analytics-down analytics-status \
+.PHONY: help guide docker-up docker-down docker-build docker-restart docker-status docker-logs docker-polaris-init \
+	all-up all-down all-status streaming-up streaming-down streaming-status \
+	datalake-up datalake-down analytics-up analytics-down analytics-status ml-up ml-down dagster-refresh \
 	pipeline-up pipeline-down pipeline-status pipeline-logs \
 	gateway-up gateway-down gateway-logs gateway-simulator simulator-stop simulator-logs gateway-build gateway-test gateway-status gateway-test-send \
 	normalizer-up normalizer-down normalizer-logs normalizer-build normalizer-status normalizer-counts \
@@ -19,104 +20,185 @@ PAYMENT_PIPELINE_DIR := payment-pipeline
 help:
 	@echo "Payment Pipeline Platform - Available Commands"
 	@echo ""
-	@echo "Quick Start:"
-	@echo "  make analytics-up           - Start batch analytics (Dagster, Trino, Polaris, MinIO)"
-	@echo "  make streaming-up           - Start streaming pipeline (Kafka, Gateway, Normalizer, Temporal)"
-	@echo "  make all-up                 - Start everything (streaming + analytics)"
+	@echo "3 Independent Stacks:"
 	@echo ""
-	@echo "Granular Startup (Choose What You Need):"
-	@echo "  make all-up                 - Start ALL services (streaming + analytics)"
-	@echo "  make all-down               - Stop ALL services"
-	@echo "  make all-status             - Show status of all services"
-	@echo "  make streaming-up           - Start streaming only (Kafka, Gateway, Normalizer, Temporal)"
-	@echo "  make streaming-down         - Stop streaming services"
-	@echo "  make streaming-status       - Show streaming service status"
-	@echo "  make analytics-up           - Start batch analytics only (Dagster, Trino, Polaris, MinIO)"
-	@echo "  make analytics-down         - Stop analytics services"
-	@echo "  make analytics-status       - Show analytics service status"
+	@echo "  A) STREAMING - Real-time payment pipeline (self-contained)"
+	@echo "     make streaming-up        - Start Kafka, Gateways, Normalizers, Temporal, Orchestrator"
+	@echo "     make streaming-down      - Stop streaming services"
+	@echo "     make streaming-status    - Show streaming service status"
 	@echo ""
-	@echo "Docker Compose:"
-	@echo "  make docker-up              - Start full stack (same as all-up)"
-	@echo "  make docker-down            - Stop and remove all containers"
+	@echo "  B) DATALAKE - Batch analytics (MinIO, Polaris, Trino, Dagster)"
+	@echo "     make datalake-up         - Start full lakehouse stack"
+	@echo "     make datalake-down       - Stop datalake services"
+	@echo "     make analytics-status    - Show datalake service status"
+	@echo "     make dagster-refresh     - Rebuild Dagster user code after changes"
+	@echo ""
+	@echo "  C) ML - Feature store and experiment tracking (auto-starts Datalake)"
+	@echo "     make ml-up               - Start Feast, MLflow (+ Datalake)"
+	@echo "     make ml-down             - Stop ML services"
+	@echo ""
+	@echo "  ALL - Start everything"
+	@echo "     make all-up              - Start all services"
+	@echo "     make all-down            - Stop all services"
+	@echo "     make all-status          - Show status of all services"
+	@echo ""
+	@echo "Add-ons:"
+	@echo "  make superset-up            - Start Superset BI (requires datalake)"
+	@echo "  make superset-down          - Stop Superset"
+	@echo "  make gateway-simulator      - Start webhook traffic generator"
+	@echo "  make simulator-stop         - Stop webhook simulator"
+	@echo ""
+	@echo "Utilities:"
 	@echo "  make docker-build           - Build/rebuild all images"
-	@echo "  make docker-restart         - Restart all services"
 	@echo "  make docker-status          - Show running containers"
 	@echo "  make docker-logs            - View logs from all containers"
-	@echo "  make docker-polaris-init    - Manually initialize Polaris catalog"
+	@echo "  make normalizer-counts      - Show Kafka message counts"
 	@echo ""
-	@echo "Payment Pipeline (Full Stack):"
-	@echo "  make pipeline-up            - Start full pipeline (Kafka + Gateway + Normalizer + Temporal)"
-	@echo "  make pipeline-down          - Stop full pipeline"
-	@echo "  make pipeline-status        - Show all pipeline component status"
-	@echo "  make pipeline-logs          - View all pipeline logs"
+	@echo "Run 'make guide' for step-by-step workflows and examples."
 	@echo ""
-	@echo "Payment Gateway (Webhook Receiver):"
-	@echo "  make gateway-up             - Start payment gateway with Kafka"
-	@echo "  make gateway-down           - Stop payment gateway"
-	@echo "  make gateway-logs           - View payment gateway logs"
-	@echo "  make gateway-simulator      - Start webhook simulator (continuous traffic)"
-	@echo "  make simulator-stop         - Stop webhook simulator"
-	@echo "  make simulator-logs         - View simulator logs"
-	@echo "  make gateway-build          - Build payment gateway Docker image"
-	@echo "  make gateway-test           - Run payment gateway unit tests"
-	@echo "  make gateway-status         - Show payment gateway status"
-	@echo "  make gateway-test-send      - Send a single test webhook"
+
+# Step-by-step workflows and examples
+guide:
+	@echo "=========================================="
+	@echo "   Workflows and Examples"
+	@echo "=========================================="
 	@echo ""
-	@echo "Normalizer (Kafka Consumer):"
-	@echo "  make normalizer-up          - Start normalizer with gateway"
-	@echo "  make normalizer-down        - Stop normalizer"
-	@echo "  make normalizer-logs        - View normalizer logs"
-	@echo "  make normalizer-build       - Build normalizer Docker image"
-	@echo "  make normalizer-status      - Show normalizer status"
-	@echo "  make normalizer-counts      - Show message counts per topic"
+	@echo "Datalake Only (Batch Analytics):"
+	@echo "---------------------------------"
+	@echo "  1. make datalake-up                  # Start MinIO, Polaris, Trino, Dagster"
+	@echo "  2. Open Dagster: http://localhost:3000"
+	@echo "  3. Materialize payment_events asset  # Batch ingest to Iceberg"
+	@echo "  4. Run DBT transformations           # Build star schema"
+	@echo "  5. Query via Trino: http://localhost:8080"
 	@echo ""
-	@echo "Orchestrator (Temporal Workflows):"
-	@echo "  make orchestrator-up        - Start orchestrator with all dependencies"
-	@echo "  make orchestrator-down      - Stop orchestrator and Temporal"
-	@echo "  make orchestrator-logs      - View orchestrator logs"
-	@echo "  make orchestrator-build     - Build orchestrator Docker image"
-	@echo "  make orchestrator-status    - Show orchestrator status"
-	@echo "  make temporal-logs          - View Temporal server logs"
-	@echo "  make inference-logs         - View inference service logs"
-	@echo "  make inference-build        - Build inference service Docker image"
+	@echo "Streaming Only (Real-time Processing):"
+	@echo "---------------------------------------"
+	@echo "  1. make streaming-up                 # Start Kafka, Gateway, Temporal"
+	@echo "  2. make gateway-simulator            # Generate webhook traffic"
+	@echo "  3. Open Temporal: http://localhost:8088"
+	@echo "  4. make streaming-status             # Check streaming components"
 	@echo ""
-	@echo "Apache Superset (BI Dashboard):"
-	@echo "  make superset-up            - Start Superset with Trino connection"
-	@echo "  make superset-down          - Stop Superset services"
-	@echo "  make superset-logs          - View Superset logs"
-	@echo "  make superset-status        - Show Superset service status"
+	@echo "Full Pipeline (Streaming + Datalake):"
+	@echo "--------------------------------------"
+	@echo "  1. make all-up                       # Start everything"
+	@echo "  2. make gateway-simulator            # Generate webhook traffic"
+	@echo "  3. make all-status                   # Check all components"
+	@echo "  4. make docker-logs                  # View all logs"
 	@echo ""
-	@echo "MLOps (Feast + MLflow):"
-	@echo "  make mlops-up               - Start MLOps stack (Feast, MLflow, Redis)"
-	@echo "  make mlops-down             - Stop MLOps services"
-	@echo "  make mlops-logs             - View MLOps service logs"
-	@echo "  make mlops-status           - Show MLOps service status"
-	@echo "  make mlops-build            - Build MLOps Docker images"
-	@echo "  make feast-apply            - Apply Feast feature definitions"
-	@echo "  make feast-status           - Show Feast feature store status"
-	@echo "  make mlflow-ui              - Open MLflow tracking UI info"
+	@echo "ML Development (Feature Store + Experiment Tracking):"
+	@echo "------------------------------------------------------"
+	@echo "  1. make ml-up                        # Start Feast, MLflow (+ Datalake)"
+	@echo "  2. make feast-apply                  # Apply feature definitions"
+	@echo "  3. Open MLflow: http://localhost:5001"
+	@echo "  4. make feast-status                 # Check feature store"
 	@echo ""
-	@echo "Workflows:"
+	@echo "BI Dashboards (Superset):"
+	@echo "--------------------------"
+	@echo "  1. make datalake-up                  # Ensure Trino is running"
+	@echo "  2. make superset-up                  # Start Superset"
+	@echo "  3. Open Superset: http://localhost:8089"
+	@echo "  4. Login: admin / admin"
 	@echo ""
-	@echo "  Batch Analytics Only (No Streaming):"
-	@echo "    1. make analytics-up                 # Start Dagster, Trino, Polaris, MinIO"
-	@echo "    2. Open Dagster: http://localhost:3000"
-	@echo "    3. Materialize payment_events asset  # Batch ingest to Iceberg"
-	@echo "    4. Run DBT transformations           # Build star schema"
-	@echo "    5. Query via Trino: http://localhost:8080"
-	@echo ""
-	@echo "  Full Pipeline (Streaming + Analytics):"
-	@echo "    1. make all-up                       # Start everything"
-	@echo "    2. make gateway-simulator            # Generate webhook traffic"
-	@echo "    3. make all-status                   # Check all components"
-	@echo "    4. make docker-logs                  # View all logs"
+	@echo "Access URLs:"
+	@echo "------------"
+	@echo "  Gateway API:        http://localhost:8000"
+	@echo "  Dagster:            http://localhost:3000"
+	@echo "  Trino:              http://localhost:8080"
+	@echo "  Temporal UI:        http://localhost:8088"
+	@echo "  Superset:           http://localhost:8089"
+	@echo "  MinIO Console:      http://localhost:9001 (admin/password)"
+	@echo "  Polaris API:        http://localhost:8181"
+	@echo "  MLflow UI:          http://localhost:5001"
+	@echo "  Feast Server:       http://localhost:6566"
 	@echo ""
 
 ##################################################
 # GRANULAR STARTUP COMMANDS
 ##################################################
 
-# Start ALL services (streaming + analytics + mlops + simulators)
+# ==========================================
+# A) STREAMING - Payment pipeline (self-contained)
+# ==========================================
+streaming-up:
+	@echo "=========================================="
+	@echo "   Starting Streaming Stack"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components: Kafka, Gateways, Normalizers, Temporal, Orchestrator"
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose up -d kafka-broker
+	@echo "Waiting for Kafka..."
+	@sleep 5
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d traefik stripe-gateway square-gateway adyen-gateway braintree-gateway
+	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d temporal-db temporal temporal-ui payments-db inference-service orchestrator
+	@echo ""
+	@echo "Streaming stack started!"
+	@echo "  Temporal UI: http://localhost:8088"
+	@echo "  Gateway:     http://localhost:8000"
+
+streaming-down:
+	@echo "Stopping Streaming Stack..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator stop
+	@cd $(DOCKER_DIR) && docker compose stop kafka-broker
+	@echo "Streaming stopped"
+
+# ==========================================
+# B) DATALAKE - Batch analytics (MinIO + Polaris + Trino + Dagster)
+# ==========================================
+datalake-up:
+	@echo "=========================================="
+	@echo "   Starting Datalake Stack"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components: MinIO, Polaris, Payments DB, Trino, Dagster"
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose up -d minio minio-client polaris polaris-init
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d payments-db
+	@cd $(DOCKER_DIR) && docker compose up -d postgres trino dbt-init dagster-user-code dagster-webserver dagster-daemon
+	@echo ""
+	@echo "Datalake started!"
+	@echo "  Dagster:      http://localhost:3000"
+	@echo "  Trino:        http://localhost:8080"
+	@echo "  MinIO:        http://localhost:9001"
+	@echo "  Polaris:      http://localhost:8181"
+	@echo "  Payments DB:  localhost:5433"
+
+datalake-down:
+	@echo "Stopping Datalake Stack..."
+	@cd $(DOCKER_DIR) && docker compose stop dagster-webserver dagster-daemon dagster-user-code trino dbt-init postgres
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator stop payments-db
+	@cd $(DOCKER_DIR) && docker compose stop minio minio-client polaris polaris-init
+	@echo "Datalake stopped"
+
+# analytics-up/down are aliases for datalake (backwards compatibility)
+analytics-up: datalake-up
+analytics-down: datalake-down
+
+# ==========================================
+# C) ML - Feature store & experiment tracking (requires Datalake)
+# ==========================================
+ml-up: datalake-up
+	@echo "=========================================="
+	@echo "   Starting ML Stack"
+	@echo "=========================================="
+	@echo ""
+	@echo "Components: Feast (feature store), MLflow (tracking)"
+	@echo ""
+	@cd $(DOCKER_DIR) && docker compose --profile mlops up -d
+	@echo ""
+	@echo "ML stack started!"
+	@echo "  MLflow:  http://localhost:5001"
+	@echo "  Feast:   http://localhost:6566"
+
+ml-down:
+	@echo "Stopping ML Stack..."
+	@cd $(DOCKER_DIR) && docker compose --profile mlops stop
+	@echo "ML stopped"
+
+# ==========================================
+# ALL - Start everything
+# ==========================================
 all-up:
 	@echo "=========================================="
 	@echo "   Starting ALL Services"
@@ -156,60 +238,6 @@ all-down:
 	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator --profile mlops down
 	@echo "All services stopped"
 
-# Start streaming pipeline only (Kafka + Gateway + Normalizer + Temporal + Orchestrator)
-streaming-up:
-	@echo "=========================================="
-	@echo "   Starting Streaming Pipeline Only"
-	@echo "=========================================="
-	@echo ""
-	@echo "This starts streaming components:"
-	@echo "  - Kafka Broker (message queue)"
-	@echo "  - Payment Gateway (webhook receiver)"
-	@echo "  - Normalizer (validation)"
-	@echo "  - Temporal (workflow orchestration)"
-	@echo "  - Orchestrator (Temporal workflows)"
-	@echo "  - Inference Service (ML endpoints)"
-	@echo "  - Payments DB (event storage)"
-	@echo ""
-	@echo "Starting Kafka..."
-	@cd $(DOCKER_DIR) && docker compose up -d kafka-broker
-	@echo "Waiting for Kafka to be ready..."
-	@sleep 5
-	@echo ""
-	@echo "Starting Gateway, Normalizer, and Orchestrator stack..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator up -d \
-		payment-gateway normalizer \
-		payments-db temporal-db temporal temporal-ui inference-service orchestrator
-	@echo ""
-	@echo "=========================================="
-	@echo "   Streaming Pipeline Started!"
-	@echo "=========================================="
-	@echo ""
-	@echo "Access URLs:"
-	@echo "  Gateway API:        http://localhost:8000"
-	@echo "  Temporal UI:        http://localhost:8088"
-	@echo "  Inference Service:  http://localhost:8002"
-	@echo "  Kafka Broker:       localhost:9092"
-	@echo ""
-	@echo "Database:"
-	@echo "  Payments DB:        localhost:5433 (payments/payments)"
-	@echo ""
-	@echo "Next steps:"
-	@echo "  make gateway-simulator   - Start webhook traffic"
-	@echo "  make streaming-status    - Check streaming services"
-	@echo "  make pipeline-logs       - View logs"
-
-# Stop streaming pipeline only
-streaming-down:
-	@echo "Stopping streaming pipeline..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator stop \
-		orchestrator inference-service temporal-ui temporal temporal-db payments-db \
-		stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer \
-		traefik stripe-gateway square-gateway adyen-gateway braintree-gateway \
-		stripe-simulator square-simulator adyen-simulator braintree-simulator \
-		kafka-broker 2>/dev/null || true
-	@echo "Streaming pipeline stopped"
-
 # Show streaming pipeline status
 streaming-status:
 	@echo "=========================================="
@@ -219,8 +247,8 @@ streaming-status:
 	@echo "Container Status:"
 	@echo "-----------------"
 	@if docker ps | grep -q kafka-broker; then echo "  [OK] Kafka Broker"; else echo "  [--] Kafka Broker"; fi
-	@if docker ps | grep -q payment-gateway; then echo "  [OK] Payment Gateway"; else echo "  [--] Payment Gateway"; fi
-	@if docker ps | grep -q payment-normalizer; then echo "  [OK] Normalizer"; else echo "  [--] Normalizer"; fi
+	@if docker ps | grep -q stripe-gateway; then echo "  [OK] Stripe Gateway"; else echo "  [--] Stripe Gateway"; fi
+	@if docker ps | grep -q stripe-normalizer; then echo "  [OK] Stripe Normalizer"; else echo "  [--] Stripe Normalizer"; fi
 	@if docker ps | grep -q payments-db; then echo "  [OK] Payments DB"; else echo "  [--] Payments DB"; fi
 	@if docker ps | grep -q "temporal$$"; then echo "  [OK] Temporal"; else echo "  [--] Temporal"; fi
 	@if docker ps | grep -q temporal-ui; then echo "  [OK] Temporal UI"; else echo "  [--] Temporal UI"; fi
@@ -232,72 +260,23 @@ streaming-status:
 	@echo "  make streaming-down     - Stop streaming pipeline"
 	@echo "  make pipeline-logs      - View logs"
 
-# Start batch analytics only (Payments DB + Dagster + MinIO + Polaris + Trino)
-analytics-up:
-	@echo "=========================================="
-	@echo "   Starting Batch Analytics Stack"
-	@echo "=========================================="
-	@echo ""
-	@echo "This starts batch analytics components:"
-	@echo "  - Payments DB (source data - payment_events tables)"
-	@echo "  - Dagster (orchestration for batch ingestion + DBT)"
-	@echo "  - MinIO (S3 storage for Iceberg)"
-	@echo "  - Polaris (Iceberg REST catalog)"
-	@echo "  - Trino (SQL query engine)"
-	@echo ""
-	@echo "NOTE: Streaming services (Kafka, Gateway, Normalizer, Temporal)"
-	@echo "      are NOT started. Use 'make all-up' for full stack."
-	@echo ""
-	@echo "Starting MinIO and Polaris..."
-	@cd $(DOCKER_DIR) && docker compose up -d minio minio-client polaris polaris-init
-	@echo "Waiting for storage services..."
-	@sleep 5
-	@echo ""
-	@echo "Starting Payments DB and Dagster DB..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d payments-db
-	@cd $(DOCKER_DIR) && docker compose up -d postgres
-	@echo "Waiting for databases..."
-	@sleep 5
-	@echo ""
-	@echo "Starting Dagster..."
+# Rebuild and restart Dagster user code (after code changes)
+dagster-refresh:
+	@echo "Refreshing Dagster user code..."
+	@echo "Step 1/3: Stopping Dagster services..."
+	@cd $(DOCKER_DIR) && docker compose stop dagster-daemon dagster-webserver dagster-user-code
+	@echo "Step 2/3: Rebuilding user code image..."
+	@cd $(DOCKER_DIR) && docker compose build --no-cache dagster-user-code
+	@echo "Step 3/3: Starting Dagster services..."
 	@cd $(DOCKER_DIR) && docker compose up -d dagster-user-code dagster-webserver dagster-daemon
-	@echo "Waiting for Dagster..."
+	@echo ""
+	@echo "Dagster user code refreshed. Waiting for services to be ready..."
 	@sleep 5
+	@if docker ps | grep -q dagster_user_code; then echo "  [OK] Dagster User Code"; else echo "  [FAIL] Dagster User Code"; fi
+	@if docker ps | grep -q dagster-webserver; then echo "  [OK] Dagster Webserver"; else echo "  [FAIL] Dagster Webserver"; fi
+	@if docker ps | grep -q dagster-daemon; then echo "  [OK] Dagster Daemon"; else echo "  [FAIL] Dagster Daemon"; fi
 	@echo ""
-	@echo "Starting Trino..."
-	@cd $(DOCKER_DIR) && docker compose up -d trino
-	@echo ""
-	@echo "=========================================="
-	@echo "   Batch Analytics Stack Started!"
-	@echo "=========================================="
-	@echo ""
-	@echo "Access URLs:"
-	@echo "  Dagster:            http://localhost:3000"
-	@echo "  Trino:              http://localhost:8080"
-	@echo "  MinIO Console:      http://localhost:9001"
-	@echo "  Polaris API:        http://localhost:8181"
-	@echo ""
-	@echo "Databases:"
-	@echo "  Payments DB:        localhost:5433 (source data)"
-	@echo "  Dagster DB:         postgres container (metadata)"
-	@echo ""
-	@echo "Workflow:"
-	@echo "  1. Dagster reads from Payments DB (payment_events tables)"
-	@echo "  2. Dagster writes to Iceberg via Polaris"
-	@echo "  3. DBT transforms data in Iceberg"
-	@echo "  4. Query results via Trino"
-	@echo ""
-	@echo "Next steps:"
-	@echo "  make analytics-status    - Check analytics services"
-	@echo "  make docker-logs         - View all logs"
-
-# Stop batch analytics only
-analytics-down:
-	@echo "Stopping batch analytics stack..."
-	@cd $(DOCKER_DIR) && docker compose stop trino dagster-daemon dagster-webserver dagster-user-code postgres
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator stop payments-db 2>/dev/null || true
-	@cd $(DOCKER_DIR) && docker compose stop polaris-init polaris minio-client minio
-	@echo "Batch analytics stack stopped"
+	@echo "Access Dagster at: http://localhost:3000"
 
 # Show batch analytics status
 analytics-status:
@@ -327,6 +306,7 @@ analytics-status:
 	@echo "Commands:"
 	@echo "  make analytics-up       - Start analytics stack"
 	@echo "  make analytics-down     - Stop analytics stack"
+	@echo "  make dagster-refresh    - Rebuild Dagster user code"
 	@echo "  make superset-up        - Start Superset BI"
 	@echo "  make docker-logs        - View all logs"
 
@@ -429,21 +409,21 @@ pipeline-up:
 	@echo "Waiting for Kafka to be ready..."
 	@sleep 5
 	@echo ""
-	@echo "Starting Gateway..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d payment-gateway
+	@echo "Starting Gateways..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d traefik stripe-gateway square-gateway adyen-gateway braintree-gateway
 	@sleep 3
 	@echo ""
-	@echo "Starting Normalizer..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
+	@echo "Starting Normalizers..."
+	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer
 	@sleep 2
 	@echo ""
 	@echo "Starting Temporal..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d temporal-db temporal temporal-ui
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d temporal-db temporal temporal-ui payments-db
 	@echo "Waiting for Temporal to be ready..."
 	@sleep 10
 	@echo ""
 	@echo "Starting Inference Service and Orchestrator..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator up -d inference-service orchestrator
+	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d inference-service orchestrator
 	@sleep 3
 	@echo ""
 	@echo "=========================================="
@@ -489,10 +469,10 @@ pipeline-logs:
 # PAYMENT GATEWAY COMMANDS
 ##################################################
 
-# Start payment gateway with Kafka
+# Start payment gateways with Kafka
 gateway-up:
-	@echo "Starting Payment Gateway with Kafka..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d kafka-broker payment-gateway
+	@echo "Starting Payment Gateways with Kafka..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d kafka-broker traefik stripe-gateway square-gateway adyen-gateway braintree-gateway
 	@echo ""
 	@echo "Waiting for services to be healthy..."
 	@sleep 5
@@ -695,7 +675,7 @@ normalizer-status:
 	else \
 		echo "  [--] Normalizer: not running"; \
 	fi
-	@if docker ps | grep -q payment-gateway; then \
+	@if docker ps | grep -q stripe-gateway; then \
 		echo "  [OK] Gateway: running"; \
 	else \
 		echo "  [--] Gateway: not running"; \

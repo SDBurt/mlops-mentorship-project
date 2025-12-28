@@ -1,6 +1,7 @@
 """Braintree webhook signature verification using the official SDK."""
 
 import logging
+import os
 from typing import Any
 
 import braintree
@@ -8,6 +9,16 @@ import braintree
 from payment_gateway.core.exceptions import SignatureVerificationError
 
 logger = logging.getLogger(__name__)
+
+
+def _is_dev_mode() -> bool:
+    """
+    Check if dev mode is enabled via environment variable.
+
+    Dev mode skips signature verification - NEVER enable in production.
+    Requires explicit BRAINTREE_DEV_MODE=true environment variable.
+    """
+    return os.getenv("BRAINTREE_DEV_MODE", "").lower() == "true"
 
 
 def get_braintree_gateway(
@@ -71,10 +82,20 @@ def verify_braintree_signature(
     Raises:
         SignatureVerificationError: If verification fails
     """
-    # Skip verification in dev mode (empty credentials)
-    if not gateway and not (merchant_id and public_key and private_key):
-        logger.warning("Braintree credentials not configured, skipping verification")
+    # Skip verification only if explicitly in dev mode
+    if _is_dev_mode():
+        logger.warning(
+            "BRAINTREE_DEV_MODE=true - Skipping signature verification. "
+            "NEVER enable in production!"
+        )
         return True
+
+    # Fail-fast if credentials are missing (prevents silent security bypass)
+    if not gateway and not (merchant_id and public_key and private_key):
+        raise SignatureVerificationError(
+            "Braintree credentials not configured. Set merchant_id, public_key, "
+            "and private_key, or set BRAINTREE_DEV_MODE=true for local development."
+        )
 
     if not bt_signature:
         raise SignatureVerificationError("Missing bt_signature field")
@@ -124,15 +145,37 @@ def parse_braintree_webhook(
     Raises:
         SignatureVerificationError: If verification fails
     """
-    # Skip verification in dev mode (empty credentials)
-    if not gateway and not (merchant_id and public_key and private_key):
-        logger.warning("Braintree credentials not configured, returning mock data")
+    # Skip verification only if explicitly in dev mode
+    if _is_dev_mode():
+        logger.warning(
+            "BRAINTREE_DEV_MODE=true - Skipping signature verification. "
+            "NEVER enable in production!"
+        )
         # For dev mode, decode the payload manually
         import base64
+        import json
         import xml.etree.ElementTree as ET
 
         try:
             decoded = base64.b64decode(bt_payload)
+            decoded_str = decoded.decode("utf-8")
+
+            # Try JSON first (simulator format)
+            try:
+                data = json.loads(decoded_str)
+                return {
+                    "kind": data.get("kind", "unknown"),
+                    "timestamp": data.get("timestamp"),
+                    "transaction": data.get("transaction"),
+                    "subscription": data.get("subscription"),
+                    "dispute": data.get("dispute"),
+                    "raw_payload": bt_payload,
+                    "dev_mode": True,
+                }
+            except json.JSONDecodeError:
+                pass
+
+            # Fall back to XML (Braintree SDK format)
             root = ET.fromstring(decoded)
             kind = root.find(".//kind")
             timestamp = root.find(".//timestamp")
@@ -149,6 +192,13 @@ def parse_braintree_webhook(
                 "raw_payload": bt_payload,
                 "dev_mode": True,
             }
+
+    # Fail-fast if credentials are missing (prevents silent security bypass)
+    if not gateway and not (merchant_id and public_key and private_key):
+        raise SignatureVerificationError(
+            "Braintree credentials not configured. Set merchant_id, public_key, "
+            "and private_key, or set BRAINTREE_DEV_MODE=true for local development."
+        )
 
     try:
         # Create gateway if not provided

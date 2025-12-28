@@ -11,13 +11,67 @@ Data Flow:
 """
 
 import pandas as pd
+import pyarrow as pa
 from dagster import asset, AssetExecutionContext, Output, MetadataValue, Nothing
 from decimal import Decimal
-from datetime import datetime
 from typing import Any, Optional, Union
 
 from ..resources.postgres import PostgresResource
-from ..partitions import payment_daily_partitions
+
+
+# Explicit PyArrow schemas for Iceberg tables
+# This ensures consistent Iceberg v2 types regardless of DataFrame content
+
+# Schema for payment_events_quarantine table
+PAYMENT_EVENTS_QUARANTINE_SCHEMA = pa.schema([
+    pa.field("event_id", pa.string(), nullable=True),
+    pa.field("provider", pa.string(), nullable=True),
+    pa.field("provider_event_id", pa.string(), nullable=True),
+    pa.field("original_payload", pa.string(), nullable=True),  # JSON string
+    pa.field("validation_errors", pa.string(), nullable=True),  # JSON string
+    pa.field("failure_reason", pa.string(), nullable=True),
+    pa.field("source_topic", pa.string(), nullable=True),
+    pa.field("kafka_partition", pa.int64(), nullable=True),
+    pa.field("kafka_offset", pa.int64(), nullable=True),
+    pa.field("reviewed", pa.bool_(), nullable=True),
+    pa.field("reviewed_at", pa.timestamp("us", tz="UTC"), nullable=True),
+    pa.field("reviewed_by", pa.string(), nullable=True),
+    pa.field("resolution", pa.string(), nullable=True),
+    pa.field("quarantined_at", pa.timestamp("us", tz="UTC"), nullable=True),
+])
+
+
+# Schema for payment_events table
+PAYMENT_EVENTS_SCHEMA = pa.schema([
+    pa.field("event_id", pa.string(), nullable=False),
+    pa.field("provider", pa.string(), nullable=False),
+    pa.field("provider_event_id", pa.string(), nullable=True),
+    pa.field("event_type", pa.string(), nullable=False),
+    pa.field("customer_id", pa.string(), nullable=True),
+    pa.field("merchant_id", pa.string(), nullable=True),
+    pa.field("amount_cents", pa.int64(), nullable=True),
+    pa.field("currency", pa.string(), nullable=True),
+    pa.field("payment_method_type", pa.string(), nullable=True),
+    pa.field("card_brand", pa.string(), nullable=True),
+    pa.field("card_last_four", pa.string(), nullable=True),
+    pa.field("status", pa.string(), nullable=True),
+    pa.field("failure_code", pa.string(), nullable=True),
+    pa.field("failure_message", pa.string(), nullable=True),
+    pa.field("fraud_score", pa.float64(), nullable=True),
+    pa.field("risk_level", pa.string(), nullable=True),
+    pa.field("churn_score", pa.float64(), nullable=True),
+    pa.field("churn_risk_level", pa.string(), nullable=True),
+    pa.field("retry_strategy", pa.string(), nullable=True),
+    pa.field("retry_delay_seconds", pa.int64(), nullable=True),
+    pa.field("days_to_churn_estimate", pa.int64(), nullable=True),
+    pa.field("validation_status", pa.string(), nullable=True),
+    pa.field("validation_errors", pa.string(), nullable=True),  # JSON string
+    pa.field("provider_created_at", pa.timestamp("us", tz="UTC"), nullable=True),
+    pa.field("processed_at", pa.timestamp("us", tz="UTC"), nullable=True),
+    pa.field("ingested_at", pa.timestamp("us", tz="UTC"), nullable=True),
+    pa.field("metadata", pa.string(), nullable=True),  # JSON string
+    pa.field("schema_version", pa.int64(), nullable=True),
+])
 
 
 def _convert_decimal_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -31,68 +85,78 @@ def _convert_decimal_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _prepare_dataframe_for_iceberg(df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_dataframe_for_iceberg(
+    df: pd.DataFrame,
+    schema: pa.Schema = PAYMENT_EVENTS_SCHEMA
+) -> pa.Table:
     """
-    Prepare DataFrame for Iceberg ingestion.
+    Prepare DataFrame for Iceberg ingestion with explicit PyArrow schema.
 
-    - Converts timestamps to microsecond precision (Iceberg requirement)
-    - Converts Decimal to float
-    - Converts object columns to proper string type (Iceberg v2 compatibility)
-    - Handles JSONB columns (validation_errors, metadata)
+    Uses explicit PyArrow schema to ensure proper Iceberg v2 type mapping.
+    This avoids the 'unknown type' error that occurs when PyIceberg
+    infers types from pandas DataFrames.
+
+    Args:
+        df: Input DataFrame from PostgreSQL
+        schema: PyArrow schema to use (defaults to PAYMENT_EVENTS_SCHEMA)
+
+    Returns:
+        PyArrow Table with explicit schema for Iceberg compatibility
     """
+    import json
+
     if len(df) == 0:
-        return df
-
-    # Convert timestamp columns to microsecond precision
-    timestamp_cols = ['provider_created_at', 'processed_at', 'ingested_at', 'loaded_at', 'quarantined_at']
-    for col in timestamp_cols:
-        if col in df.columns and df[col].notna().any():
-            df[col] = pd.to_datetime(df[col]).dt.as_unit('us')
+        # Return empty table with proper schema
+        return pa.Table.from_pydict(
+            {field.name: [] for field in schema},
+            schema=schema
+        )
 
     # Convert Decimal columns to float
     df = _convert_decimal_columns(df)
 
-    # Convert integer columns to proper types
-    int_cols = ['id', 'amount_cents', 'retry_delay_seconds', 'days_to_churn_estimate', 'schema_version']
-    for col in int_cols:
-        if col in df.columns:
-            df[col] = df[col].astype('Int64')  # Nullable integer
-
-    # Convert string/object columns to proper string type for Iceberg v2 compatibility
-    # These columns can be nullable but need explicit string dtype
-    string_cols = [
-        'event_id', 'provider', 'provider_event_id', 'event_type', 'customer_id',
-        'merchant_id', 'currency', 'payment_method_type', 'card_brand', 'card_last_four',
-        'status', 'failure_code', 'failure_message', 'risk_level', 'retry_strategy',
-        'source_topic', 'failure_reason', 'reviewed_by', 'resolution'
-    ]
-    for col in string_cols:
-        if col in df.columns:
-            # Convert to string, replacing None with pd.NA
-            df[col] = df[col].astype('string')
-
     # Handle JSONB columns - convert to JSON string for Iceberg storage
-    import json
-
     def _serialize_json(x):
         """Safely serialize a value to JSON string."""
         if x is None:
             return None
-        # Handle pandas NA
         try:
             if pd.isna(x):
                 return None
         except (ValueError, TypeError):
-            # pd.isna fails on arrays/lists - that's fine, serialize them
             pass
         return json.dumps(x)
 
     json_cols = ['validation_errors', 'original_payload', 'metadata']
     for col in json_cols:
         if col in df.columns:
-            df[col] = df[col].apply(_serialize_json).astype('string')
+            df[col] = df[col].apply(_serialize_json)
 
-    return df
+    # Convert timestamp columns to UTC-aware datetime
+    timestamp_cols = ['provider_created_at', 'processed_at', 'ingested_at', 'quarantined_at', 'reviewed_at']
+    for col in timestamp_cols:
+        if col in df.columns and df[col].notna().any():
+            df[col] = pd.to_datetime(df[col], utc=True)
+
+    # Build PyArrow arrays for each column in schema
+    arrays = []
+    for field in schema:
+        col_name = field.name
+        if col_name in df.columns:
+            # Get column data
+            col_data = df[col_name]
+            # Convert to PyArrow array with explicit type
+            try:
+                arr = pa.array(col_data, type=field.type)
+            except (pa.ArrowInvalid, pa.ArrowTypeError):
+                # Handle type conversion errors by casting through Python
+                arr = pa.array(col_data.tolist(), type=field.type)
+        else:
+            # Column not in DataFrame - create null array
+            arr = pa.nulls(len(df), type=field.type)
+        arrays.append(arr)
+
+    return pa.Table.from_arrays(arrays, schema=schema)
 
 
 @asset(
@@ -108,7 +172,7 @@ def _prepare_dataframe_for_iceberg(df: pd.DataFrame) -> pd.DataFrame:
 def payment_events(
     context: AssetExecutionContext,
     postgres_resource: PostgresResource
-) -> Output[pd.DataFrame]:
+) -> Output[pa.Table]:
     """
     Ingest payment events from PostgreSQL to Iceberg.
 
@@ -117,7 +181,7 @@ def payment_events(
 
     After successful write, marks records as loaded in PostgreSQL.
 
-    Returns empty DataFrame with proper schema when there are no new events,
+    Returns empty PyArrow Table with proper schema when there are no new events,
     allowing incremental runs to succeed without writing any data.
 
     Schema includes:
@@ -140,21 +204,10 @@ def payment_events(
 
     if not events:
         context.log.info("No new payment events to ingest")
-        # Return empty DataFrame with proper schema to avoid column errors
-        # This allows incremental runs to succeed without writing any data
-        empty_df = pd.DataFrame(columns=[
-            'event_id', 'provider', 'provider_event_id', 'event_type',
-            'customer_id', 'merchant_id', 'amount_cents', 'currency',
-            'payment_method_type', 'card_brand', 'card_last_four',
-            'status', 'failure_code', 'failure_message',
-            'fraud_score', 'risk_level', 'churn_score', 'churn_risk_level',
-            'retry_strategy', 'retry_delay_seconds', 'days_to_churn_estimate',
-            'validation_status', 'validation_errors',
-            'provider_created_at', 'processed_at', 'ingested_at',
-            'metadata', 'schema_version'
-        ])
+        # Return empty PyArrow Table with explicit schema
+        empty_table = _prepare_dataframe_for_iceberg(pd.DataFrame())
         return Output(
-            empty_df,
+            empty_table,
             metadata={
                 "num_records": 0,
                 "status": "no_new_events",
@@ -170,20 +223,24 @@ def payment_events(
     drop_cols = ['id', 'loaded_to_iceberg', 'loaded_at']
     df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors='ignore')
 
-    # Prepare for Iceberg
-    df = _prepare_dataframe_for_iceberg(df)
+    # Prepare for Iceberg - returns PyArrow Table with explicit schema
+    table = _prepare_dataframe_for_iceberg(df)
 
     # Extract event_ids for marking as loaded
     event_ids = [e['event_id'] for e in events]
 
-    context.log.info(f"Prepared {len(df)} records for Iceberg ingestion")
+    context.log.info(f"Prepared {table.num_rows} records for Iceberg ingestion")
 
-    # Add output metadata
+    # Add output metadata (convert PyArrow columns to pandas for value_counts)
+    event_types_counts = table.column("event_type").to_pandas().value_counts().to_dict()
+    providers_counts = table.column("provider").to_pandas().value_counts().to_dict()
+    ingested_col = table.column("ingested_at").to_pandas()
+
     metadata = {
-        "num_records": len(df),
-        "event_types": MetadataValue.json(df['event_type'].value_counts().to_dict()) if 'event_type' in df.columns else {},
-        "providers": MetadataValue.json(df['provider'].value_counts().to_dict()) if 'provider' in df.columns else {},
-        "date_range": f"{df['ingested_at'].min()} to {df['ingested_at'].max()}" if 'ingested_at' in df.columns and len(df) > 0 else "N/A",
+        "num_records": table.num_rows,
+        "event_types": MetadataValue.json(event_types_counts),
+        "providers": MetadataValue.json(providers_counts),
+        "date_range": f"{ingested_col.min()} to {ingested_col.max()}" if len(ingested_col) > 0 else "N/A",
     }
 
     # Note: Mark as loaded AFTER successful Iceberg write
@@ -197,96 +254,7 @@ def payment_events(
     context.log.info(f"Marked {updated} events as loaded in PostgreSQL")
     metadata["events_marked_loaded"] = updated
 
-    return Output(df, metadata=metadata)
-
-
-@asset(
-    key_prefix=["data"],
-    name="payment_events_daily",
-    io_manager_key="iceberg_io_manager",
-    partitions_def=payment_daily_partitions,
-    metadata={
-        "partition_expr": "ingested_at",
-        "description": "Daily partitioned payment events for batch processing",
-    },
-    group_name="payment_daily",
-    compute_kind="postgres",
-)
-def payment_events_daily(
-    context: AssetExecutionContext,
-    postgres_resource: PostgresResource,
-) -> Output[pd.DataFrame]:
-    """
-    Daily batch processing of payment events by date partition.
-
-    This asset queries ALL events for the partition date and uses Iceberg's
-    merge strategy for deduplication. Complements the real-time ingestion
-    (payment_events) with daily batch processing.
-
-    Use cases:
-    - Daily batch reconciliation
-    - Historical data recovery (backfill)
-    - Reprocessing specific date ranges
-
-    Note: This does NOT update loaded_to_iceberg flag since it processes
-    all events for the date, not just new ones.
-    """
-    partition_key = context.partition_key
-    partition_date = datetime.strptime(partition_key, "%Y-%m-%d").date()
-
-    context.log.info(f"Backfilling payment events for partition: {partition_date}")
-
-    events = postgres_resource.get_events_by_date(
-        table="payment_events",
-        partition_date=partition_date,
-    )
-
-    if not events:
-        context.log.info(f"No events found for {partition_date}")
-        # Return empty DataFrame with proper schema
-        empty_df = pd.DataFrame(columns=[
-            'event_id', 'provider', 'provider_event_id', 'event_type',
-            'customer_id', 'merchant_id', 'amount_cents', 'currency',
-            'payment_method_type', 'card_brand', 'card_last_four',
-            'status', 'failure_code', 'failure_message',
-            'fraud_score', 'risk_level', 'churn_score', 'churn_risk_level',
-            'retry_strategy', 'retry_delay_seconds', 'days_to_churn_estimate',
-            'validation_status', 'validation_errors',
-            'provider_created_at', 'processed_at', 'ingested_at',
-            'metadata', 'schema_version'
-        ])
-        return Output(
-            empty_df,
-            metadata={
-                "num_records": 0,
-                "partition_date": str(partition_date),
-                "status": "no_events_for_date",
-            }
-        )
-
-    context.log.info(f"Found {len(events)} payment events for {partition_date}")
-
-    # Convert to DataFrame
-    df = pd.DataFrame(events)
-
-    # Remove internal tracking columns (not needed in Iceberg)
-    drop_cols = ['id', 'loaded_to_iceberg', 'loaded_at']
-    df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors='ignore')
-
-    # Prepare for Iceberg
-    df = _prepare_dataframe_for_iceberg(df)
-
-    context.log.info(f"Prepared {len(df)} records for Iceberg backfill")
-
-    # Add output metadata
-    metadata = {
-        "num_records": len(df),
-        "partition_date": str(partition_date),
-        "event_types": MetadataValue.json(df['event_type'].value_counts().to_dict()) if 'event_type' in df.columns else {},
-        "providers": MetadataValue.json(df['provider'].value_counts().to_dict()) if 'provider' in df.columns else {},
-    }
-
-    return Output(df, metadata=metadata)
+    return Output(table, metadata=metadata)
 
 
 @asset(
@@ -301,14 +269,14 @@ def payment_events_daily(
 def payment_events_quarantine(
     context: AssetExecutionContext,
     postgres_resource: PostgresResource
-) -> Output[pd.DataFrame]:
+) -> Output[pa.Table]:
     """
     Ingest quarantined payment events from PostgreSQL to Iceberg.
 
     Quarantined events are those that failed validation in the
     Normalizer or Orchestrator and need manual review.
 
-    Returns empty DataFrame with proper schema when there are no events,
+    Returns empty PyArrow Table with proper schema when there are no events,
     allowing incremental runs to succeed without writing any data.
 
     Schema includes:
@@ -333,25 +301,16 @@ def payment_events_quarantine(
 
     if not events:
         context.log.info("No quarantine events to ingest - skipping materialization")
-        # Skip materialization entirely when there's no data
-        # The Iceberg IO manager can't handle empty DataFrames without proper schema
-        from dagster import AssetMaterialization
-        context.log_event(
-            AssetMaterialization(
-                asset_key=context.asset_key,
-                metadata={
-                    "num_records": 0,
-                    "status": "no_quarantine_events",
-                }
-            )
+        # Return empty PyArrow Table with explicit schema
+        empty_table = _prepare_dataframe_for_iceberg(
+            pd.DataFrame(),
+            schema=PAYMENT_EVENTS_QUARANTINE_SCHEMA
         )
-        # Return a sentinel value that the IO manager can skip
-        # By returning None wrapped in Output, we signal no data to write
         return Output(
-            value=pd.DataFrame(),  # Empty DataFrame signals no-op
+            value=empty_table,
             metadata={
                 "num_records": 0,
-                "status": "skipped_no_data",
+                "status": "no_quarantine_events",
             }
         )
 
@@ -364,18 +323,31 @@ def payment_events_quarantine(
     drop_cols = ['id']
     df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors='ignore')
 
-    # Prepare for Iceberg
-    df = _prepare_dataframe_for_iceberg(df)
+    # Prepare for Iceberg - returns PyArrow Table with explicit schema
+    table = _prepare_dataframe_for_iceberg(df, schema=PAYMENT_EVENTS_QUARANTINE_SCHEMA)
 
-    context.log.info(f"Prepared {len(df)} quarantine records for Iceberg")
+    context.log.info(f"Prepared {table.num_rows} quarantine records for Iceberg")
 
-    # Add output metadata
+    # Add output metadata (convert PyArrow columns to pandas for value_counts)
+    failure_reasons_counts = {}
+    if "failure_reason" in table.schema.names:
+        failure_reasons_counts = (
+            table.column("failure_reason")
+            .to_pandas()
+            .value_counts()
+            .head(10)
+            .to_dict()
+        )
+
+    date_range = "N/A"
+    if "quarantined_at" in table.schema.names and table.num_rows > 0:
+        quarantined_col = table.column("quarantined_at").to_pandas()
+        date_range = f"{quarantined_col.min()} to {quarantined_col.max()}"
+
     metadata = {
-        "num_records": len(df),
-        "failure_reasons": MetadataValue.json(
-            df['failure_reason'].value_counts().head(10).to_dict()
-        ) if 'failure_reason' in df.columns else {},
-        "date_range": f"{df['quarantined_at'].min()} to {df['quarantined_at'].max()}" if 'quarantined_at' in df.columns and len(df) > 0 else "N/A",
+        "num_records": table.num_rows,
+        "failure_reasons": MetadataValue.json(failure_reasons_counts),
+        "date_range": date_range,
     }
 
-    return Output(df, metadata=metadata)
+    return Output(table, metadata=metadata)
