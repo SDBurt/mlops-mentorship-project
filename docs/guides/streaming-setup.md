@@ -294,7 +294,7 @@ To check data quality alerts:
 
 ```bash
 # Run the monitoring job
-cd orchestration-dagster
+cd services/dagster
 dagster job execute -f src/orchestration_dagster/definitions.py -j payment_dq_monitoring_job
 ```
 

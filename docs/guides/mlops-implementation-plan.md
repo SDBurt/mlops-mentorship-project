@@ -236,7 +236,7 @@ services:
     profiles: [mlops]
 
   feast-server:
-    build: ../../mlops/feature-store
+    build: ../../services/feast
     depends_on: [feast-redis, minio]
     profiles: [mlops]
 

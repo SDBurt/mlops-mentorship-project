@@ -25,10 +25,10 @@ A modern data platform built on Kubernetes featuring real-time payment event pro
                                  PAYMENT PIPELINE
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                 │
-│   Stripe       ┌──────────┐    Kafka    ┌────────────┐    Kafka    ┌─────────┐  │
-│   Webhooks ───>│ Gateway  │───────────> │ Normalizer │───────────> │Temporal │  │
-│                │ (FastAPI)│             │  (Python)  │             │Workflows│  │
-│                └──────────┘             └────────────┘             └─────────┘  │
+│   Stripe       ┌──────────┐    Kafka    ┌─────────────┐    Kafka    ┌─────────┐  │
+│   Webhooks ───>│ Gateway  │───────────> │ Transformer │───────────> │Temporal │  │
+│                │ (FastAPI)│             │   (Python)  │             │ Worker  │  │
+│                └──────────┘             └─────────────┘             └─────────┘  │
 │                     │                        │                          │       │
 │                     v                        v                          v       │
 │                 [DLQ Topic]             [DLQ Topic]               PostgreSQL    │
@@ -52,8 +52,8 @@ A modern data platform built on Kubernetes featuring real-time payment event pro
 
 ### Payment Pipeline
 - **Gateway**: FastAPI, HMAC-SHA256 signature verification, aiokafka
-- **Normalizer**: ISO 4217 currency validation, null normalization, unified event schema
-- **Orchestrator**: Temporal workflows, per-activity retry policies, idempotent processing
+- **Transformer**: ISO 4217 currency validation, null normalization, unified event schema
+- **Temporal Worker**: Temporal workflows, per-activity retry policies, idempotent processing
 - **Inference**: FastAPI service using **Feast** for real-time features and **MLflow** for model serving
 
 ### MLOps Platform
@@ -82,8 +82,8 @@ A modern data platform built on Kubernetes featuring real-time payment event pro
 ### Multi-Layer Validation Pipeline
 Three validation layers ensure data quality before lakehouse ingestion:
 1. **Gateway**: Signature verification, JSON structure validation
-2. **Normalizer**: Currency codes (ISO 4217), amount bounds, null handling
-3. **Orchestrator**: Business rules via Temporal activities
+2. **Transformer**: Currency codes (ISO 4217), amount bounds, null handling
+3. **Temporal Worker**: Business rules via Temporal activities
 
 ### durable Workflow Execution
 - Temporal workflows survive service restarts
@@ -108,18 +108,21 @@ Three validation layers ensure data quality before lakehouse ingestion:
 
 ```
 .
-├── payment-pipeline/           # Streaming payment processing
-│   ├── src/
-│   │   ├── payment_gateway/    # Webhook ingestion (FastAPI)
-│   │   ├── normalizer/         # Validation & transformation
-│   │   └── orchestrator/       # Temporal workflows
-│   ├── inference_service/      # Live ML inference (Feast + MLflow)
-│   └── tests/                  # Unit & integration tests
+├── contracts/                  # Shared schemas package
+│   └── schemas/                # Pydantic models for events
 │
-├── mlops/                      # MLOps Infrastructure
-│   ├── feature-store/          # Feast repository and server
-│   ├── training/               # Model training scripts
-│   └── serving/                # Model serving configuration
+├── services/                   # Microservices
+│   ├── gateway/                # Webhook ingestion (FastAPI)
+│   ├── transformer/            # Validation & transformation
+│   ├── temporal/               # Temporal workflow worker
+│   ├── inference/              # Live ML inference (Feast + MLflow)
+│   ├── dagster/                # Pipeline orchestration
+│   └── feast/                  # Feature store server
+│
+├── tools/
+│   └── simulator/              # Webhook traffic generator
+│
+├── dbt/                        # SQL transformations
 │
 ├── infrastructure/
 │   ├── kubernetes/             # Helm values, K8s manifests
@@ -129,8 +132,6 @@ Three validation layers ensure data quality before lakehouse ingestion:
 │   │   └── minio/
 │   └── docker/                 # Docker Compose for local dev
 │
-├── orchestration-dagster/      # Pipeline orchestration & ML training
-├── orchestration-dbt/          # SQL transformations
 └── docs/                       # Architecture & guides
 ```
 

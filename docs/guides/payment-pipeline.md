@@ -17,8 +17,8 @@ This document outlines the design and implementation of a webhook-driven payment
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 1 | Gateway (Stripe webhook ingestion) | Complete |
-| Phase 2 | Normalizer (Python aiokafka validation) | Complete |
-| Phase 3 | Orchestrator (Temporal workflows) | Complete |
+| Phase 2 | Transformer (Python aiokafka validation) | Complete |
+| Phase 3 | Temporal Worker (Temporal workflows) | Complete |
 | Phase 4 | MLOps (Feast Features + MLflow Models) | Complete |
 | Phase 5 | Analytics Layer (Dagster + DBT + Superset) | Complete |
 | Phase 6 | Documentation & Polish | In Progress |
@@ -34,8 +34,8 @@ This document outlines the design and implementation of a webhook-driven payment
 │                              PAYMENT PIPELINE                                    │
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
-│  Webhooks ──► GATEWAY ──► Kafka ──► NORMALIZER ──► Kafka ──► ORCHESTRATOR        │
-│               (FastAPI)    (raw)     (Python)   (normalized)   (Temporal)        │
+│  Webhooks ──► GATEWAY ──► Kafka ──► TRANSFORMER ──► Kafka ──► TEMPORAL WORKER    │
+│               (FastAPI)    (raw)      (Python)   (normalized)    (Temporal)      │
 │                  │                      │                          │             │
 │                  ▼                      ▼                          ▼             │
 │              [DLQ Topic]          [DLQ Topic]               [PostgreSQL]         │
@@ -55,8 +55,8 @@ This document outlines the design and implementation of a webhook-driven payment
 | System | Name | Technology | Responsibility |
 |--------|------|------------|----------------|
 | System 1 | **Gateway** | FastAPI + aiokafka | Webhook reception, signature verification, Kafka production |
-| System 2 | **Normalizer** | Python + aiokafka | Content validation, schema normalization, DLQ routing |
-| System 3 | **Orchestrator** | Temporal + Kafka Consumer | Per-event workflow execution, ML integration, PostgreSQL persistence |
+| System 2 | **Transformer** | Python + aiokafka | Content validation, schema normalization, DLQ routing |
+| System 3 | **Temporal Worker** | Temporal + Kafka Consumer | Per-event workflow execution, ML integration, PostgreSQL persistence |
 | MLOps | **Inference** | FastAPI + Feast + MLflow | Real-time enrichment and serving for fraud, churn, and recovery |
 | MLOps | **Feature Store** | Feast + Redis | Millisecond-latency feature retrieval for online models |
 | MLOps | **Retraining** | Dagster + MLflow | Automated training pipelines with data quality checks |
@@ -68,21 +68,21 @@ This document outlines the design and implementation of a webhook-driven payment
 
 ```
 .
-├── payment-pipeline/           # Streaming payment processing
-│   ├── src/
-│   │   ├── payment_gateway/    # System 1: Gateway (FastAPI)
-│   │   ├── normalizer/         # System 2: Normalizer (aiokafka)
-│   │   └── orchestrator/       # System 3: Orchestrator (Temporal)
-│   ├── inference_service/      # Live ML inference (Feast + MLflow)
-│   └── tests/                  # Unit & integration tests
+├── contracts/                  # Shared schemas package
+│   └── schemas/                # Pydantic models for events
 │
-├── mlops/                      # MLOps Infrastructure
-│   ├── feature-store/          # Feast repository and server
-│   ├── training/               # Model training scripts
-│   └── serving/                # Model serving configuration
+├── services/                   # Microservices
+│   ├── gateway/                # System 1: Gateway (FastAPI)
+│   ├── transformer/            # System 2: Transformer (aiokafka)
+│   ├── temporal/               # System 3: Temporal Worker (Temporal)
+│   ├── inference/              # Live ML inference (Feast + MLflow)
+│   ├── dagster/                # Pipeline orchestration & ML training
+│   └── feast/                  # Feature store server
 │
-├── orchestration-dagster/      # Pipeline orchestration & ML training
-├── orchestration-dbt/          # SQL transformations (Medallion)
+├── tools/
+│   └── simulator/              # Webhook traffic generator
+│
+├── dbt/                        # SQL transformations (Medallion)
 ├── infrastructure/
 │   ├── kubernetes/             # Helm values, K8s manifests
 │   └── docker/                 # Docker Compose for local dev
@@ -117,13 +117,13 @@ The Gateway is a FastAPI application that receives webhooks from payment provide
 
 **Key Design Decisions:**
 
-The gateway performs only structure validation, not semantic validation. This keeps response times low and ensures webhooks are acknowledged before the provider times out. Deeper validation happens in the Normalizer.
+The gateway performs only structure validation, not semantic validation. This keeps response times low and ensures webhooks are acknowledged before the provider times out. Deeper validation happens in the Transformer.
 
 ---
 
-### Normalizer Service
+### Transformer Service
 
-The Normalizer is a Python async Kafka consumer (aiokafka) that consumes from provider-specific topics, applies content validation, transforms events to a unified schema, and publishes to a normalized topic.
+The Transformer is a Python async Kafka consumer (aiokafka) that consumes from provider-specific topics, applies content validation, transforms events to a unified schema, and publishes to a normalized topic.
 
 **Why Python over Flink:**
 - Aligns with target tech stack (Python, Kafka, Temporal - no Flink in job description)
@@ -181,9 +181,9 @@ The Normalizer is a Python async Kafka consumer (aiokafka) that consumes from pr
 
 ---
 
-### Orchestrator Service (Temporal)
+### Temporal Worker Service
 
-The Orchestrator consists of two components: a Kafka consumer that bridges events to Temporal, and Temporal workers that execute payment event workflows.
+The Temporal Worker consists of two components: a Kafka consumer that bridges events to Temporal, and Temporal workers that execute payment event workflows.
 
 **Consumer Component:**
 
@@ -266,7 +266,7 @@ The Inference service is a production-grade ML serving layer that integrates wit
 
 ---
 
-### Phase 2: Normalizer (Complete)
+### Phase 2: Transformer (Complete)
 
 **Implemented:**
 - Python async Kafka consumer (aiokafka)
@@ -280,7 +280,7 @@ The Inference service is a production-grade ML serving layer that integrates wit
 
 ---
 
-### Phase 3: Orchestrator (Complete)
+### Phase 3: Temporal Worker (Complete)
 
 **Implemented:**
 - Temporal workflows triggered by Kafka events
@@ -335,12 +335,12 @@ The Inference service is a production-grade ML serving layer that integrates wit
 
 | Topic | Purpose | Producer | Consumer |
 |-------|---------|----------|----------|
-| `webhooks.stripe.payment_intent` | Raw payment intent events | Gateway | Normalizer |
-| `webhooks.stripe.charge` | Raw charge events | Gateway | Normalizer |
-| `webhooks.stripe.refund` | Raw refund events | Gateway | Normalizer |
+| `webhooks.stripe.payment_intent` | Raw payment intent events | Gateway | Transformer |
+| `webhooks.stripe.charge` | Raw charge events | Gateway | Transformer |
+| `webhooks.stripe.refund` | Raw refund events | Gateway | Transformer |
 | `webhooks.dlq` | Gateway validation failures | Gateway | - |
-| `payments.normalized` | Unified schema events | Normalizer | Orchestrator |
-| `payments.validation.dlq` | Normalizer validation failures | Normalizer | Orchestrator |
+| `payments.normalized` | Unified schema events | Transformer | Temporal Worker |
+| `payments.validation.dlq` | Transformer validation failures | Transformer | Temporal Worker |
 
 ---
 
@@ -352,19 +352,27 @@ The Inference service is a production-grade ML serving layer that integrates wit
 |-----------|----------|
 | `test_stripe_models.py` | Gateway Pydantic models |
 | `test_stripe_validator.py` | Signature verification |
-| `test_normalizer_validators.py` | Currency, amount, null validation |
-| `test_normalizer_transformers.py` | Schema transformation |
-| `test_normalizer_handlers.py` | Event processing |
-| `test_orchestrator_activities.py` | Temporal activities |
-| `test_orchestrator_workflows.py` | Workflow definitions |
+| `test_transformer_validators.py` | Currency, amount, null validation |
+| `test_transformer_transformers.py` | Schema transformation |
+| `test_transformer_handlers.py` | Event processing |
+| `test_temporal_worker_activities.py` | Temporal activities |
+| `test_temporal_worker_workflows.py` | Workflow definitions |
 | `test_inference_service.py` | All 4 ML endpoints |
 
 ### Running Tests
 
 ```bash
-cd payment-pipeline
-uv sync --extra dev
-uv run pytest tests/unit/ -v
+# Gateway tests
+cd services/gateway && uv sync && uv run pytest tests/ -v
+
+# Transformer tests
+cd services/transformer && uv sync && uv run pytest tests/ -v
+
+# Temporal Worker tests
+cd services/temporal && uv sync && uv run pytest tests/ -v
+
+# Inference service tests
+cd services/inference && uv sync && uv run pytest tests/ -v
 ```
 
 ---
