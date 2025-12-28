@@ -208,7 +208,7 @@ services:
     environment:
       TRINO_HOST: trino
     volumes:
-      - ../../orchestration-dbt/dbt:/app/dbt
+      - ../../dbt:/app/dbt
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -225,7 +225,7 @@ services:
 
   dagster-user-code:
     build:
-      context: ../../orchestration-dagster
+      context: ../../services/dagster
       dockerfile: ./Dockerfile
     image: dagster_user_code_image
     container_name: dagster_user_code
@@ -266,7 +266,7 @@ services:
       FEATURE_S3_BUCKET: features
       FEATURE_S3_ENDPOINT: http://minio:9000
     volumes:
-      - ../../orchestration-dbt/dbt:/app/dbt
+      - ../../dbt:/app/dbt
     expose:
       - "3030"
     healthcheck:
@@ -1041,7 +1041,7 @@ services:
   # Feast feature server
   feast-server:
     build:
-      context: ../../mlops/feature-store
+      context: ../../services/feast
       dockerfile: Dockerfile
     container_name: feast-server
     ports:

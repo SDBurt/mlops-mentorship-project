@@ -14,6 +14,16 @@
 # Variables
 DOCKER_DIR := infrastructure/docker
 DOCKER_COMPOSE := docker compose -f $(DOCKER_DIR)/docker-compose.yml
+# Services directories
+SERVICES_DIR := services
+GATEWAY_DIR := $(SERVICES_DIR)/gateway
+NORMALIZER_DIR := $(SERVICES_DIR)/normalizer
+ORCHESTRATOR_DIR := $(SERVICES_DIR)/orchestrator
+INFERENCE_DIR := $(SERVICES_DIR)/inference
+DAGSTER_DIR := $(SERVICES_DIR)/dagster
+FEAST_DIR := $(SERVICES_DIR)/feast
+DBT_DIR := dbt
+# Legacy: payment-pipeline still contains simulator tool
 PAYMENT_PIPELINE_DIR := payment-pipeline
 
 # Default target - show help
@@ -534,13 +544,13 @@ simulator-logs:
 # Build payment gateway Docker image
 gateway-build:
 	@echo "Building Payment Gateway Docker image..."
-	@cd $(PAYMENT_PIPELINE_DIR) && docker build -t payment-gateway:latest .
+	@docker build -f $(GATEWAY_DIR)/Dockerfile -t payment-gateway:latest .
 	@echo "Payment Gateway image built: payment-gateway:latest"
 
 # Run payment gateway unit tests
 gateway-test:
 	@echo "Running Payment Gateway unit tests..."
-	@cd $(PAYMENT_PIPELINE_DIR) && pip install -e ".[dev]" -q && pytest tests/ -v
+	@cd $(GATEWAY_DIR) && uv sync && uv run pytest tests/ -v
 	@echo "Tests completed"
 
 # Send a single test webhook

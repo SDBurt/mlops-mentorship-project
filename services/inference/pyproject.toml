@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "payment-inference"
+version = "0.1.0"
+description = "ML inference service for fraud scoring, retry strategy, and churn prediction"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.6",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "mlflow>=2.19.0",
+    "scikit-learn>=1.4.0",
+    "pandas>=2.0.0",
+    "mlops-contracts",
+]
+
+[tool.uv.sources]
+mlops-contracts = { path = "../../contracts" }
+
+[project.optional-dependencies]
+feast = [
+    "feast[redis]>=0.36.0",
+    "redis>=4.2.2,<5.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/inference_service"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
