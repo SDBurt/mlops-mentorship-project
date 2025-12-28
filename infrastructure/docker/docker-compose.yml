@@ -358,8 +358,8 @@ services:
       - "8000:8000"    # Webhook endpoint
       - "8090:8080"    # Dashboard (dev only)
     volumes:
-      - ../../payment-pipeline/docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ../../payment-pipeline/docker/traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
     networks:
       - local-iceberg-lakehouse
     depends_on:
@@ -375,8 +375,8 @@ services:
 
   stripe-gateway:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.stripe
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.stripe
     container_name: stripe-gateway
     init: true
     environment:
@@ -403,8 +403,8 @@ services:
 
   square-gateway:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.square
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.square
     container_name: square-gateway
     init: true
     environment:
@@ -432,8 +432,8 @@ services:
 
   adyen-gateway:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.adyen
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.adyen
     container_name: adyen-gateway
     init: true
     environment:
@@ -460,8 +460,8 @@ services:
 
   braintree-gateway:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.braintree
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.braintree
     container_name: braintree-gateway
     init: true
     environment:
@@ -496,8 +496,8 @@ services:
 
   stripe-simulator:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.stripe
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.stripe
     container_name: stripe-simulator
     command: ["python", "-m", "simulator.main", "generate", "--rate", "2", "--duration", "7200"]
     environment:
@@ -506,9 +506,9 @@ services:
     depends_on:
       stripe-gateway:
         condition: service_healthy
-      stripe-normalizer:
+      stripe-transformer:
         condition: service_started
-      orchestrator:
+      temporal-worker:
         condition: service_started
     networks:
       - local-iceberg-lakehouse
@@ -519,8 +519,8 @@ services:
 
   square-simulator:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.square
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.square
     container_name: square-simulator
     command: ["python", "-m", "simulator.main", "square", "generate", "--rate", "2", "--duration", "7200"]
     environment:
@@ -530,9 +530,9 @@ services:
     depends_on:
       square-gateway:
         condition: service_healthy
-      square-normalizer:
+      square-transformer:
         condition: service_started
-      orchestrator:
+      temporal-worker:
         condition: service_started
     networks:
       - local-iceberg-lakehouse
@@ -543,8 +543,8 @@ services:
 
   adyen-simulator:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.adyen
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.adyen
     container_name: adyen-simulator
     command: ["python", "-m", "simulator.main", "adyen", "generate", "--rate", "2", "--duration", "7200"]
     environment:
@@ -553,9 +553,9 @@ services:
     depends_on:
       adyen-gateway:
         condition: service_healthy
-      adyen-normalizer:
+      adyen-transformer:
         condition: service_started
-      orchestrator:
+      temporal-worker:
         condition: service_started
     networks:
       - local-iceberg-lakehouse
@@ -566,8 +566,8 @@ services:
 
   braintree-simulator:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/gateway/Dockerfile.braintree
+      context: ../..
+      dockerfile: services/gateway/docker/Dockerfile.braintree
     container_name: braintree-simulator
     command: ["python", "-m", "simulator.main", "braintree", "generate", "--rate", "2", "--duration", "7200"]
     environment:
@@ -580,9 +580,9 @@ services:
     depends_on:
       braintree-gateway:
         condition: service_healthy
-      braintree-normalizer:
+      braintree-transformer:
         condition: service_started
-      orchestrator:
+      temporal-worker:
         condition: service_started
     networks:
       - local-iceberg-lakehouse
@@ -592,20 +592,20 @@ services:
       - simulator
 
   #####################################
-  # PROVIDER-SPECIFIC NORMALIZERS
+  # PROVIDER-SPECIFIC TRANSFORMERS
   #####################################
 
-  stripe-normalizer:
+  stripe-transformer:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/normalizer/Dockerfile.stripe
-    container_name: stripe-normalizer
+      context: ../..
+      dockerfile: services/transformer/docker/Dockerfile.stripe
+    container_name: stripe-transformer
     init: true
     environment:
-      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
-      NORMALIZER_OUTPUT_TOPIC: payments.normalized
-      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
-      NORMALIZER_LOG_LEVEL: INFO
+      TRANSFORMER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      TRANSFORMER_OUTPUT_TOPIC: payments.normalized
+      TRANSFORMER_DLQ_TOPIC: payments.validation.dlq
+      TRANSFORMER_LOG_LEVEL: INFO
     depends_on:
       kafka-broker:
         condition: service_healthy
@@ -615,19 +615,19 @@ services:
       - local-iceberg-lakehouse
     restart: unless-stopped
     profiles:
-      - normalizer
+      - transformer
 
-  square-normalizer:
+  square-transformer:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/normalizer/Dockerfile.square
-    container_name: square-normalizer
+      context: ../..
+      dockerfile: services/transformer/docker/Dockerfile.square
+    container_name: square-transformer
     init: true
     environment:
-      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
-      NORMALIZER_OUTPUT_TOPIC: payments.normalized
-      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
-      NORMALIZER_LOG_LEVEL: INFO
+      TRANSFORMER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      TRANSFORMER_OUTPUT_TOPIC: payments.normalized
+      TRANSFORMER_DLQ_TOPIC: payments.validation.dlq
+      TRANSFORMER_LOG_LEVEL: INFO
     depends_on:
       kafka-broker:
         condition: service_healthy
@@ -637,19 +637,19 @@ services:
       - local-iceberg-lakehouse
     restart: unless-stopped
     profiles:
-      - normalizer
+      - transformer
 
-  adyen-normalizer:
+  adyen-transformer:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/normalizer/Dockerfile.adyen
-    container_name: adyen-normalizer
+      context: ../..
+      dockerfile: services/transformer/docker/Dockerfile.adyen
+    container_name: adyen-transformer
     init: true
     environment:
-      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
-      NORMALIZER_OUTPUT_TOPIC: payments.normalized
-      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
-      NORMALIZER_LOG_LEVEL: INFO
+      TRANSFORMER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      TRANSFORMER_OUTPUT_TOPIC: payments.normalized
+      TRANSFORMER_DLQ_TOPIC: payments.validation.dlq
+      TRANSFORMER_LOG_LEVEL: INFO
     depends_on:
       kafka-broker:
         condition: service_healthy
@@ -659,19 +659,19 @@ services:
       - local-iceberg-lakehouse
     restart: unless-stopped
     profiles:
-      - normalizer
+      - transformer
 
-  braintree-normalizer:
+  braintree-transformer:
     build:
-      context: ../../payment-pipeline
-      dockerfile: docker/normalizer/Dockerfile.braintree
-    container_name: braintree-normalizer
+      context: ../..
+      dockerfile: services/transformer/docker/Dockerfile.braintree
+    container_name: braintree-transformer
     init: true
     environment:
-      NORMALIZER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
-      NORMALIZER_OUTPUT_TOPIC: payments.normalized
-      NORMALIZER_DLQ_TOPIC: payments.validation.dlq
-      NORMALIZER_LOG_LEVEL: INFO
+      TRANSFORMER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      TRANSFORMER_OUTPUT_TOPIC: payments.normalized
+      TRANSFORMER_DLQ_TOPIC: payments.validation.dlq
+      TRANSFORMER_LOG_LEVEL: INFO
     depends_on:
       kafka-broker:
         condition: service_healthy
@@ -681,7 +681,7 @@ services:
       - local-iceberg-lakehouse
     restart: unless-stopped
     profiles:
-      - normalizer
+      - transformer
 
   #####################################
   # TEMPORAL SERVICES (Workflow Orchestration)
@@ -707,7 +707,7 @@ services:
     networks:
       - local-iceberg-lakehouse
     profiles:
-      - orchestrator
+      - temporal
 
   temporal-db:
     image: postgres:14
@@ -726,7 +726,7 @@ services:
     networks:
       - local-iceberg-lakehouse
     profiles:
-      - orchestrator
+      - temporal
 
   temporal:
     image: temporalio/auto-setup:1.24
@@ -751,7 +751,7 @@ services:
     networks:
       - local-iceberg-lakehouse
     profiles:
-      - orchestrator
+      - temporal
 
   temporal-ui:
     image: temporalio/ui:2.26.2
@@ -765,16 +765,16 @@ services:
     networks:
       - local-iceberg-lakehouse
     profiles:
-      - orchestrator
+      - temporal
 
   #####################################
-  # ORCHESTRATOR SERVICE (Temporal Workflows)
+  # TEMPORAL WORKER SERVICE
   #####################################
 
   inference-service:
     build:
-      context: ../../payment-pipeline
-      dockerfile: Dockerfile.inference
+      context: ../..
+      dockerfile: services/inference/docker/Dockerfile
     container_name: inference-service
     init: true
     ports:
@@ -792,39 +792,39 @@ services:
       - local-iceberg-lakehouse
     restart: unless-stopped
     profiles:
-      - orchestrator
+      - temporal
 
-  orchestrator:
+  temporal-worker:
     build:
-      context: ../../payment-pipeline
-      dockerfile: Dockerfile.orchestrator
-    container_name: payment-orchestrator
+      context: ../..
+      dockerfile: services/temporal/docker/Dockerfile
+    container_name: temporal-worker
     init: true
     environment:
-      ORCHESTRATOR_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
-      ORCHESTRATOR_INPUT_TOPIC: payments.normalized
-      ORCHESTRATOR_DLQ_TOPIC: payments.validation.dlq
-      ORCHESTRATOR_KAFKA_CONSUMER_GROUP: orchestrator-group
-      ORCHESTRATOR_TEMPORAL_HOST: temporal:7233
-      ORCHESTRATOR_TEMPORAL_NAMESPACE: default
-      ORCHESTRATOR_TEMPORAL_TASK_QUEUE: payment-processing
-      ORCHESTRATOR_INFERENCE_SERVICE_URL: http://inference-service:8002
+      TEMPORAL_WORKER_KAFKA_BOOTSTRAP_SERVERS: kafka-broker:29092
+      TEMPORAL_WORKER_INPUT_TOPIC: payments.normalized
+      TEMPORAL_WORKER_DLQ_TOPIC: payments.validation.dlq
+      TEMPORAL_WORKER_KAFKA_CONSUMER_GROUP: temporal-worker-group
+      TEMPORAL_WORKER_TEMPORAL_HOST: temporal:7233
+      TEMPORAL_WORKER_TEMPORAL_NAMESPACE: default
+      TEMPORAL_WORKER_TEMPORAL_TASK_QUEUE: payment-processing
+      TEMPORAL_WORKER_INFERENCE_SERVICE_URL: http://inference-service:8002
       # Postgres for payment event storage (replaces direct Iceberg writes)
-      ORCHESTRATOR_POSTGRES_HOST: payments-db
-      ORCHESTRATOR_POSTGRES_PORT: 5432
-      ORCHESTRATOR_POSTGRES_USER: ${PAYMENTS_DB_USER:-payments}
-      ORCHESTRATOR_POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
-      ORCHESTRATOR_POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
+      TEMPORAL_WORKER_POSTGRES_HOST: payments-db
+      TEMPORAL_WORKER_POSTGRES_PORT: 5432
+      TEMPORAL_WORKER_POSTGRES_USER: ${PAYMENTS_DB_USER:-payments}
+      TEMPORAL_WORKER_POSTGRES_PASSWORD: ${PAYMENTS_DB_PASSWORD:-payments}
+      TEMPORAL_WORKER_POSTGRES_DB: ${PAYMENTS_DB_NAME:-payments}
       # Iceberg config (kept for future batch loading)
-      ORCHESTRATOR_ICEBERG_CATALOG_URI: http://polaris:8181/api/catalog
-      ORCHESTRATOR_ICEBERG_WAREHOUSE: polariscatalog
-      ORCHESTRATOR_ICEBERG_NAMESPACE: bronze
-      ORCHESTRATOR_POLARIS_CLIENT_ID: ${POLARIS_USER}
-      ORCHESTRATOR_POLARIS_CLIENT_SECRET: ${POLARIS_PASSWORD}
-      ORCHESTRATOR_S3_ENDPOINT: http://minio:9000
-      ORCHESTRATOR_S3_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
-      ORCHESTRATOR_S3_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
-      ORCHESTRATOR_LOG_LEVEL: INFO
+      TEMPORAL_WORKER_ICEBERG_CATALOG_URI: http://polaris:8181/api/catalog
+      TEMPORAL_WORKER_ICEBERG_WAREHOUSE: polariscatalog
+      TEMPORAL_WORKER_ICEBERG_NAMESPACE: bronze
+      TEMPORAL_WORKER_POLARIS_CLIENT_ID: ${POLARIS_USER}
+      TEMPORAL_WORKER_POLARIS_CLIENT_SECRET: ${POLARIS_PASSWORD}
+      TEMPORAL_WORKER_S3_ENDPOINT: http://minio:9000
+      TEMPORAL_WORKER_S3_ACCESS_KEY: ${AWS_ACCESS_KEY_ID}
+      TEMPORAL_WORKER_S3_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY}
+      TEMPORAL_WORKER_LOG_LEVEL: INFO
     depends_on:
       kafka-broker:
         condition: service_healthy
@@ -838,7 +838,7 @@ services:
       - local-iceberg-lakehouse
     restart: unless-stopped
     profiles:
-      - orchestrator
+      - temporal
 
   #####################################
   # APACHE SUPERSET (BI Dashboard)
