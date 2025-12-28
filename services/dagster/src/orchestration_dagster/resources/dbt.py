@@ -34,9 +34,9 @@ dbt_payment_assets = None
 # Try to find the DBT project
 _possible_paths = [
     Path(os.environ.get("DBT_PROJECT_DIR", "")),  # From env var
-    Path(__file__).resolve().parent.parent.parent.parent.parent / "orchestration-dbt" / "dbt",  # Local dev
+    Path(__file__).resolve().parent.parent.parent.parent.parent.parent / "dbt",  # Local dev (from services/dagster)
     Path("/app/dbt"),  # Container mount point
-    Path("/orchestration-dbt/dbt"),  # Alternative container path
+    Path("/dbt"),  # Alternative container path
 ]
 
 for _path in _possible_paths:

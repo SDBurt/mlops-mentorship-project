@@ -84,7 +84,7 @@ source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt
 cat infrastructure/kubernetes/polaris/.credentials/dagster_user.txt
 ```
 
-Update [orchestration-dagster/set_pyiceberg_env.sh](../../../orchestration-dagster/set_pyiceberg_env.sh) with the new credentials:
+Update [services/dagster/set_pyiceberg_env.sh](../../../services/dagster/set_pyiceberg_env.sh) with the new credentials:
 
 ```bash
 # Replace the PYICEBERG_CATALOG__DEFAULT__CREDENTIAL line with:
@@ -115,7 +115,7 @@ This will test:
 Now you can run Dagster and materialize assets:
 
 ```bash
-cd orchestration-dagster
+cd services/dagster
 source set_pyiceberg_env.sh
 uv run dagster dev
 ```
@@ -337,7 +337,7 @@ make polaris-test
 **Solution**:
 1. Run `make init-polaris` to generate new credentials
 2. Source the credentials: `source infrastructure/kubernetes/polaris/.credentials/dagster_user.txt`
-3. Update `orchestration-dagster/set_pyiceberg_env.sh` with the new credentials
+3. Update `services/dagster/set_pyiceberg_env.sh` with the new credentials
 4. Restart Dagster: `uv run dagster dev`
 
 ### Error: "Bootstrap credentials are required!"
