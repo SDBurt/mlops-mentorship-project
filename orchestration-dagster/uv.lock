@@ -2673,6 +2673,23 @@ wheels = [
 ]
 
 [[package]]
+name = "mlops-contracts"
+version = "0.1.0"
+source = { directory = "../contracts" }
+dependencies = [
+    { name = "pyarrow" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyarrow", specifier = ">=14.0.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
+]
+
+[[package]]
 name = "mmh3"
 version = "5.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3269,6 +3286,7 @@ dependencies = [
     { name = "dagster-postgres" },
     { name = "dbt-trino" },
     { name = "mlflow" },
+    { name = "mlops-contracts" },
     { name = "pandas" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyarrow" },
@@ -3295,6 +3313,7 @@ requires-dist = [
     { name = "dagster-postgres" },
     { name = "dbt-trino", specifier = ">=1.7.0" },
     { name = "mlflow", specifier = "==3.5.0rc0" },
+    { name = "mlops-contracts", directory = "../contracts" },
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1.0" },
     { name = "pyarrow", specifier = ">=14.0.0" },

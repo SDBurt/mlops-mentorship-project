@@ -18,7 +18,11 @@ dependencies = [
     "click>=8.1.0",
     "braintree>=4.40.0",
     "python-multipart>=0.0.19",
+    "mlops-contracts",
 ]
+
+[tool.uv.sources]
+mlops-contracts = { path = "../contracts" }
 
 [project.optional-dependencies]
 dev = [
