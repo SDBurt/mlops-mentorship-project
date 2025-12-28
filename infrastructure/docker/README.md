@@ -1,14 +1,43 @@
-# Docker Compose - Local Lakehouse
+# Docker Compose - Local Platform
 
-This brings up a complete local lakehouse stack using Docker Compose.
+This brings up the complete local platform stack using Docker Compose.
 
-## Services Included
+## Service Groups
 
-- **MinIO** (S3-compatible) – ports 9000 (API), 9001 (Console)
-- **Polaris** (Iceberg REST catalog) – ports 8181/8182
-- **Trino** (SQL engine) – port 8080
-- **Dagster** (orchestration) – port 3000 (webserver), plus daemon and user code
-- **PostgreSQL** (for Dagster metadata)
+### Datalake (Batch Analytics)
+
+| Service | Ports | Description |
+|---------|-------|-------------|
+| MinIO | 9000 (API), 9001 (Console) | S3-compatible object storage |
+| Polaris | 8181, 8182 | Iceberg REST catalog |
+| Trino | 8080 | Distributed SQL engine |
+| Dagster | 3000 | Batch orchestration |
+
+### Streaming (Real-time Pipeline)
+
+| Service | Ports | Description |
+|---------|-------|-------------|
+| Kafka | 9092 | Message broker |
+| Gateways | 8000 (via Traefik) | Webhook ingestion (Stripe, Square, Adyen, Braintree) |
+| Transformers | - | Event validation and normalization |
+| Temporal | 7233 | Workflow orchestration |
+| Temporal UI | 8088 | Workflow monitoring |
+| Temporal Worker | - | Payment workflow execution |
+| Inference Service | 8002 | ML predictions (fraud, churn, retry) |
+
+### MLOps (Feature Store + Experiment Tracking)
+
+| Service | Ports | Description |
+|---------|-------|-------------|
+| Feast Server | 6566 | Feature serving |
+| Feast Redis | 6379 | Online feature store |
+| MLflow | 5001 | Experiment tracking and model registry |
+
+### BI (Business Intelligence)
+
+| Service | Ports | Description |
+|---------|-------|-------------|
+| Superset | 8089 | Interactive dashboards |
 
 References:
 
@@ -142,12 +171,121 @@ The stack includes the following Dagster components:
 
 - **dagster-webserver** – UI at <http://localhost:3000>
 - **dagster-daemon** – Background scheduler for running jobs
-- **dagster-user-code** – Your pipeline code (from `orchestration-dagster/`)
+- **dagster-user-code** – Your pipeline code (from `services/dagster/`)
 - **postgres** – Metadata storage for Dagster
 
 **Prerequisites:**
 
-- Dockerfile must exist in `orchestration-dagster/` directory
-- User code must be properly configured (see `orchestration-dagster/README.md`)
+- Dockerfile must exist in `services/dagster/` directory
+- User code must be properly configured (see `services/dagster/README.md`)
 
 For more details, see the [Dagster OSS Docker Compose docs](https://docs.dagster.io/deployment/oss/deployment-options/docker).
+
+## Infrastructure Services
+
+### Kafka (Message Broker)
+
+Apache Kafka provides the message backbone for the streaming pipeline.
+
+**Image**: `apache/kafka:4.0.0`
+
+**Topics**:
+
+| Topic | Description |
+|-------|-------------|
+| `webhooks.stripe.*` | Raw Stripe webhook events |
+| `webhooks.square.*` | Raw Square webhook events |
+| `webhooks.adyen.*` | Raw Adyen webhook events |
+| `webhooks.braintree.*` | Raw Braintree webhook events |
+| `payments.normalized` | Validated and normalized payment events |
+| `payments.validation.dlq` | Dead letter queue for failed validations |
+
+**Configuration**:
+- Single broker setup (KRaft mode, no Zookeeper)
+- Auto-topic creation enabled
+- 1 partition per topic (dev configuration)
+
+**Access**:
+```bash
+# List topics
+docker exec kafka-broker /opt/kafka/bin/kafka-topics.sh \
+  --list --bootstrap-server localhost:9092
+
+# Consume messages
+docker exec kafka-broker /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic payments.normalized --from-beginning
+```
+
+---
+
+### Temporal (Workflow Orchestration)
+
+Temporal provides durable workflow execution for payment processing.
+
+**Image**: `temporalio/auto-setup:1.24`
+
+**Components**:
+
+| Container | Description |
+|-----------|-------------|
+| `temporal` | Temporal server |
+| `temporal-ui` | Web UI for monitoring workflows |
+| `temporal-db` | PostgreSQL for Temporal metadata |
+
+**Access**:
+- UI: http://localhost:8088
+- gRPC: localhost:7233
+
+**Namespace**: `default`
+
+**Task Queue**: `payment-processing`
+
+---
+
+### MinIO (Object Storage)
+
+MinIO provides S3-compatible object storage for the lakehouse.
+
+**Image**: `minio/minio:RELEASE.2025-09-07T16-13-09Z`
+
+**Buckets**:
+
+| Bucket | Purpose |
+|--------|---------|
+| `warehouse` | Iceberg table data |
+| `features` | Feast feature data |
+| `warehouse/mlflow-artifacts` | MLflow model artifacts |
+
+**Access**:
+- S3 API: http://localhost:9000
+- Console: http://localhost:9001 (admin/password)
+
+**Credentials** (from `.env`):
+- Access Key: `AWS_ACCESS_KEY_ID`
+- Secret Key: `AWS_SECRET_ACCESS_KEY`
+
+---
+
+### Redis (Caching)
+
+Redis is used for online feature storage (Feast) and Superset caching.
+
+**Image**: `redis:7`
+
+**Instances**:
+
+| Container | Port | Purpose |
+|-----------|------|---------|
+| `feast-redis` | 6379 | Feast online feature store |
+| `superset-redis` | - | Superset cache and Celery broker |
+
+---
+
+## Component Documentation
+
+For detailed configuration, see the README in each component folder:
+
+- [MLflow](./mlflow/README.md) - Experiment tracking and model registry
+- [Polaris](./polaris/README.md) - Iceberg REST catalog
+- [Trino](./trino/README.md) - SQL query engine
+- [Superset](./superset-config/README.md) - BI dashboards

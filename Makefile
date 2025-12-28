@@ -6,8 +6,8 @@
 	datalake-up datalake-down analytics-up analytics-down analytics-status ml-up ml-down dagster-refresh \
 	pipeline-up pipeline-down pipeline-status pipeline-logs \
 	gateway-up gateway-down gateway-logs gateway-simulator simulator-stop simulator-logs gateway-build gateway-test gateway-status gateway-test-send \
-	normalizer-up normalizer-down normalizer-logs normalizer-build normalizer-status normalizer-counts \
-	orchestrator-up orchestrator-down orchestrator-logs orchestrator-build orchestrator-status temporal-logs inference-logs inference-build \
+	transformer-up transformer-down transformer-logs transformer-build transformer-status transformer-counts \
+	temporal-worker-up temporal-worker-down temporal-worker-logs temporal-worker-build temporal-worker-status temporal-logs inference-logs inference-build \
 	superset-up superset-down superset-logs superset-status \
 	mlops-up mlops-down mlops-logs mlops-status mlops-build feast-apply feast-status mlflow-ui
 
@@ -17,14 +17,14 @@ DOCKER_COMPOSE := docker compose -f $(DOCKER_DIR)/docker-compose.yml
 # Services directories
 SERVICES_DIR := services
 GATEWAY_DIR := $(SERVICES_DIR)/gateway
-NORMALIZER_DIR := $(SERVICES_DIR)/normalizer
-ORCHESTRATOR_DIR := $(SERVICES_DIR)/orchestrator
+TRANSFORMER_DIR := $(SERVICES_DIR)/transformer
+TEMPORAL_DIR := $(SERVICES_DIR)/temporal
 INFERENCE_DIR := $(SERVICES_DIR)/inference
 DAGSTER_DIR := $(SERVICES_DIR)/dagster
 FEAST_DIR := $(SERVICES_DIR)/feast
 DBT_DIR := dbt
-# Legacy: payment-pipeline still contains simulator tool
-PAYMENT_PIPELINE_DIR := payment-pipeline
+TOOLS_DIR := tools
+SIMULATOR_DIR := $(TOOLS_DIR)/simulator
 
 # Default target - show help
 help:
@@ -33,7 +33,7 @@ help:
 	@echo "3 Independent Stacks:"
 	@echo ""
 	@echo "  A) STREAMING - Real-time payment pipeline (self-contained)"
-	@echo "     make streaming-up        - Start Kafka, Gateways, Normalizers, Temporal, Orchestrator"
+	@echo "     make streaming-up        - Start Kafka, Gateways, Transformers, Temporal Worker"
 	@echo "     make streaming-down      - Stop streaming services"
 	@echo "     make streaming-status    - Show streaming service status"
 	@echo ""
@@ -62,7 +62,7 @@ help:
 	@echo "  make docker-build           - Build/rebuild all images"
 	@echo "  make docker-status          - Show running containers"
 	@echo "  make docker-logs            - View logs from all containers"
-	@echo "  make normalizer-counts      - Show Kafka message counts"
+	@echo "  make transformer-counts     - Show Kafka message counts"
 	@echo ""
 	@echo "Run 'make guide' for step-by-step workflows and examples."
 	@echo ""
@@ -134,14 +134,14 @@ streaming-up:
 	@echo "   Starting Streaming Stack"
 	@echo "=========================================="
 	@echo ""
-	@echo "Components: Kafka, Gateways, Normalizers, Temporal, Orchestrator"
+	@echo "Components: Kafka, Gateways, Transformers, Temporal, Temporal Worker"
 	@echo ""
 	@cd $(DOCKER_DIR) && docker compose up -d kafka-broker
 	@echo "Waiting for Kafka..."
 	@sleep 5
 	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d traefik stripe-gateway square-gateway adyen-gateway braintree-gateway
-	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d temporal-db temporal temporal-ui payments-db inference-service orchestrator
+	@cd $(DOCKER_DIR) && docker compose --profile transformer up -d stripe-transformer square-transformer adyen-transformer braintree-transformer
+	@cd $(DOCKER_DIR) && docker compose --profile temporal up -d temporal-db temporal temporal-ui payments-db inference-service temporal-worker
 	@echo ""
 	@echo "Streaming stack started!"
 	@echo "  Temporal UI: http://localhost:8088"
@@ -149,7 +149,7 @@ streaming-up:
 
 streaming-down:
 	@echo "Stopping Streaming Stack..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator stop
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile simulator stop
 	@cd $(DOCKER_DIR) && docker compose stop kafka-broker
 	@echo "Streaming stopped"
 
@@ -164,7 +164,7 @@ datalake-up:
 	@echo "Components: MinIO, Polaris, Payments DB, Trino, Dagster"
 	@echo ""
 	@cd $(DOCKER_DIR) && docker compose up -d minio minio-client polaris polaris-init
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d payments-db
+	@cd $(DOCKER_DIR) && docker compose --profile temporal up -d payments-db
 	@cd $(DOCKER_DIR) && docker compose up -d postgres trino dbt-init dagster-user-code dagster-webserver dagster-daemon
 	@echo ""
 	@echo "Datalake started!"
@@ -177,7 +177,7 @@ datalake-up:
 datalake-down:
 	@echo "Stopping Datalake Stack..."
 	@cd $(DOCKER_DIR) && docker compose stop dagster-webserver dagster-daemon dagster-user-code trino dbt-init postgres
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator stop payments-db
+	@cd $(DOCKER_DIR) && docker compose --profile temporal stop payments-db
 	@cd $(DOCKER_DIR) && docker compose stop minio minio-client polaris polaris-init
 	@echo "Datalake stopped"
 
@@ -215,13 +215,13 @@ all-up:
 	@echo "=========================================="
 	@echo ""
 	@echo "This starts the complete stack:"
-	@echo "  - Streaming: Kafka, Gateway, Normalizer, Temporal, Orchestrator"
+	@echo "  - Streaming: Kafka, Gateway, Transformer, Temporal Worker"
 	@echo "  - Analytics: MinIO, Polaris, Trino, Dagster"
 	@echo "  - MLOps: Feast, Redis, MLflow"
 	@echo "  - Simulators: Webhook traffic generators (all providers)"
 	@echo "  - Storage: Payments DB, Dagster DB"
 	@echo ""
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator --profile mlops up -d --build
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile simulator --profile mlops up -d --build
 	@echo ""
 	@echo "=========================================="
 	@echo "   All Services Started!"
@@ -245,7 +245,7 @@ all-up:
 # Stop ALL services
 all-down:
 	@echo "Stopping ALL services..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator --profile mlops down
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile simulator --profile mlops down
 	@echo "All services stopped"
 
 # Show streaming pipeline status
@@ -258,12 +258,12 @@ streaming-status:
 	@echo "-----------------"
 	@if docker ps | grep -q kafka-broker; then echo "  [OK] Kafka Broker"; else echo "  [--] Kafka Broker"; fi
 	@if docker ps | grep -q stripe-gateway; then echo "  [OK] Stripe Gateway"; else echo "  [--] Stripe Gateway"; fi
-	@if docker ps | grep -q stripe-normalizer; then echo "  [OK] Stripe Normalizer"; else echo "  [--] Stripe Normalizer"; fi
+	@if docker ps | grep -q stripe-transformer; then echo "  [OK] Stripe Transformer"; else echo "  [--] Stripe Transformer"; fi
 	@if docker ps | grep -q payments-db; then echo "  [OK] Payments DB"; else echo "  [--] Payments DB"; fi
 	@if docker ps | grep -q "temporal$$"; then echo "  [OK] Temporal"; else echo "  [--] Temporal"; fi
 	@if docker ps | grep -q temporal-ui; then echo "  [OK] Temporal UI"; else echo "  [--] Temporal UI"; fi
 	@if docker ps | grep -q inference-service; then echo "  [OK] Inference Service"; else echo "  [--] Inference Service"; fi
-	@if docker ps | grep -q payment-orchestrator; then echo "  [OK] Orchestrator"; else echo "  [--] Orchestrator"; fi
+	@if docker ps | grep -q temporal-worker; then echo "  [OK] Temporal Worker"; else echo "  [--] Temporal Worker"; fi
 	@echo ""
 	@echo "Commands:"
 	@echo "  make streaming-up       - Start streaming pipeline"
@@ -357,7 +357,7 @@ docker-status:
 	@echo ""
 	@echo "Container Status:"
 	@echo "----------------"
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile superset --profile mlops ps
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile superset --profile mlops ps
 	@echo ""
 	@echo "Service URLs & Ports:"
 	@echo "---------------------"
@@ -409,10 +409,10 @@ pipeline-up:
 	@echo "Components:"
 	@echo "  - Kafka Broker (message queue)"
 	@echo "  - Payment Gateway (webhook receiver)"
-	@echo "  - Normalizer (validation & transformation)"
+	@echo "  - Transformer (validation & normalization)"
 	@echo "  - Temporal (workflow orchestration)"
 	@echo "  - Inference Service (ML mock endpoints)"
-	@echo "  - Orchestrator (Temporal workflows)"
+	@echo "  - Temporal Worker (Temporal workflows)"
 	@echo ""
 	@echo "Starting Kafka..."
 	@cd $(DOCKER_DIR) && docker compose up -d kafka-broker
@@ -423,17 +423,17 @@ pipeline-up:
 	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d traefik stripe-gateway square-gateway adyen-gateway braintree-gateway
 	@sleep 3
 	@echo ""
-	@echo "Starting Normalizers..."
-	@cd $(DOCKER_DIR) && docker compose --profile normalizer up -d stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer
+	@echo "Starting Transformers..."
+	@cd $(DOCKER_DIR) && docker compose --profile transformer up -d stripe-transformer square-transformer adyen-transformer braintree-transformer
 	@sleep 2
 	@echo ""
 	@echo "Starting Temporal..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d temporal-db temporal temporal-ui payments-db
+	@cd $(DOCKER_DIR) && docker compose --profile temporal up -d temporal-db temporal temporal-ui payments-db
 	@echo "Waiting for Temporal to be ready..."
 	@sleep 10
 	@echo ""
-	@echo "Starting Inference Service and Orchestrator..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator up -d inference-service orchestrator
+	@echo "Starting Inference Service and Temporal Worker..."
+	@cd $(DOCKER_DIR) && docker compose --profile temporal up -d inference-service temporal-worker
 	@sleep 3
 	@echo ""
 	@echo "=========================================="
@@ -451,29 +451,29 @@ pipeline-up:
 	@echo "  1. Start simulator:  make gateway-simulator"
 	@echo "  2. View logs:        make pipeline-logs"
 	@echo "  3. Check status:     make pipeline-status"
-	@echo "  4. View counts:      make normalizer-counts"
+	@echo "  4. View counts:      make transformer-counts"
 
 # Stop full payment pipeline
 pipeline-down:
 	@echo "Stopping Payment Pipeline..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator --profile simulator stop \
-		orchestrator inference-service temporal-ui temporal temporal-db \
-		stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer \
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile simulator stop \
+		temporal-worker inference-service temporal-ui temporal temporal-db \
+		stripe-transformer square-transformer adyen-transformer braintree-transformer \
 		traefik stripe-gateway square-gateway adyen-gateway braintree-gateway \
 		stripe-simulator square-simulator adyen-simulator braintree-simulator \
 		kafka-broker 2>/dev/null || true
 	@echo "Payment Pipeline stopped"
 
 # Show all pipeline component status
-pipeline-status: gateway-status normalizer-status orchestrator-status
+pipeline-status: gateway-status transformer-status temporal-worker-status
 
 # View all pipeline logs
 pipeline-logs:
 	@echo "Viewing Pipeline logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator logs -f \
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal logs -f \
 		kafka-broker traefik stripe-gateway square-gateway adyen-gateway braintree-gateway \
-		stripe-normalizer square-normalizer adyen-normalizer braintree-normalizer \
-		orchestrator inference-service temporal
+		stripe-transformer square-transformer adyen-transformer braintree-transformer \
+		temporal-worker inference-service temporal
 
 ##################################################
 # PAYMENT GATEWAY COMMANDS
@@ -541,11 +541,12 @@ simulator-logs:
 	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator logs -f \
 		stripe-simulator square-simulator adyen-simulator braintree-simulator
 
-# Build payment gateway Docker image
+# Build payment gateway Docker images (all providers)
 gateway-build:
-	@echo "Building Payment Gateway Docker image..."
-	@docker build -f $(GATEWAY_DIR)/Dockerfile -t payment-gateway:latest .
-	@echo "Payment Gateway image built: payment-gateway:latest"
+	@echo "Building Payment Gateway Docker images..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway build \
+		stripe-gateway square-gateway adyen-gateway braintree-gateway
+	@echo "Payment Gateway images built"
 
 # Run payment gateway unit tests
 gateway-test:
@@ -561,8 +562,7 @@ gateway-test-send:
 		echo "   Start it first: make gateway-up"; \
 		exit 1; \
 	fi
-	@cd $(PAYMENT_PIPELINE_DIR) && pip install -e . -q && \
-		python -m simulator.main send --type payment_intent.succeeded
+	@cd $(SIMULATOR_DIR) && python -m simulator.main send --type payment_intent.succeeded
 	@echo ""
 	@echo "Test webhook sent!"
 
@@ -629,22 +629,22 @@ gateway-status:
 	@echo "  make gateway-test-send   - Send single test webhook"
 
 ##################################################
-# NORMALIZER COMMANDS
+# TRANSFORMER COMMANDS
 ##################################################
 
-# Build normalizer Docker image
-normalizer-build:
-	@echo "Building Normalizer Docker image..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer build normalizer
-	@echo "Normalizer image built"
+# Build transformer Docker image
+transformer-build:
+	@echo "Building Transformer Docker image..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer build transformer
+	@echo "Transformer image built"
 
-# Start normalizer with gateway
-normalizer-up: gateway-up
+# Start transformer with gateway
+transformer-up: gateway-up
 	@echo ""
-	@echo "Starting Normalizer..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer up -d normalizer
+	@echo "Starting Transformer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer up -d stripe-transformer
 	@echo ""
-	@echo "Normalizer started!"
+	@echo "Transformer started!"
 	@echo ""
 	@echo "Access URLs:"
 	@echo "  Gateway API:      http://localhost:8000"
@@ -658,32 +658,32 @@ normalizer-up: gateway-up
 	@echo ""
 	@echo "Next steps:"
 	@echo "  1. Start simulator:  make gateway-simulator"
-	@echo "  2. View logs:        make normalizer-logs"
-	@echo "  3. Check status:     make normalizer-status"
+	@echo "  2. View logs:        make transformer-logs"
+	@echo "  3. Check status:     make transformer-status"
 
-# Stop normalizer
-normalizer-down:
-	@echo "Stopping Normalizer..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer stop normalizer
-	@echo "Normalizer stopped"
+# Stop transformer
+transformer-down:
+	@echo "Stopping Transformer..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer stop stripe-transformer
+	@echo "Transformer stopped"
 
-# View normalizer logs
-normalizer-logs:
-	@echo "Viewing Normalizer logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer logs -f normalizer
+# View transformer logs
+transformer-logs:
+	@echo "Viewing Transformer logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer logs -f stripe-transformer
 
-# Show normalizer status
-normalizer-status:
+# Show transformer status
+transformer-status:
 	@echo "=========================================="
-	@echo "   Normalizer Status"
+	@echo "   Transformer Status"
 	@echo "=========================================="
 	@echo ""
 	@echo "Container Status:"
 	@echo "-----------------"
-	@if docker ps | grep -q payment-normalizer; then \
-		echo "  [OK] Normalizer: running"; \
+	@if docker ps | grep -qE "(stripe|square|adyen|braintree)-transformer"; then \
+		echo "  [OK] Transformer: running"; \
 	else \
-		echo "  [--] Normalizer: not running"; \
+		echo "  [--] Transformer: not running"; \
 	fi
 	@if docker ps | grep -q stripe-gateway; then \
 		echo "  [OK] Gateway: running"; \
@@ -706,13 +706,13 @@ normalizer-status:
 	fi
 	@echo ""
 	@echo "Commands:"
-	@echo "  make normalizer-up      - Start normalizer with gateway"
-	@echo "  make normalizer-logs    - View normalizer logs"
-	@echo "  make normalizer-counts  - Show message counts"
-	@echo "  make normalizer-down    - Stop normalizer"
+	@echo "  make transformer-up      - Start transformer with gateway"
+	@echo "  make transformer-logs    - View transformer logs"
+	@echo "  make transformer-counts  - Show message counts"
+	@echo "  make transformer-down    - Stop transformer"
 
-# Check normalized message counts
-normalizer-counts:
+# Check message counts
+transformer-counts:
 	@echo "Kafka Topic Message Counts:"
 	@echo "==========================="
 	@if docker ps | grep -q kafka-broker; then \
@@ -739,71 +739,71 @@ normalizer-counts:
 	fi
 
 ##################################################
-# ORCHESTRATOR COMMANDS
+# TEMPORAL WORKER COMMANDS
 ##################################################
 
-# Build orchestrator Docker image
-orchestrator-build:
-	@echo "Building Orchestrator Docker image..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator build orchestrator
-	@echo "Orchestrator image built"
+# Build temporal worker Docker image
+temporal-worker-build:
+	@echo "Building Temporal Worker Docker image..."
+	@cd $(DOCKER_DIR) && docker compose --profile temporal build temporal-worker
+	@echo "Temporal Worker image built"
 
 # Build inference service Docker image
 inference-build:
 	@echo "Building Inference Service Docker image..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator build inference-service
+	@cd $(DOCKER_DIR) && docker compose --profile temporal build inference-service
 	@echo "Inference Service image built"
 
-# Start orchestrator with all dependencies
-orchestrator-up: normalizer-up
+# Start temporal worker with all dependencies
+temporal-worker-up: transformer-up
 	@echo ""
-	@echo "Starting Temporal and Orchestrator..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile normalizer --profile orchestrator up -d temporal-db temporal temporal-ui inference-service orchestrator
+	@echo "Starting Temporal and Temporal Worker..."
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal up -d temporal-db temporal temporal-ui inference-service temporal-worker
 	@echo ""
-	@echo "Orchestrator started!"
+	@echo "Temporal Worker started!"
 	@echo ""
 	@echo "Access Points:"
 	@echo "  - Temporal UI:        http://localhost:8088"
 	@echo "  - Inference Service:  http://localhost:8002"
 	@echo ""
 	@echo "Commands:"
-	@echo "  make orchestrator-logs    - View orchestrator logs"
-	@echo "  make orchestrator-status  - Show orchestrator status"
-	@echo "  make orchestrator-down    - Stop orchestrator"
+	@echo "  make temporal-worker-logs    - View temporal worker logs"
+	@echo "  make temporal-worker-status  - Show temporal worker status"
+	@echo "  make temporal-worker-down    - Stop temporal worker"
 
-# Stop orchestrator
-orchestrator-down:
-	@echo "Stopping Orchestrator and Temporal..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator stop orchestrator inference-service temporal-ui temporal temporal-db
-	@echo "Orchestrator stopped"
+# Stop temporal worker
+temporal-worker-down:
+	@echo "Stopping Temporal Worker and Temporal..."
+	@cd $(DOCKER_DIR) && docker compose --profile temporal stop temporal-worker inference-service temporal-ui temporal temporal-db
+	@echo "Temporal Worker stopped"
 
-# View orchestrator logs
-orchestrator-logs:
-	@echo "Viewing Orchestrator logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator logs -f orchestrator
+# View temporal worker logs
+temporal-worker-logs:
+	@echo "Viewing Temporal Worker logs (Ctrl+C to exit)..."
+	@cd $(DOCKER_DIR) && docker compose --profile temporal logs -f temporal-worker
 
 # View temporal logs
 temporal-logs:
 	@echo "Viewing Temporal logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator logs -f temporal
+	@cd $(DOCKER_DIR) && docker compose --profile temporal logs -f temporal
 
 # View inference service logs
 inference-logs:
 	@echo "Viewing Inference Service logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile orchestrator logs -f inference-service
+	@cd $(DOCKER_DIR) && docker compose --profile temporal logs -f inference-service
 
-# Show orchestrator status
-orchestrator-status:
+# Show temporal worker status
+temporal-worker-status:
 	@echo "=========================================="
-	@echo "   Orchestrator Status"
+	@echo "   Temporal Worker Status"
 	@echo "=========================================="
 	@echo ""
 	@echo "Container Status:"
 	@echo "-----------------"
-	@if docker ps | grep -q payment-orchestrator; then \
-		echo "  [OK] Orchestrator: running"; \
+	@if docker ps | grep -q temporal-worker; then \
+		echo "  [OK] Temporal Worker: running"; \
 	else \
-		echo "  [--] Orchestrator: not running"; \
+		echo "  [--] Temporal Worker: not running"; \
 	fi
 	@if docker ps | grep -q inference-service; then \
 		echo "  [OK] Inference Service: running"; \
@@ -832,11 +832,11 @@ orchestrator-status:
 	@echo "  - Inference Service:  http://localhost:8002/health"
 	@echo ""
 	@echo "Commands:"
-	@echo "  make orchestrator-up      - Start orchestrator with dependencies"
-	@echo "  make orchestrator-logs    - View orchestrator logs"
-	@echo "  make temporal-logs        - View temporal logs"
-	@echo "  make inference-logs       - View inference service logs"
-	@echo "  make orchestrator-down    - Stop orchestrator"
+	@echo "  make temporal-worker-up      - Start temporal worker with dependencies"
+	@echo "  make temporal-worker-logs    - View temporal worker logs"
+	@echo "  make temporal-logs           - View temporal logs"
+	@echo "  make inference-logs          - View inference service logs"
+	@echo "  make temporal-worker-down    - Stop temporal worker"
 
 ##################################################
 # APACHE SUPERSET COMMANDS
