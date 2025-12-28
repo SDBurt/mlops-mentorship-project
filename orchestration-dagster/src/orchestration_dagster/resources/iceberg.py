@@ -16,7 +16,7 @@ import os
 
 def create_iceberg_io_manager(
     namespace: str = "data",
-    backend: Literal["pandas", "pyarrow"] = "pandas",
+    backend: Literal["pandas", "pyarrow"] = "pyarrow",
     use_vended_credentials: bool = False
 ) -> Union[PandasIcebergIOManager, PyArrowIcebergIOManager]:
     """
@@ -30,7 +30,7 @@ def create_iceberg_io_manager(
 
     Args:
         namespace: Schema namespace for tables (default: "data" for single namespace)
-        backend: Data format backend - "pandas" or "pyarrow" (default: "pandas")
+        backend: Data format backend - "pandas" or "pyarrow" (default: "pyarrow")
         use_vended_credentials: Use Polaris vended credentials for S3 (AWS only, not MinIO)
 
     Returns:
@@ -44,24 +44,24 @@ def create_iceberg_io_manager(
         PYICEBERG_CATALOG__DEFAULT__S3__SECRET_ACCESS_KEY: MinIO secret key
 
     Backend Selection:
+        - "pyarrow" (default): Use PyArrowIcebergIOManager (assets return pa.Table)
+          Best for: Explicit schema control, Iceberg v2 compatibility, better performance
+
         - "pandas": Use PandasIcebergIOManager (assets return pd.DataFrame)
           Best for: Small-to-medium datasets, familiar API, interactive analysis
 
-        - "pyarrow": Use PyArrowIcebergIOManager (assets return pa.Table)
-          Best for: Large datasets, better performance, memory efficiency
-
     Examples:
-        >>> # Pandas backend (default)
+        >>> # PyArrow backend (default) - recommended for Iceberg v2 compatibility
         >>> defs = Definitions(
         ...     resources={
         ...         "iceberg_io_manager": create_iceberg_io_manager(),
         ...     }
         ... )
 
-        >>> # PyArrow backend for performance
+        >>> # Pandas backend (if needed for legacy compatibility)
         >>> defs = Definitions(
         ...     resources={
-        ...         "iceberg_io_manager": create_iceberg_io_manager(backend="pyarrow"),
+        ...         "iceberg_io_manager": create_iceberg_io_manager(backend="pandas"),
         ...     }
         ... )
     """

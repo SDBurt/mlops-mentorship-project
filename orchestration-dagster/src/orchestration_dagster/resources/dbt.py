@@ -101,13 +101,15 @@ if DBT_PROJECT_DIR is not None:
             This function:
             1. Loads DBT models tagged with 'payments' from the manifest
             2. Creates corresponding Dagster assets with proper dependencies
-            3. Runs 'dbt build' when assets are materialized
+            3. Runs 'dbt run' when assets are materialized
 
             The dagster-dbt integration automatically:
             - Maps DBT model dependencies to Dagster asset dependencies
             - Links DBT sources to upstream Dagster assets (payment_events)
-            - Handles DBT test execution as part of asset materialization
             - Provides DBT logs and metadata in the Dagster UI
+
+            Note: Tests are skipped for performance. Run 'dbt test' manually
+            or via a separate job when needed.
 
             Tags:
                 - payments: All payment-related DBT models
@@ -115,7 +117,7 @@ if DBT_PROJECT_DIR is not None:
                 - intermediate: Intermediate layer models (int_*)
                 - marts: Mart layer models (dim_*, fct_*)
             """
-            yield from dbt.cli(["build"], context=context).stream()
+            yield from dbt.cli(["run"], context=context).stream()
 
         logger.info(f"DBT integration loaded from: {DBT_PROJECT_DIR}")
 

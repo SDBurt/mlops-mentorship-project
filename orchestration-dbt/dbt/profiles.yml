@@ -15,10 +15,11 @@ lakehouse:
       port: 8080
       database: iceberg  # Trino catalog name (connected to Polaris)
       schema: data  # Namespace where Iceberg tables are stored
-      threads: 4
+      threads: 2
       http_scheme: http
       session_properties:
         query_max_run_time: 4h
+        query_max_memory: 512MB
 
     prod:
       type: trino
