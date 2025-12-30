@@ -11,14 +11,17 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy contracts package (dependency)
+COPY contracts/ /contracts/
+
 # Copy project files
-COPY pyproject.toml ./
-COPY src/ ./src/
-COPY README.md ./
+COPY services/dagster/pyproject.toml ./
+COPY services/dagster/src/ ./src/
+COPY services/dagster/README.md ./
 
 # Install Python dependencies using pip
 # Note: Using pip instead of uv for simpler container builds
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir /contracts && pip install --no-cache-dir -e .
 
 # Expose Dagster gRPC server port
 EXPOSE 3030

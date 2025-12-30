@@ -15,8 +15,8 @@ COPY services/gateway/pyproject.toml ./
 COPY services/gateway/src/ ./src/
 COPY tools/simulator/ ./simulator/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir /contracts && pip install --no-cache-dir -e .
+# Install Python dependencies (gateway + simulator deps)
+RUN pip install --no-cache-dir /contracts && pip install --no-cache-dir -e . && pip install --no-cache-dir httpx click
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \

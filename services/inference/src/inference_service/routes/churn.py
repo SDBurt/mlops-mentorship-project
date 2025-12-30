@@ -103,11 +103,11 @@ async def predict_churn(request: ChurnPredictionRequest) -> ChurnPredictionRespo
     Tries to use Feast for real-time features and MLflow for the model.
     Falls back to mock logic if MLOps components are unavailable.
     """
-    from ..main import models, feature_store
+    from ..main import get_model, feature_store
 
     logger.info(f"Predicting churn for customer: {request.customer_id}")
 
-    model = models.get("churn-prediction")
+    model = get_model("churn-prediction")
     churn_probability = None
     risk_factors = []
     recommended_actions = []

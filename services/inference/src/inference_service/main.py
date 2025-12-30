@@ -6,7 +6,13 @@ from typing import Dict, Any
 
 import mlflow
 from fastapi import FastAPI
-from feast import FeatureStore
+
+try:
+    from feast import FeatureStore
+    FEAST_AVAILABLE = True
+except ImportError:
+    FeatureStore = None
+    FEAST_AVAILABLE = False
 
 from .config import settings
 from .routes import fraud, retry, churn, recovery
@@ -20,7 +26,33 @@ logger = logging.getLogger(__name__)
 # Global state for models and feature store
 # In production, you might use a dependency injection pattern
 models: Dict[str, Any] = {}
+_model_load_attempted: Dict[str, bool] = {}
 feature_store: FeatureStore = None
+
+
+def get_model(name: str) -> Any:
+    """
+    Lazy-load a model from MLflow on first request.
+    Returns None if model cannot be loaded (falls back to mock logic).
+    """
+    if name in models:
+        return models[name]
+
+    if name in _model_load_attempted:
+        # Already tried and failed
+        return None
+
+    _model_load_attempted[name] = True
+
+    try:
+        model_uri = f"models:/{name}/Production"
+        logger.info(f"Lazy-loading model: {model_uri}")
+        models[name] = mlflow.sklearn.load_model(model_uri)
+        logger.info(f"Successfully loaded model: {name}")
+        return models[name]
+    except Exception as e:
+        logger.warning(f"Failed to load model {name}: {e}. Using mock logic.")
+        return None
 
 
 @asynccontextmanager
@@ -28,31 +60,24 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for loading models and feature store."""
     global feature_store
 
-    # Initialize MLflow
+    # Initialize MLflow (non-blocking - models loaded lazily on first request)
     logger.info(f"Setting MLflow tracking URI to: {settings.mlflow_tracking_uri}")
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
 
-    # Load models
-    model_names = ["fraud-detection", "churn-prediction"]
-    for name in model_names:
-        try:
-            # Load latest production model from registry
-            model_uri = f"models:/{name}/Production"
-            logger.info(f"Loading model: {model_uri}")
-            models[name] = mlflow.sklearn.load_model(model_uri)
-            logger.info(f"Successfully loaded model: {name}")
-        except Exception as e:
-            logger.error(f"Failed to load model {name}: {e}. Falling back to mock logic.")
-            models[name] = None
+    # Skip blocking model load at startup - models will be loaded on first request
+    # This allows the health check to pass quickly
+    logger.info("Inference service started - models will be loaded on first request")
 
     # Initialize Feast FeatureStore
-    try:
-        # In Docker environment, FEAST_REPO_PATH should point to the directory
-        # containing feature_store.yaml
-        feature_store = FeatureStore(repo_path=settings.feast_repo_path)
-        logger.info(f"Feast FeatureStore initialized from {settings.feast_repo_path}")
-    except Exception as e:
-        logger.error(f"Failed to initialize Feast FeatureStore: {e}")
+    if FEAST_AVAILABLE:
+        try:
+            feature_store = FeatureStore(repo_path=settings.feast_repo_path)
+            logger.info(f"Feast FeatureStore initialized from {settings.feast_repo_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Feast FeatureStore: {e}")
+            feature_store = None
+    else:
+        logger.warning("Feast not available - running without feature store")
         feature_store = None
 
     yield

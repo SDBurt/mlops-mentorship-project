@@ -13,6 +13,12 @@ storage:
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 5
+    tag_concurrency_limits:
+      - key: "dagster/concurrency_key"
+        value: "payment_pipeline"
+        limit: 1
 
 # Use local filesystem for compute logs inside the container
 compute_logs:

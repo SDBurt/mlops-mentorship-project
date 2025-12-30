@@ -91,11 +91,11 @@ async def get_fraud_score(request: FraudScoreRequest) -> FraudScoreResponse:
     Tries to use Feast for real-time features and MLflow for the model.
     Falls back to mock logic if MLOps components are unavailable.
     """
-    from ..main import models, feature_store
+    from ..main import get_model, feature_store
 
     logger.info(f"Scoring fraud for event: {request.event_id}")
 
-    model = models.get("fraud-detection")
+    model = get_model("fraud-detection")
     fraud_score = None
     risk_factors = []
     model_version = settings.model_version

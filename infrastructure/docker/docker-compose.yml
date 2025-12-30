@@ -225,8 +225,8 @@ services:
 
   dagster-user-code:
     build:
-      context: ../../services/dagster
-      dockerfile: ./Dockerfile
+      context: ../..
+      dockerfile: services/dagster/Dockerfile
     image: dagster_user_code_image
     container_name: dagster_user_code
     init: true

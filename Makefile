@@ -140,7 +140,7 @@ streaming-up:
 	@echo "Waiting for Kafka..."
 	@sleep 5
 	@cd $(DOCKER_DIR) && docker compose --profile gateway up -d traefik stripe-gateway square-gateway adyen-gateway braintree-gateway
-	@cd $(DOCKER_DIR) && docker compose --profile transformer up -d stripe-transformer square-transformer adyen-transformer braintree-transformer
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer up -d stripe-transformer square-transformer adyen-transformer braintree-transformer
 	@cd $(DOCKER_DIR) && docker compose --profile temporal up -d temporal-db temporal temporal-ui payments-db inference-service temporal-worker
 	@echo ""
 	@echo "Streaming stack started!"
@@ -519,7 +519,7 @@ gateway-logs:
 gateway-simulator:
 	@echo "Starting Webhook Simulators (all providers)..."
 	@echo ""
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator up -d \
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile simulator up -d \
 		stripe-simulator square-simulator adyen-simulator braintree-simulator
 	@echo ""
 	@echo "Simulators started! Generating webhooks at 2/sec per provider"
@@ -531,14 +531,14 @@ gateway-simulator:
 # Stop webhook simulators
 simulator-stop:
 	@echo "Stopping Webhook Simulators..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator stop \
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile simulator stop \
 		stripe-simulator square-simulator adyen-simulator braintree-simulator
 	@echo "Webhook Simulators stopped"
 
 # View webhook simulator logs
 simulator-logs:
 	@echo "Viewing Simulator logs (Ctrl+C to exit)..."
-	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile simulator logs -f \
+	@cd $(DOCKER_DIR) && docker compose --profile gateway --profile transformer --profile temporal --profile simulator logs -f \
 		stripe-simulator square-simulator adyen-simulator braintree-simulator
 
 # Build payment gateway Docker images (all providers)

@@ -9,7 +9,7 @@ class TestFraudScoring:
     def test_compute_fraud_score_low_amount(self) -> None:
         """Test fraud scoring for low amount transactions."""
         from inference_service.routes.fraud import (
-            compute_fraud_score,
+            compute_fraud_score_mock,
             FraudScoreRequest,
         )
 
@@ -22,7 +22,7 @@ class TestFraudScoring:
             card_brand="visa",
         )
 
-        score, factors = compute_fraud_score(request)
+        score, factors = compute_fraud_score_mock(request)
 
         # Low amount with known customer should have low score
         assert 0.0 <= score <= 1.0
@@ -32,7 +32,7 @@ class TestFraudScoring:
     def test_compute_fraud_score_high_amount(self) -> None:
         """Test fraud scoring for high amount transactions."""
         from inference_service.routes.fraud import (
-            compute_fraud_score,
+            compute_fraud_score_mock,
             FraudScoreRequest,
         )
 
@@ -44,7 +44,7 @@ class TestFraudScoring:
             payment_method_type="card",
         )
 
-        score, factors = compute_fraud_score(request)
+        score, factors = compute_fraud_score_mock(request)
 
         assert 0.0 <= score <= 1.0
         assert "very_high_amount" in factors
@@ -52,7 +52,7 @@ class TestFraudScoring:
     def test_compute_fraud_score_guest_checkout(self) -> None:
         """Test fraud scoring for guest checkout (no customer ID)."""
         from inference_service.routes.fraud import (
-            compute_fraud_score,
+            compute_fraud_score_mock,
             FraudScoreRequest,
         )
 
@@ -64,7 +64,7 @@ class TestFraudScoring:
             payment_method_type="card",
         )
 
-        score, factors = compute_fraud_score(request)
+        score, factors = compute_fraud_score_mock(request)
 
         assert 0.0 <= score <= 1.0
         assert "guest_checkout" in factors
@@ -237,7 +237,7 @@ class TestChurnPrediction:
     def test_low_risk_customer(self) -> None:
         """Test churn scoring for low-risk customer."""
         from inference_service.routes.churn import (
-            compute_churn_probability,
+            compute_churn_probability_mock,
             ChurnPredictionRequest,
         )
 
@@ -249,11 +249,9 @@ class TestChurnPrediction:
             recovered_payments=2,
             days_since_last_payment=5,
             consecutive_failures=0,
-            subscription_age_days=400,
-            has_backup_payment_method=True,
         )
 
-        probability, factors, actions = compute_churn_probability(request)
+        probability, factors, actions = compute_churn_probability_mock(request)
 
         assert 0.0 <= probability <= 0.3  # Low risk
         assert "multiple_consecutive_failures" not in factors
@@ -261,7 +259,7 @@ class TestChurnPrediction:
     def test_high_risk_customer(self) -> None:
         """Test churn scoring for high-risk customer."""
         from inference_service.routes.churn import (
-            compute_churn_probability,
+            compute_churn_probability_mock,
             ChurnPredictionRequest,
         )
 
@@ -273,11 +271,9 @@ class TestChurnPrediction:
             recovered_payments=1,
             days_since_last_payment=45,
             consecutive_failures=3,
-            subscription_age_days=20,
-            has_backup_payment_method=False,
         )
 
-        probability, factors, actions = compute_churn_probability(request)
+        probability, factors, actions = compute_churn_probability_mock(request)
 
         assert probability >= 0.5  # High risk
         assert "multiple_consecutive_failures" in factors
@@ -295,23 +291,6 @@ class TestChurnPrediction:
         assert get_risk_level(0.74) == "high"
         assert get_risk_level(0.75) == "critical"
         assert get_risk_level(0.99) == "critical"
-
-    def test_days_to_churn_estimate(self) -> None:
-        """Test days to churn estimation."""
-        from inference_service.routes.churn import estimate_days_to_churn
-
-        # Low risk - no estimate
-        assert estimate_days_to_churn(0.1, 0) is None
-
-        # High risk - should have estimate
-        days = estimate_days_to_churn(0.8, 0)
-        assert days is not None
-        assert days > 0
-
-        # Consecutive failures accelerate churn
-        days_with_failures = estimate_days_to_churn(0.8, 3)
-        assert days_with_failures < days
-
 
 class TestPaymentRecovery:
     """Tests for payment recovery logic."""

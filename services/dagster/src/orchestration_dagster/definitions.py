@@ -30,10 +30,12 @@ from .ml.data_quality import validate_customer_features, validate_merchant_featu
 
 # Job for Payment PostgreSQL to Iceberg ingestion
 # Note: Only includes payment_events, excludes quarantine (runs separately when needed)
+# Concurrency key ensures only one payment pipeline job runs at a time
 payment_ingestion_job = define_asset_job(
     name="payment_ingestion_job",
     selection=AssetSelection.assets(payment_events),
     description="Ingest payment events from PostgreSQL bronze layer to Iceberg",
+    tags={"dagster/concurrency_key": "payment_pipeline"},
 )
 
 # =============================================================================
@@ -145,10 +147,12 @@ if dbt_payment_assets is not None and dbt_project is not None:
 
     # Add full pipeline job (ingestion + DBT)
     # Note: Excludes quarantine asset as it's optional and only processes failed events
+    # Concurrency key ensures only one payment pipeline job runs at a time
     payment_pipeline_job = define_asset_job(
         name="payment_pipeline_job",
         selection=AssetSelection.assets(payment_events) | AssetSelection.assets(dbt_payment_assets),
         description="Full payment pipeline: PostgreSQL ingestion + DBT transformations",
+        tags={"dagster/concurrency_key": "payment_pipeline"},
     )
     all_jobs.append(payment_pipeline_job)
 
