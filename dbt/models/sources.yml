@@ -119,10 +119,13 @@ sources:
             description: "Schema version for evolution tracking"
 
       # Quarantine table for failed/invalid events
+      # Note: Table created by Dagster when quarantine events exist
       - name: payment_events_quarantine
         description: |
           Quarantined payment events that failed validation.
           Contains original payload for manual review and reprocessing.
+        config:
+          enabled: false  # Table may not exist until quarantine events occur
         columns:
           - name: event_id
             description: "Event identifier"

@@ -202,4 +202,37 @@ infrastructure/helm/
 **/dbt_packages/
 **/target/
 
+# ============================================================================
+# Service-specific ignores
+# ============================================================================
+
+# Dagster runtime artifacts
+**/history/
+**/schedules/
+**/compute_logs/
+**/storage/
+
+# Feast feature store
+**/.feastignore
+**/feature_store.db
+**/.feast/
+
+# Temporal (if running locally)
+**/temporal-data/
+
+# MLflow artifacts
+**/mlruns/
+**/mlartifacts/
+
+# ============================================================================
+# Stale/deprecated directories
+# ============================================================================
+
+# Old orchestration directory (replaced by services/dagster)
+orchestration-dagster/
+
+# ============================================================================
+# Infrastructure ignores
+# ============================================================================
+
 infrastructure/docker/superset
