@@ -1,0 +1,91 @@
+# Default values for payment-gateway
+# This is a base configuration - override with provider-specific values files
+
+replicaCount: 1
+
+image:
+  repository: localhost:5000/payment-gateway
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Provider configuration (override in values-<provider>.yaml)
+provider:
+  name: ""  # stripe, square, adyen, braintree
+  webhookSecretKey: "WEBHOOK_SECRET"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Autoscaling (optional)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Application configuration
+config:
+  logLevel: "INFO"
+  kafkaBootstrapServers: "kafka:9092"
+  kafkaConnectionRetries: 10
+  kafkaRetryDelay: 2.0
+  kafkaRetryMaxDelay: 30.0
+
+# Topics configuration (override per provider)
+topics:
+  paymentIntent: ""
+  charge: ""
+  refund: ""
+
+# Health check configuration
+healthCheck:
+  path: /health
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Secret configuration
+secret:
+  # Use an existing secret instead of creating one
+  existingSecret: ""
+  # Webhook secret value (only used if existingSecret is not set)
+  # Set via --set secret.webhookSecret=<your-secret> for security
+  webhookSecret: ""

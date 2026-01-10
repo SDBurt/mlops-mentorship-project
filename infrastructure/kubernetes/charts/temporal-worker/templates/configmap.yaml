@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "temporal-worker.fullname" . }}-config
+  labels:
+    {{- include "temporal-worker.labels" . | nindent 4 }}
+data:
+  # Logging
+  TEMPORAL_WORKER_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+
+  # Kafka
+  TEMPORAL_WORKER_KAFKA_BOOTSTRAP_SERVERS: {{ .Values.kafka.bootstrapServers | quote }}
+  TEMPORAL_WORKER_INPUT_TOPIC: {{ .Values.kafka.inputTopic | quote }}
+  TEMPORAL_WORKER_DLQ_TOPIC: {{ .Values.kafka.dlqTopic | quote }}
+  TEMPORAL_WORKER_KAFKA_CONSUMER_GROUP: {{ .Values.kafka.consumerGroup | quote }}
+
+  # Temporal
+  TEMPORAL_WORKER_TEMPORAL_HOST: {{ .Values.temporal.host | quote }}
+  TEMPORAL_WORKER_TEMPORAL_PORT: {{ .Values.temporal.port | quote }}
+  TEMPORAL_WORKER_TEMPORAL_NAMESPACE: {{ .Values.temporal.namespace | quote }}
+  TEMPORAL_WORKER_TEMPORAL_TASK_QUEUE: {{ .Values.temporal.taskQueue | quote }}
+
+  # Inference
+  TEMPORAL_WORKER_INFERENCE_SERVICE_URL: {{ .Values.inference.url | quote }}
+  TEMPORAL_WORKER_INFERENCE_TIMEOUT_SECONDS: {{ .Values.inference.timeoutSeconds | quote }}
+
+  # PostgreSQL
+  TEMPORAL_WORKER_POSTGRES_HOST: {{ .Values.postgres.host | quote }}
+  TEMPORAL_WORKER_POSTGRES_PORT: {{ .Values.postgres.port | quote }}
+  TEMPORAL_WORKER_POSTGRES_DB: {{ .Values.postgres.database | quote }}
+  TEMPORAL_WORKER_POSTGRES_USER: {{ .Values.postgres.user | quote }}
+
+  # S3/MinIO
+  TEMPORAL_WORKER_S3_ENDPOINT: {{ .Values.s3.endpoint | quote }}
+
+  {{- if .Values.iceberg.enabled }}
+  # Iceberg/Polaris
+  TEMPORAL_WORKER_ICEBERG_CATALOG_URI: {{ .Values.iceberg.catalogUri | quote }}
+  TEMPORAL_WORKER_ICEBERG_WAREHOUSE: {{ .Values.iceberg.warehouse | quote }}
+  TEMPORAL_WORKER_ICEBERG_NAMESPACE: {{ .Values.iceberg.namespace | quote }}
+  {{- end }}
