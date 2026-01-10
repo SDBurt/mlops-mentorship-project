@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "payment-transformer.fullname" . }}-config
+  labels:
+    {{- include "payment-transformer.labels" . | nindent 4 }}
+data:
+  TRANSFORMER_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  TRANSFORMER_KAFKA_BOOTSTRAP_SERVERS: {{ .Values.config.kafkaBootstrapServers | quote }}
+  TRANSFORMER_OUTPUT_TOPIC: {{ .Values.config.outputTopic | quote }}
+  TRANSFORMER_DLQ_TOPIC: {{ .Values.config.dlqTopic | quote }}
+  TRANSFORMER_CONSUMER_GROUP: {{ .Values.config.consumerGroup | quote }}
+  TRANSFORMER_BATCH_SIZE: {{ .Values.config.batchSize | quote }}
+  TRANSFORMER_BATCH_TIMEOUT_MS: {{ .Values.config.batchTimeoutMs | quote }}
+  {{- if .Values.inputTopics }}
+  TRANSFORMER_INPUT_TOPICS: {{ .Values.inputTopics | join "," | quote }}
+  {{- end }}

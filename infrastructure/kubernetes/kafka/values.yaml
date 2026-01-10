@@ -1,0 +1,109 @@
+# Kafka Configuration (Bitnami Helm Chart)
+# Deployed using: helm install kafka bitnami/kafka -n lakehouse -f values.yaml
+#
+# Internal access: kafka.lakehouse.svc.cluster.local:9092
+# External access (port-forward): localhost:9092
+
+# Single broker for development with resource limits
+controller:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# KRaft mode (no ZooKeeper dependency)
+kraft:
+  enabled: true
+
+# Listeners configuration
+listeners:
+  client:
+    protocol: PLAINTEXT
+  controller:
+    protocol: PLAINTEXT
+  interbroker:
+    protocol: PLAINTEXT
+
+# Allow external connections via port-forward
+externalAccess:
+  enabled: false
+
+# Persistence
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+
+# Auto-create topics (development convenience)
+autoCreateTopicsEnable: true
+
+# Topic provisioning - pre-create payment pipeline topics
+provisioning:
+  enabled: true
+  topics:
+    # Webhook ingestion topics (per provider)
+    - name: webhooks.stripe.payment_intent
+      partitions: 3
+      replicationFactor: 1
+      config:
+        retention.ms: "604800000"  # 7 days
+    - name: webhooks.stripe.charge
+      partitions: 3
+      replicationFactor: 1
+      config:
+        retention.ms: "604800000"
+    - name: webhooks.stripe.refund
+      partitions: 3
+      replicationFactor: 1
+      config:
+        retention.ms: "604800000"
+    # Normalized events topic
+    - name: payments.normalized
+      partitions: 3
+      replicationFactor: 1
+      config:
+        retention.ms: "604800000"
+    # Dead letter queue
+    - name: payments.validation.dlq
+      partitions: 1
+      replicationFactor: 1
+      config:
+        retention.ms: "2592000000"  # 30 days for DLQ
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    client: 9092
+    controller: 9093
+    interbroker: 9094
+
+# Metrics (optional - enable for monitoring)
+metrics:
+  kafka:
+    enabled: false
+  jmx:
+    enabled: false
+
+# Security context
+podSecurityContext:
+  fsGroup: 1001
+containerSecurityContext:
+  runAsUser: 1001
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+
+# Log configuration
+log:
+  retention:
+    hours: 168  # 7 days
+  segment:
+    bytes: 1073741824  # 1GB
+
+# Producer/Consumer defaults
+defaultReplicationFactor: 1
+numPartitions: 3

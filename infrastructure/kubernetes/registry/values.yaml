@@ -1,0 +1,57 @@
+# Local Docker Registry for Development
+# Deployed using: helm install registry twuni/docker-registry -n lakehouse -f values.yaml
+#
+# After deployment, images can be pushed to: localhost:5000/<image>:<tag>
+# Requires port-forward: kubectl port-forward svc/registry-docker-registry 5000:5000 -n lakehouse
+
+replicaCount: 1
+
+image:
+  repository: registry
+  tag: 2.8.3
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5000
+  # For NodePort access (alternative to port-forward):
+  # type: NodePort
+  # nodePort: 30500
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""  # Uses default storage class
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# Security context
+securityContext:
+  enabled: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# No authentication for local development
+# For production, configure htpasswd or token auth
+configData:
+  version: 0.1
+  log:
+    fields:
+      service: registry
+  storage:
+    cache:
+      blobdescriptor: inmemory
+    filesystem:
+      rootdirectory: /var/lib/registry
+    delete:
+      enabled: true
+  http:
+    addr: :5000
+    headers:
+      X-Content-Type-Options: [nosniff]

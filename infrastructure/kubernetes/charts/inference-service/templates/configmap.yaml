@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "inference-service.fullname" . }}-config
+  labels:
+    {{- include "inference-service.labels" . | nindent 4 }}
+data:
+  # Application
+  INFERENCE_HOST: {{ .Values.config.host | quote }}
+  INFERENCE_PORT: {{ .Values.config.port | quote }}
+  INFERENCE_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  INFERENCE_MODEL_VERSION: {{ .Values.config.modelVersion | quote }}
+  INFERENCE_MIN_LATENCY_MS: {{ .Values.config.minLatencyMs | quote }}
+  INFERENCE_MAX_LATENCY_MS: {{ .Values.config.maxLatencyMs | quote }}
+
+  {{- if .Values.mlflow.enabled }}
+  # MLflow
+  INFERENCE_MLFLOW_TRACKING_URI: {{ .Values.mlflow.trackingUri | quote }}
+  MLFLOW_TRACKING_URI: {{ .Values.mlflow.trackingUri | quote }}
+  {{- end }}
+
+  {{- if .Values.feast.enabled }}
+  # Feast
+  INFERENCE_FEAST_REPO_PATH: {{ .Values.feast.repoPath | quote }}
+  INFERENCE_FEAST_REDIS_HOST: {{ .Values.feast.redisHost | quote }}
+  INFERENCE_FEAST_REDIS_PORT: {{ .Values.feast.redisPort | quote }}
+  {{- end }}
+
+  # S3/MinIO (for MLflow artifacts)
+  MLFLOW_S3_ENDPOINT_URL: {{ .Values.s3.endpoint | quote }}
+  AWS_DEFAULT_REGION: {{ .Values.s3.region | quote }}

@@ -1,0 +1,19 @@
+# Stripe-specific values for payment-gateway
+# Deploy: helm install stripe-gateway ./payment-gateway -f values.yaml -f values-stripe.yaml -n lakehouse
+
+nameOverride: "stripe-gateway"
+fullnameOverride: "stripe-gateway"
+
+provider:
+  name: "stripe"
+  webhookSecretKey: "STRIPE_WEBHOOK_SECRET"  # pragma: allowlist secret
+
+topics:
+  paymentIntent: "webhooks.stripe.payment_intent"
+  charge: "webhooks.stripe.charge"
+  refund: "webhooks.stripe.refund"
+
+# Stripe-specific environment additions
+extraEnv:
+  - name: PROVIDER
+    value: "stripe"

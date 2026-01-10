@@ -1,0 +1,89 @@
+# Default values for payment-transformer
+# This is a base configuration - override with provider-specific values files
+
+replicaCount: 1
+
+image:
+  repository: localhost:5000/payment-transformer
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Provider configuration (override in values-<provider>.yaml)
+provider:
+  name: ""  # stripe, square, adyen, braintree
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# No service - this is a background worker
+service:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Autoscaling based on consumer lag (optional)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Application configuration
+config:
+  logLevel: "INFO"
+  kafkaBootstrapServers: "kafka:9092"
+  outputTopic: "payments.normalized"
+  dlqTopic: "payments.validation.dlq"
+  consumerGroup: "transformer-group"
+  batchSize: 100
+  batchTimeoutMs: 1000
+
+# Input topics (override per provider)
+inputTopics: []
+
+# Health check - process-based for background worker
+healthCheck:
+  enabled: true
+  # Liveness probe - checks if process is running
+  command: ["pgrep", "-f", "transformer.main"]
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+  # Readiness probe - checks if consumer is ready to process
+  readinessCommand: ["pgrep", "-f", "transformer.main"]
+  readinessInitialDelaySeconds: 10
+  readinessPeriodSeconds: 10
+  readinessTimeoutSeconds: 5
+  readinessFailureThreshold: 3

@@ -1,0 +1,104 @@
+# Default values for inference-service
+
+replicaCount: 2
+
+image:
+  repository: localhost:5000/inference-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false  # Models may need to write temp files
+
+service:
+  type: ClusterIP
+  port: 8002
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+# Autoscaling for inference service
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Application configuration
+config:
+  host: "0.0.0.0"
+  port: 8002
+  logLevel: "INFO"
+  modelVersion: "mock-v1"
+  # Simulated latency (for mock models)
+  minLatencyMs: 10
+  maxLatencyMs: 100
+
+# MLflow configuration
+mlflow:
+  enabled: true
+  trackingUri: "http://mlflow:5000"
+  # Models to load from registry
+  models:
+    fraud: "fraud-detection-model"
+    churn: "churn-prediction-model"
+
+# Feast configuration
+feast:
+  enabled: true
+  repoPath: "/app/feature_repo"
+  redisHost: "feast-redis-master"
+  redisPort: 6379
+  existingSecret: "feast-redis-secret"
+  secretKey: "password"
+
+# S3/MinIO for artifacts
+s3:
+  endpoint: "http://minio:9000"
+  region: "us-east-1"
+  existingSecret: "mlflow-s3-secret"
+  accessKeySecretKey: "access-key"
+  secretKeySecretKey: "secret-key"
+
+# Health check configuration
+healthCheck:
+  path: /health
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  # Readiness probe - returns quickly even if models not loaded
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 5
