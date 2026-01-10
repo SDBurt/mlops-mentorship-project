@@ -1071,3 +1071,277 @@ mlflow-ui:
 	else \
 		echo "MLflow server not running. Start with: make mlops-up"; \
 	fi
+
+##################################################
+# KUBERNETES DEPLOYMENT COMMANDS
+##################################################
+
+# Variables
+K8S_DIR := infrastructure/kubernetes
+K8S_NAMESPACE := lakehouse
+CHARTS_DIR := $(K8S_DIR)/charts
+
+.PHONY: k8s-check k8s-setup k8s-namespace k8s-registry k8s-build-images \
+	k8s-deploy-infra k8s-deploy-mlops k8s-deploy-pipeline k8s-deploy-all \
+	k8s-status k8s-port-forward-start k8s-port-forward-stop k8s-destroy k8s-help
+
+# Show Kubernetes deployment help
+k8s-help:
+	@echo "=========================================="
+	@echo "   Kubernetes Deployment Commands"
+	@echo "=========================================="
+	@echo ""
+	@echo "Setup:"
+	@echo "  make k8s-check              - Verify prerequisites (kubectl, helm)"
+	@echo "  make k8s-setup              - Add Helm repos and create namespace"
+	@echo "  make k8s-registry           - Deploy local Docker registry"
+	@echo "  make k8s-build-images       - Build and push images to registry"
+	@echo ""
+	@echo "Deployment:"
+	@echo "  make k8s-deploy-infra       - Deploy infrastructure (Kafka, Temporal, PostgreSQL)"
+	@echo "  make k8s-deploy-mlops       - Deploy MLOps stack (MLflow, Feast, Redis)"
+	@echo "  make k8s-deploy-pipeline    - Deploy payment pipeline services"
+	@echo "  make k8s-deploy-all         - Deploy everything"
+	@echo ""
+	@echo "Operations:"
+	@echo "  make k8s-status             - Show deployment status"
+	@echo "  make k8s-port-forward-start - Start port-forwards for local access"
+	@echo "  make k8s-port-forward-stop  - Stop all port-forwards"
+	@echo "  make k8s-destroy            - Tear down all deployments"
+	@echo ""
+
+# Check prerequisites
+k8s-check:
+	@echo "Checking prerequisites..."
+	@echo ""
+	@echo "kubectl:"
+	@which kubectl > /dev/null 2>&1 && echo "  [OK] kubectl found" || (echo "  [FAIL] kubectl not found" && exit 1)
+	@kubectl cluster-info > /dev/null 2>&1 && echo "  [OK] Cluster accessible" || (echo "  [FAIL] Cannot connect to cluster" && exit 1)
+	@echo ""
+	@echo "helm:"
+	@which helm > /dev/null 2>&1 && echo "  [OK] helm found" || (echo "  [FAIL] helm not found" && exit 1)
+	@echo ""
+	@echo "docker:"
+	@which docker > /dev/null 2>&1 && echo "  [OK] docker found" || (echo "  [FAIL] docker not found" && exit 1)
+	@echo ""
+	@echo "All prerequisites met!"
+
+# Setup Helm repos and namespace
+k8s-setup: k8s-check
+	@echo "Setting up Helm repositories..."
+	@helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
+	@helm repo add temporalio https://charts.temporal.io 2>/dev/null || true
+	@helm repo add twuni https://helm.twun.io 2>/dev/null || true
+	@helm repo update
+	@echo ""
+	@echo "Creating namespace..."
+	@kubectl apply -f $(K8S_DIR)/namespace.yaml
+	@echo ""
+	@echo "Setup complete!"
+
+# Create namespace only
+k8s-namespace:
+	@kubectl apply -f $(K8S_DIR)/namespace.yaml
+
+# Deploy local Docker registry
+k8s-registry: k8s-namespace
+	@echo "Deploying local Docker registry..."
+	@helm upgrade --install registry twuni/docker-registry \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/registry/values.yaml \
+		--wait
+	@echo ""
+	@echo "Registry deployed! Start port-forward to push images:"
+	@echo "  kubectl port-forward svc/registry-docker-registry 5000:5000 -n $(K8S_NAMESPACE)"
+
+# Build and push images to local registry
+k8s-build-images:
+	@echo "Building and pushing images to local registry..."
+	@echo ""
+	@echo "Ensure port-forward is running:"
+	@echo "  kubectl port-forward svc/registry-docker-registry 5000:5000 -n $(K8S_NAMESPACE) &"
+	@echo ""
+	@echo "Building payment-gateway..."
+	@docker build -t localhost:5000/payment-gateway:latest -f services/gateway/Dockerfile .
+	@docker push localhost:5000/payment-gateway:latest
+	@echo ""
+	@echo "Building payment-transformer..."
+	@docker build -t localhost:5000/payment-transformer:latest -f services/transformer/Dockerfile .
+	@docker push localhost:5000/payment-transformer:latest
+	@echo ""
+	@echo "Building temporal-worker..."
+	@docker build -t localhost:5000/temporal-worker:latest -f services/temporal/docker/Dockerfile .
+	@docker push localhost:5000/temporal-worker:latest
+	@echo ""
+	@echo "Building inference-service..."
+	@docker build -t localhost:5000/inference-service:latest -f services/inference/docker/Dockerfile .
+	@docker push localhost:5000/inference-service:latest
+	@echo ""
+	@echo "All images built and pushed!"
+
+# Deploy infrastructure (Kafka, Temporal, PostgreSQL)
+k8s-deploy-infra: k8s-namespace
+	@echo "=========================================="
+	@echo "   Deploying Infrastructure"
+	@echo "=========================================="
+	@echo ""
+	@echo "Deploying Kafka..."
+	@helm upgrade --install kafka bitnami/kafka \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/kafka/values.yaml \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Deploying Payments PostgreSQL..."
+	@kubectl apply -f $(K8S_DIR)/payments-db/init-configmap.yaml -n $(K8S_NAMESPACE)
+	@helm upgrade --install payments-db bitnami/postgresql \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/payments-db/values.yaml \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Deploying Temporal..."
+	@helm upgrade --install temporal temporalio/temporal \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/temporal/values.yaml \
+		--wait --timeout 10m
+	@echo ""
+	@echo "Infrastructure deployed!"
+
+# Deploy MLOps stack (MLflow, Feast, Redis)
+k8s-deploy-mlops: k8s-namespace
+	@echo "=========================================="
+	@echo "   Deploying MLOps Stack"
+	@echo "=========================================="
+	@echo ""
+	@echo "Deploying MLflow..."
+	@kubectl apply -f $(K8S_DIR)/mlflow/deployment.yaml -n $(K8S_NAMESPACE)
+	@echo ""
+	@echo "Deploying Feast Redis..."
+	@helm upgrade --install feast-redis bitnami/redis \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/feast/redis-values.yaml \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Deploying Feast Server..."
+	@kubectl apply -f $(K8S_DIR)/feast/deployment.yaml -n $(K8S_NAMESPACE)
+	@echo ""
+	@echo "MLOps stack deployed!"
+
+# Deploy payment pipeline services
+k8s-deploy-pipeline: k8s-namespace
+	@echo "=========================================="
+	@echo "   Deploying Payment Pipeline"
+	@echo "=========================================="
+	@echo ""
+	@echo "Deploying Inference Service..."
+	@helm upgrade --install inference-service $(CHARTS_DIR)/inference-service \
+		-n $(K8S_NAMESPACE) \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Deploying Stripe Gateway..."
+	@helm upgrade --install stripe-gateway $(CHARTS_DIR)/payment-gateway \
+		-n $(K8S_NAMESPACE) \
+		-f $(CHARTS_DIR)/payment-gateway/values.yaml \
+		-f $(CHARTS_DIR)/payment-gateway/values-stripe.yaml \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Deploying Stripe Transformer..."
+	@helm upgrade --install stripe-transformer $(CHARTS_DIR)/payment-transformer \
+		-n $(K8S_NAMESPACE) \
+		-f $(CHARTS_DIR)/payment-transformer/values.yaml \
+		-f $(CHARTS_DIR)/payment-transformer/values-stripe.yaml \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Deploying Temporal Worker..."
+	@helm upgrade --install temporal-worker $(CHARTS_DIR)/temporal-worker \
+		-n $(K8S_NAMESPACE) \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Payment pipeline deployed!"
+
+# Deploy everything
+k8s-deploy-all: k8s-setup k8s-registry k8s-deploy-infra k8s-deploy-mlops k8s-deploy-pipeline
+	@echo ""
+	@echo "=========================================="
+	@echo "   All Services Deployed!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Run 'make k8s-status' to check deployment status"
+	@echo "Run 'make k8s-port-forward-start' to access services locally"
+
+# Show deployment status
+k8s-status:
+	@echo "=========================================="
+	@echo "   Kubernetes Deployment Status"
+	@echo "=========================================="
+	@echo ""
+	@echo "Namespace: $(K8S_NAMESPACE)"
+	@echo ""
+	@echo "Pods:"
+	@kubectl get pods -n $(K8S_NAMESPACE) -o wide 2>/dev/null || echo "  Namespace not found"
+	@echo ""
+	@echo "Services:"
+	@kubectl get svc -n $(K8S_NAMESPACE) 2>/dev/null || echo "  Namespace not found"
+	@echo ""
+	@echo "Helm Releases:"
+	@helm list -n $(K8S_NAMESPACE) 2>/dev/null || echo "  No releases found"
+
+# Start port-forwards for local access
+k8s-port-forward-start:
+	@echo "Starting port-forwards..."
+	@echo ""
+	@echo "Starting port-forwards in background..."
+	@kubectl port-forward svc/registry-docker-registry 5000:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/kafka 9092:9092 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/temporal-frontend 7233:7233 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/temporal-web 8088:8080 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/payments-db-postgresql 5433:5432 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/mlflow 5001:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/feast-server 6566:6566 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/stripe-gateway 8000:8000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@kubectl port-forward svc/inference-service 8002:8002 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@echo ""
+	@echo "Port-forwards started!"
+	@echo ""
+	@echo "Access URLs:"
+	@echo "  Registry:         localhost:5000"
+	@echo "  Kafka:            localhost:9092"
+	@echo "  Temporal Frontend: localhost:7233"
+	@echo "  Temporal UI:      http://localhost:8088"
+	@echo "  Payments DB:      localhost:5433"
+	@echo "  MLflow:           http://localhost:5001"
+	@echo "  Feast:            http://localhost:6566"
+	@echo "  Gateway:          http://localhost:8000"
+	@echo "  Inference:        http://localhost:8002"
+	@echo ""
+	@echo "Run 'make k8s-port-forward-stop' to stop all port-forwards"
+
+# Stop all port-forwards
+k8s-port-forward-stop:
+	@echo "Stopping all port-forwards..."
+	@pkill -f "kubectl port-forward" 2>/dev/null || true
+	@echo "Port-forwards stopped"
+
+# Destroy all Kubernetes deployments
+k8s-destroy:
+	@echo "=========================================="
+	@echo "   WARNING: This will delete all deployments!"
+	@echo "=========================================="
+	@echo ""
+	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || exit 1
+	@echo ""
+	@echo "Deleting Helm releases..."
+	@helm uninstall temporal-worker -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall stripe-transformer -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall stripe-gateway -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall inference-service -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall feast-redis -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall temporal -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall payments-db -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall kafka -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall registry -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@echo ""
+	@echo "Deleting custom deployments..."
+	@kubectl delete -f $(K8S_DIR)/mlflow/deployment.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@kubectl delete -f $(K8S_DIR)/feast/deployment.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@echo ""
+	@echo "All deployments destroyed!"
