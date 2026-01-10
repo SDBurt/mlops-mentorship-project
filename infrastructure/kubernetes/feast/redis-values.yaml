@@ -1,0 +1,55 @@
+# Redis Configuration for Feast Online Store (Bitnami Helm Chart)
+# Deployed using: helm install feast-redis bitnami/redis -n lakehouse -f redis-values.yaml
+#
+# Internal access: feast-redis-master.lakehouse.svc.cluster.local:6379
+
+# Architecture - standalone for development
+architecture: standalone
+
+# Authentication
+auth:
+  enabled: true
+  existingSecret: feast-redis-secret
+  existingSecretPasswordKey: password
+
+# Master configuration
+master:
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # Redis configuration
+  configuration: |
+    maxmemory 200mb
+    maxmemory-policy allkeys-lru
+    save ""
+    appendonly no
+
+# No replicas for development
+replica:
+  replicaCount: 0
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    redis: 6379
+
+# Security
+containerSecurityContext:
+  runAsUser: 1001
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+
+# Metrics (optional)
+metrics:
+  enabled: false

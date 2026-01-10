@@ -1,0 +1,209 @@
+# Feast Feature Server Deployment
+# Deploy after Redis: kubectl apply -f deployment.yaml -n lakehouse
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feast-config-template
+  namespace: lakehouse
+data:
+  # Template file - placeholders replaced by init container
+  # pragma: allowlist nextline secret
+  feature_store.yaml.tmpl: |
+    project: payment_features
+    provider: local
+    registry:
+      registry_type: sql
+      path: postgresql://feast:__POSTGRES_PASSWORD__@feast-postgresql:5432/feast  # pragma: allowlist secret
+    online_store:
+      type: redis
+      connection_string: feast-redis-master:6379,password=__REDIS_PASSWORD__  # pragma: allowlist secret
+    offline_store:
+      type: file
+    entity_key_serialization_version: 2
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feast-server
+  namespace: lakehouse
+  labels:
+    app: feast-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: feast-server
+  template:
+    metadata:
+      labels:
+        app: feast-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      initContainers:
+        # Init container to template the config file with secrets
+        - name: config-templater
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              sed -e "s/__POSTGRES_PASSWORD__/$POSTGRES_PASSWORD/g" \
+                  -e "s/__REDIS_PASSWORD__/$REDIS_PASSWORD/g" \
+                  /config-template/feature_store.yaml.tmpl > /feature_repo/feature_store.yaml
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feast-db-secret
+                  key: password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feast-redis-secret
+                  key: password
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+            - name: config
+              mountPath: /feature_repo
+          securityContext:
+            allowPrivilegeEscalation: false
+      containers:
+        - name: feast
+          image: feastdev/feature-server:0.36.0
+          args:
+            - serve
+            - -h
+            - "0.0.0.0"
+            - -p
+            - "6566"
+          ports:
+            - name: http
+              containerPort: 6566
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /feature_repo
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 6566
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 6566
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config-template
+          configMap:
+            name: feast-config-template
+        - name: config
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feast-server
+  namespace: lakehouse
+  labels:
+    app: feast-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6566
+      targetPort: 6566
+      protocol: TCP
+      name: http
+  selector:
+    app: feast-server
+
+---
+# PostgreSQL for Feast Registry
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: feast-postgresql
+  namespace: lakehouse
+spec:
+  serviceName: feast-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: feast-postgresql
+  template:
+    metadata:
+      labels:
+        app: feast-postgresql
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgresql
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: feast
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feast-db-secret
+                  key: password
+            - name: POSTGRES_DB
+              value: feast
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feast-postgresql
+  namespace: lakehouse
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: feast-postgresql
