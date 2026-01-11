@@ -1,8 +1,19 @@
 # Kafka Configuration (Bitnami Helm Chart)
-# Deployed using: helm install kafka bitnami/kafka -n lakehouse -f values.yaml
+# Deployed using: helm install kafka bitnami/kafka --version 31.5.0 -n lakehouse -f values.yaml
 #
 # Internal access: kafka.lakehouse.svc.cluster.local:9092
 # External access (port-forward): localhost:9092
+
+# Allow non-standard images (required for bitnamilegacy)
+global:
+  security:
+    allowInsecureImages: true
+
+# Use bitnamilegacy since bitnami deprecated Docker Hub images (Aug 2025)
+image:
+  registry: docker.io
+  repository: bitnamilegacy/kafka
+  tag: 3.9.0-debian-12-r6
 
 # Single broker for development with resource limits
 controller:

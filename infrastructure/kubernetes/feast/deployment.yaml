@@ -77,12 +77,15 @@ spec:
       containers:
         - name: feast
           image: feastdev/feature-server:0.36.0
+          command:
+            - feast
           args:
             - serve
             - -h
             - "0.0.0.0"
             - -p
             - "6566"
+          workingDir: /feature_repo
           ports:
             - name: http
               containerPort: 6566
@@ -90,6 +93,8 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /feature_repo
+            - name: cache
+              mountPath: /.cache
           livenessProbe:
             httpGet:
               path: /health
@@ -116,6 +121,8 @@ spec:
           configMap:
             name: feast-config-template
         - name: config
+          emptyDir: {}
+        - name: cache
           emptyDir: {}
 
 ---

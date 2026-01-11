@@ -1187,6 +1187,7 @@ k8s-deploy-infra: k8s-namespace
 	@echo ""
 	@echo "Deploying Kafka..."
 	@helm upgrade --install kafka bitnami/kafka \
+		--version 31.5.0 \
 		-n $(K8S_NAMESPACE) \
 		-f $(K8S_DIR)/kafka/values.yaml \
 		--wait --timeout 5m

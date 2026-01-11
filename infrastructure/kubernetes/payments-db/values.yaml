@@ -4,6 +4,17 @@
 # This is the bronze layer database for payment events before batch loading to Iceberg.
 # Internal access: payments-db-postgresql.lakehouse.svc.cluster.local:5432
 
+# Allow non-standard images (required for bitnamilegacy)
+global:
+  security:
+    allowInsecureImages: true
+
+# Use bitnamilegacy since bitnami deprecated Docker Hub images (Aug 2025)
+image:
+  registry: docker.io
+  repository: bitnamilegacy/postgresql
+  tag: 17.2.0-debian-12-r10
+
 # Authentication
 auth:
   username: payments
