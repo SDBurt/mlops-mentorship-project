@@ -1083,7 +1083,7 @@ CHARTS_DIR := $(K8S_DIR)/charts
 
 .PHONY: k8s-check k8s-setup k8s-namespace k8s-registry k8s-build-images \
 	k8s-deploy-infra k8s-deploy-mlops k8s-deploy-pipeline k8s-deploy-all \
-	k8s-status k8s-port-forward-start k8s-port-forward-stop k8s-destroy k8s-help
+	k8s-status k8s-port-forward-start k8s-port-forward-stop k8s-port-forward-status k8s-destroy k8s-help
 
 # Show Kubernetes deployment help
 k8s-help:
@@ -1104,10 +1104,11 @@ k8s-help:
 	@echo "  make k8s-deploy-all         - Deploy everything"
 	@echo ""
 	@echo "Operations:"
-	@echo "  make k8s-status             - Show deployment status"
-	@echo "  make k8s-port-forward-start - Start port-forwards for local access"
-	@echo "  make k8s-port-forward-stop  - Stop all port-forwards"
-	@echo "  make k8s-destroy            - Tear down all deployments"
+	@echo "  make k8s-status              - Show deployment status"
+	@echo "  make k8s-port-forward-start  - Start port-forwards for local access"
+	@echo "  make k8s-port-forward-stop   - Stop all port-forwards"
+	@echo "  make k8s-port-forward-status - Show active port-forwards"
+	@echo "  make k8s-destroy             - Tear down all deployments"
 	@echo ""
 
 # Check prerequisites
@@ -1289,38 +1290,31 @@ k8s-status:
 # Start port-forwards for local access
 k8s-port-forward-start:
 	@echo "Starting port-forwards..."
+	@make k8s-port-forward-stop 2>/dev/null || true
 	@echo ""
-	@echo "Starting port-forwards in background..."
-	@kubectl port-forward svc/registry-docker-registry 5000:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/kafka 9092:9092 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/temporal-frontend 7233:7233 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/temporal-web 8088:8080 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/payments-db-postgresql 5433:5432 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/mlflow 5001:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/feast-server 6566:6566 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/stripe-gateway 8000:8000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
-	@kubectl port-forward svc/inference-service 8002:8002 -n $(K8S_NAMESPACE) > /dev/null 2>&1 &
+	@# Infrastructure services
+	@kubectl port-forward svc/kafka 9092:9092 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Kafka:        localhost:9092"
+	@kubectl port-forward svc/payments-db-postgresql 5433:5432 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Payments DB:  localhost:5433"
+	@# MLOps services
+	@kubectl port-forward svc/mlflow 5000:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  MLflow:       http://localhost:5000"
+	@kubectl port-forward svc/feast-server 6566:6566 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Feast:        http://localhost:6566"
+	@kubectl port-forward svc/feast-redis-master 6379:6379 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Redis:        localhost:6379"
+	@# Payment pipeline (if deployed)
+	@kubectl port-forward svc/stripe-gateway 8000:8000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Gateway:      http://localhost:8000" || true
+	@kubectl port-forward svc/inference-service 8001:8001 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Inference:    http://localhost:8001" || true
 	@echo ""
-	@echo "Port-forwards started!"
-	@echo ""
-	@echo "Access URLs:"
-	@echo "  Registry:         localhost:5000"
-	@echo "  Kafka:            localhost:9092"
-	@echo "  Temporal Frontend: localhost:7233"
-	@echo "  Temporal UI:      http://localhost:8088"
-	@echo "  Payments DB:      localhost:5433"
-	@echo "  MLflow:           http://localhost:5001"
-	@echo "  Feast:            http://localhost:6566"
-	@echo "  Gateway:          http://localhost:8000"
-	@echo "  Inference:        http://localhost:8002"
-	@echo ""
-	@echo "Run 'make k8s-port-forward-stop' to stop all port-forwards"
+	@echo "Port-forwards started! Run 'make k8s-port-forward-stop' to stop."
 
 # Stop all port-forwards
 k8s-port-forward-stop:
 	@echo "Stopping all port-forwards..."
-	@pkill -f "kubectl port-forward" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*$(K8S_NAMESPACE)" 2>/dev/null || true
 	@echo "Port-forwards stopped"
+
+# Show port-forward status
+k8s-port-forward-status:
+	@echo "Active port-forwards:"
+	@pgrep -af "kubectl port-forward.*$(K8S_NAMESPACE)" 2>/dev/null || echo "  None running"
 
 # Destroy all Kubernetes deployments
 k8s-destroy:
