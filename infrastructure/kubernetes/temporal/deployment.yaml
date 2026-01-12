@@ -1,0 +1,259 @@
+# Temporal Server - Development Deployment
+# Uses auto-setup image for simpler deployment (includes schema setup)
+#
+# Deploy: kubectl apply -f deployment.yaml -n lakehouse
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: temporal-config
+  namespace: lakehouse
+data:
+  # Dynamic config for development
+  dynamic-config.yaml: |
+    # Enable all namespaces
+    system.forceSearchAttributesCacheRefreshOnRead:
+      - value: true
+    # Relaxed limits for development
+    limit.maxIDLength:
+      - value: 1000
+    frontend.keepAliveMaxConnectionAge:
+      - value: "5m"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal
+  namespace: lakehouse
+  labels:
+    app: temporal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal
+  template:
+    metadata:
+      labels:
+        app: temporal
+    spec:
+      containers:
+        - name: temporal
+          image: temporalio/auto-setup:1.24.2
+          ports:
+            - name: frontend
+              containerPort: 7233
+              protocol: TCP
+            - name: history
+              containerPort: 7234
+              protocol: TCP
+            - name: matching
+              containerPort: 7235
+              protocol: TCP
+            - name: worker
+              containerPort: 7239
+              protocol: TCP
+          env:
+            - name: DB
+              value: postgres12
+            - name: DB_PORT
+              value: "5432"
+            - name: POSTGRES_HOST
+              value: temporal-postgresql
+            - name: POSTGRES_USER
+              value: temporal
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-db-secret
+                  key: password
+            - name: POSTGRES_SEEDS
+              value: temporal-postgresql
+            - name: DYNAMIC_CONFIG_FILE_PATH
+              value: /etc/temporal/dynamic-config/dynamic-config.yaml
+          volumeMounts:
+            - name: dynamic-config
+              mountPath: /etc/temporal/dynamic-config
+          livenessProbe:
+            tcpSocket:
+              port: 7233
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 7233
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: dynamic-config
+          configMap:
+            name: temporal-config
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-ui
+  namespace: lakehouse
+  labels:
+    app: temporal-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal-ui
+  template:
+    metadata:
+      labels:
+        app: temporal-ui
+    spec:
+      containers:
+        - name: temporal-ui
+          image: temporalio/ui:2.26.2
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: TEMPORAL_UI_TEMPORAL_GRPC_ADDRESS
+              value: temporal:7233
+            - name: TEMPORAL_UI_CORS_ORIGINS
+              value: http://localhost:8088
+            - name: TEMPORAL_UI_PORT
+              value: "8080"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal
+  namespace: lakehouse
+  labels:
+    app: temporal
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7233
+      targetPort: 7233
+      protocol: TCP
+      name: frontend
+  selector:
+    app: temporal
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-ui
+  namespace: lakehouse
+  labels:
+    app: temporal-ui
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: temporal-ui
+
+---
+# PostgreSQL for Temporal persistence
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: temporal-postgresql
+  namespace: lakehouse
+spec:
+  serviceName: temporal-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal-postgresql
+  template:
+    metadata:
+      labels:
+        app: temporal-postgresql
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgresql
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: temporal
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: temporal-db-secret
+                  key: password
+            - name: POSTGRES_DB
+              value: temporal
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-postgresql
+  namespace: lakehouse
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: temporal-postgresql
