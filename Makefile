@@ -1289,32 +1289,39 @@ k8s-status:
 
 # Start port-forwards for local access
 k8s-port-forward-start:
+	@ps aux | grep "[k]ubectl port-forward" | awk '{print $$2}' | xargs -r kill 2>/dev/null || true
+	@echo ""
 	@echo "Starting port-forwards..."
-	@make k8s-port-forward-stop 2>/dev/null || true
 	@echo ""
-	@# Infrastructure services
-	@kubectl port-forward svc/kafka 9092:9092 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Kafka:        localhost:9092"
-	@kubectl port-forward svc/payments-db-postgresql 5433:5432 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Payments DB:  localhost:5433"
-	@# MLOps services
-	@kubectl port-forward svc/mlflow 5000:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  MLflow:       http://localhost:5000"
-	@kubectl port-forward svc/feast-server 6566:6566 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Feast:        http://localhost:6566"
-	@kubectl port-forward svc/feast-redis-master 6379:6379 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Redis:        localhost:6379"
-	@# Payment pipeline (if deployed)
-	@kubectl port-forward svc/stripe-gateway 8000:8000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Gateway:      http://localhost:8000" || true
-	@kubectl port-forward svc/inference-service 8001:8001 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "  Inference:    http://localhost:8001" || true
+	@echo "  Infrastructure:"
+	@kubectl port-forward svc/kafka 9092:9092 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Kafka         localhost:9092"
+	@kubectl port-forward svc/payments-db-postgresql 5433:5432 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Payments DB   localhost:5433"
 	@echo ""
-	@echo "Port-forwards started! Run 'make k8s-port-forward-stop' to stop."
+	@echo "  MLOps:"
+	@kubectl port-forward svc/mlflow 5000:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    MLflow        http://localhost:5000"
+	@kubectl port-forward svc/feast-server 6566:6566 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Feast         http://localhost:6566"
+	@kubectl port-forward svc/feast-redis-master 6379:6379 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Redis         localhost:6379"
+	@echo ""
+	@echo "  Pipeline (if deployed):"
+	@kubectl get svc stripe-gateway -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/stripe-gateway 8000:8000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Gateway       http://localhost:8000") || \
+		echo "    Gateway       (not deployed)"
+	@kubectl get svc inference-service -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/inference-service 8001:8001 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Inference     http://localhost:8001") || \
+		echo "    Inference     (not deployed)"
+	@echo ""
+	@echo "Run 'make k8s-port-forward-stop' to stop all."
+	@echo ""
 
-# Stop all port-forwards
 k8s-port-forward-stop:
-	@echo "Stopping all port-forwards..."
-	@pkill -f "kubectl port-forward.*$(K8S_NAMESPACE)" 2>/dev/null || true
+	@ps aux | grep "[k]ubectl port-forward" | awk '{print $$2}' | xargs -r kill 2>/dev/null || true
 	@echo "Port-forwards stopped"
 
-# Show port-forward status
 k8s-port-forward-status:
+	@echo ""
 	@echo "Active port-forwards:"
-	@pgrep -af "kubectl port-forward.*$(K8S_NAMESPACE)" 2>/dev/null || echo "  None running"
+	@ps aux | grep "[k]ubectl port-forward" | grep -v grep | awk '{for(i=11;i<=NF;i++) printf $$i" "; print ""}' | sed 's/.*svc\//  /' || echo "  None running"
+	@echo ""
 
 # Destroy all Kubernetes deployments
 k8s-destroy:
