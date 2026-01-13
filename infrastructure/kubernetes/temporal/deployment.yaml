@@ -116,6 +116,8 @@ spec:
       labels:
         app: temporal-ui
     spec:
+      # Disable Kubernetes service env var injection - conflicts with Temporal UI config
+      enableServiceLinks: false
       containers:
         - name: temporal-ui
           image: temporalio/ui:2.26.2
@@ -124,12 +126,10 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
-            - name: TEMPORAL_UI_TEMPORAL_GRPC_ADDRESS
-              value: temporal:7233
-            - name: TEMPORAL_UI_CORS_ORIGINS
+            - name: TEMPORAL_ADDRESS
+              value: temporal-frontend:7233
+            - name: TEMPORAL_CORS_ORIGINS
               value: http://localhost:8088
-            - name: TEMPORAL_UI_PORT
-              value: "8080"
           livenessProbe:
             httpGet:
               path: /
@@ -154,7 +154,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: temporal
+  name: temporal-frontend
   namespace: lakehouse
   labels:
     app: temporal

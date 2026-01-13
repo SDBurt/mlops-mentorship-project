@@ -1296,7 +1296,7 @@ k8s-port-forward-start:
 	@echo "  Infrastructure:"
 	@kubectl port-forward svc/kafka 9092:9092 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Kafka         localhost:9092"
 	@kubectl port-forward svc/payments-db-postgresql 5433:5432 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Payments DB   localhost:5433"
-	@kubectl port-forward svc/temporal 7233:7233 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Temporal      localhost:7233"
+	@kubectl port-forward svc/temporal-frontend 7233:7233 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Temporal      localhost:7233"
 	@kubectl port-forward svc/temporal-ui 8088:8080 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Temporal UI   http://localhost:8088"
 	@echo ""
 	@echo "  MLOps:"
