@@ -16,7 +16,7 @@ dependencies = [
     "trino>=0.330.0",  # Trino Python client for querying Trino
     "s3fs>=2024.2.0",  # S3-compatible filesystem for MinIO feature export
     # MLOps dependencies
-    "mlflow==3.5.0rc0",  # Experiment tracking and model registry (pinned to match server)
+    "mlflow==3.5.0",  # Experiment tracking and model registry (pinned to match server)
     "scikit-learn>=1.4.0",  # ML algorithms for training
     # Shared contracts
     "mlops-contracts",  # Shared schemas and data contracts
