@@ -1131,8 +1131,10 @@ k8s-check:
 k8s-setup: k8s-check
 	@echo "Setting up Helm repositories..."
 	@helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
-	@helm repo add temporalio https://charts.temporal.io 2>/dev/null || true
-	@helm repo add twuni https://helm.twun.io 2>/dev/null || true
+	@helm repo add temporal https://go.temporal.io/helm-charts 2>/dev/null || true
+	@helm repo add trino https://trinodb.github.io/charts 2>/dev/null || true
+	@helm repo add dagster https://dagster-io.github.io/helm 2>/dev/null || true
+	@helm repo add polaris https://downloads.apache.org/incubator/polaris/helm-chart 2>/dev/null || true
 	@helm repo update
 	@echo ""
 	@echo "Creating namespace..."
@@ -1147,20 +1149,18 @@ k8s-namespace:
 # Deploy local Docker registry
 k8s-registry: k8s-namespace
 	@echo "Deploying local Docker registry..."
-	@helm upgrade --install registry twuni/docker-registry \
-		-n $(K8S_NAMESPACE) \
-		-f $(K8S_DIR)/registry/values.yaml \
-		--wait
+	@kubectl apply -f $(K8S_DIR)/registry/deployment.yaml -n $(K8S_NAMESPACE)
+	@kubectl rollout status deployment/registry -n $(K8S_NAMESPACE) --timeout=2m
 	@echo ""
 	@echo "Registry deployed! Start port-forward to push images:"
-	@echo "  kubectl port-forward svc/registry-docker-registry 5000:5000 -n $(K8S_NAMESPACE)"
+	@echo "  kubectl port-forward svc/registry 5000:5000 -n $(K8S_NAMESPACE)"
 
 # Build and push images to local registry
 k8s-build-images:
 	@echo "Building and pushing images to local registry..."
 	@echo ""
 	@echo "Ensure port-forward is running:"
-	@echo "  kubectl port-forward svc/registry-docker-registry 5000:5000 -n $(K8S_NAMESPACE) &"
+	@echo "  kubectl port-forward svc/registry 5000:5000 -n $(K8S_NAMESPACE) &"
 	@echo ""
 	@echo "Building payment-gateway..."
 	@docker build -t localhost:5000/payment-gateway:latest -f services/gateway/Dockerfile .
@@ -1201,10 +1201,10 @@ k8s-deploy-infra: k8s-namespace
 		--wait --timeout 5m
 	@echo ""
 	@echo "Deploying Temporal..."
-	@helm upgrade --install temporal temporalio/temporal \
-		-n $(K8S_NAMESPACE) \
-		-f $(K8S_DIR)/temporal/values.yaml \
-		--wait --timeout 10m
+	@kubectl apply -f $(K8S_DIR)/temporal/secrets.yaml -n $(K8S_NAMESPACE)
+	@kubectl apply -f $(K8S_DIR)/temporal/deployment.yaml -n $(K8S_NAMESPACE)
+	@kubectl rollout status deployment/temporal -n $(K8S_NAMESPACE) --timeout=5m
+	@kubectl rollout status deployment/temporal-ui -n $(K8S_NAMESPACE) --timeout=2m
 	@echo ""
 	@echo "Infrastructure deployed!"
 
@@ -1227,6 +1227,67 @@ k8s-deploy-mlops: k8s-namespace
 	@kubectl apply -f $(K8S_DIR)/feast/deployment.yaml -n $(K8S_NAMESPACE)
 	@echo ""
 	@echo "MLOps stack deployed!"
+
+# Deploy lakehouse stack (MinIO, Polaris, Trino, Dagster)
+k8s-deploy-lakehouse: k8s-namespace
+	@echo "=========================================="
+	@echo "   Deploying Lakehouse Stack"
+	@echo "=========================================="
+	@echo ""
+	@echo "Applying secrets..."
+	@kubectl apply -f $(K8S_DIR)/minio/minio-secrets.yaml -n $(K8S_NAMESPACE)
+	@kubectl apply -f $(K8S_DIR)/polaris/polaris-secrets.yaml -n $(K8S_NAMESPACE)
+	@kubectl apply -f $(K8S_DIR)/trino/secrets.yaml -n $(K8S_NAMESPACE)
+	@echo ""
+	@echo "Deploying MinIO..."
+	@kubectl apply -f $(K8S_DIR)/minio/minio-standalone.yaml -n $(K8S_NAMESPACE)
+	@kubectl rollout status deployment/minio -n $(K8S_NAMESPACE) --timeout=5m
+	@echo ""
+	@echo "Creating MinIO bucket..."
+	@kubectl delete job minio-create-bucket -n $(K8S_NAMESPACE) --ignore-not-found
+	@kubectl apply -f $(K8S_DIR)/minio/init-bucket.yaml -n $(K8S_NAMESPACE)
+	@kubectl wait --for=condition=complete job/minio-create-bucket -n $(K8S_NAMESPACE) --timeout=2m || true
+	@echo ""
+	@echo "Deploying Polaris..."
+	@helm upgrade --install polaris polaris/polaris \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/polaris/values.yaml \
+		--devel \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Deploying Trino..."
+	@helm upgrade --install trino trino/trino \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/trino/values.yaml \
+		--wait --timeout 5m
+	@echo ""
+	@echo "Lakehouse stack deployed!"
+	@echo ""
+	@echo "Services:"
+	@echo "  MinIO Console:  http://localhost:9001 (via port-forward)"
+	@echo "  MinIO API:      http://localhost:9000 (via port-forward)"
+	@echo "  Polaris REST:   http://localhost:8181 (via port-forward)"
+	@echo "  Trino:          http://localhost:8080 (via port-forward)"
+
+# Deploy Dagster orchestration (requires user code image)
+k8s-deploy-dagster: k8s-namespace
+	@echo "=========================================="
+	@echo "   Deploying Dagster"
+	@echo "=========================================="
+	@echo ""
+	@echo "Applying Dagster config..."
+	@kubectl apply -f $(K8S_DIR)/dagster/user-code-env-configmap.yaml -n $(K8S_NAMESPACE)
+	@kubectl apply -f $(K8S_DIR)/dagster/user-code-secrets.yaml -n $(K8S_NAMESPACE)
+	@echo ""
+	@echo "Deploying Dagster..."
+	@helm upgrade --install dagster dagster/dagster \
+		-n $(K8S_NAMESPACE) \
+		-f $(K8S_DIR)/dagster/values.yaml \
+		--wait --timeout 10m
+	@echo ""
+	@echo "Dagster deployed!"
+	@echo ""
+	@echo "Access Dagster UI at: http://localhost:3000 (via port-forward)"
 
 # Deploy payment pipeline services
 k8s-deploy-pipeline: k8s-namespace
@@ -1261,7 +1322,7 @@ k8s-deploy-pipeline: k8s-namespace
 	@echo "Payment pipeline deployed!"
 
 # Deploy everything
-k8s-deploy-all: k8s-setup k8s-registry k8s-deploy-infra k8s-deploy-mlops k8s-deploy-pipeline
+k8s-deploy-all: k8s-setup k8s-registry k8s-deploy-infra k8s-deploy-lakehouse k8s-deploy-mlops k8s-deploy-pipeline
 	@echo ""
 	@echo "=========================================="
 	@echo "   All Services Deployed!"
@@ -1299,8 +1360,25 @@ k8s-port-forward-start:
 	@kubectl port-forward svc/temporal-frontend 7233:7233 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Temporal      localhost:7233"
 	@kubectl port-forward svc/temporal-ui 8088:8080 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Temporal UI   http://localhost:8088"
 	@echo ""
+	@echo "  Lakehouse:"
+	@kubectl get svc minio -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/minio 9000:9000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    MinIO API     localhost:9000") || \
+		echo "    MinIO API     (not deployed)"
+	@kubectl get svc minio -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/minio 9001:9001 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    MinIO Console http://localhost:9001") || \
+		echo "    MinIO Console (not deployed)"
+	@kubectl get svc polaris -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/polaris 8181:8181 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Polaris       http://localhost:8181") || \
+		echo "    Polaris       (not deployed)"
+	@kubectl get svc trino -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/trino 8080:8080 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Trino         http://localhost:8080") || \
+		echo "    Trino         (not deployed)"
+	@kubectl get svc dagster-webserver -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/dagster-webserver 3000:80 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Dagster       http://localhost:3000") || \
+		echo "    Dagster       (not deployed)"
+	@echo ""
 	@echo "  MLOps:"
-	@kubectl port-forward svc/mlflow 5000:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    MLflow        http://localhost:5000"
+	@kubectl port-forward svc/mlflow 5001:5000 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    MLflow        http://localhost:5001"
 	@kubectl port-forward svc/feast-server 6566:6566 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Feast         http://localhost:6566"
 	@kubectl port-forward svc/feast-redis-master 6379:6379 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Redis         localhost:6379"
 	@echo ""
@@ -1339,13 +1417,18 @@ k8s-destroy:
 	@helm uninstall stripe-gateway -n $(K8S_NAMESPACE) 2>/dev/null || true
 	@helm uninstall inference-service -n $(K8S_NAMESPACE) 2>/dev/null || true
 	@helm uninstall feast-redis -n $(K8S_NAMESPACE) 2>/dev/null || true
-	@helm uninstall temporal -n $(K8S_NAMESPACE) 2>/dev/null || true
 	@helm uninstall payments-db -n $(K8S_NAMESPACE) 2>/dev/null || true
 	@helm uninstall kafka -n $(K8S_NAMESPACE) 2>/dev/null || true
-	@helm uninstall registry -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall dagster -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall trino -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@helm uninstall polaris -n $(K8S_NAMESPACE) 2>/dev/null || true
 	@echo ""
 	@echo "Deleting custom deployments..."
 	@kubectl delete -f $(K8S_DIR)/mlflow/deployment.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
 	@kubectl delete -f $(K8S_DIR)/feast/deployment.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@kubectl delete -f $(K8S_DIR)/minio/init-bucket.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@kubectl delete -f $(K8S_DIR)/minio/minio-standalone.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@kubectl delete -f $(K8S_DIR)/registry/deployment.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
+	@kubectl delete -f $(K8S_DIR)/temporal/deployment.yaml -n $(K8S_NAMESPACE) 2>/dev/null || true
 	@echo ""
 	@echo "All deployments destroyed!"
