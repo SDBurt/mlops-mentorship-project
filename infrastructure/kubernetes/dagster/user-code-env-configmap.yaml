@@ -14,13 +14,29 @@ data:
 
   # MinIO S3 Storage (cluster DNS)
   PYICEBERG_CATALOG__DEFAULT__S3__ENDPOINT: "http://minio:9000"
-  # PYICEBERG credentials provided via secret
-  # See dagster-user-code-secrets
   PYICEBERG_CATALOG__DEFAULT__S3__PATH_STYLE_ACCESS: "true"
   PYICEBERG_CATALOG__DEFAULT__S3__REGION: "us-east-1"
 
   # AWS SDK Configuration
-  # AWS_ACCESS_KEY_ID provided via secret
-  # AWS_SECRET_ACCESS_KEY provided via secret
   AWS_DEFAULT_REGION: "us-east-1"
   AWS_EC2_METADATA_DISABLED: "true"
+  AWS_ENDPOINT_URL_S3: "http://minio:9000"
+
+  # Payments PostgreSQL (bronze layer)
+  PAYMENTS_DB_HOST: "payments-db-postgresql"
+  PAYMENTS_DB_PORT: "5432"
+  PAYMENTS_DB_USER: "payments"
+  PAYMENTS_DB_NAME: "payments"
+
+  # Trino Query Engine
+  TRINO_HOST: "trino"
+
+  # MLflow Tracking Server
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+
+  # DBT Project Location (mounted in container)
+  DBT_PROJECT_DIR: "/app/dbt"
+
+  # Feature Export S3 Configuration
+  FEATURE_S3_BUCKET: "features"
+  FEATURE_S3_ENDPOINT: "http://minio:9000"

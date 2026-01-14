@@ -1269,6 +1269,24 @@ k8s-deploy-lakehouse: k8s-namespace
 	@echo "  Polaris REST:   http://localhost:8181 (via port-forward)"
 	@echo "  Trino:          http://localhost:8080 (via port-forward)"
 
+# Docker Hub username for user code image (override: make k8s-deploy-dagster DOCKER_USERNAME=yourusername)
+DOCKER_USERNAME ?=
+
+# Build and push Dagster user code image
+k8s-build-dagster:
+	@if [ -z "$(DOCKER_USERNAME)" ]; then \
+		echo "Error: DOCKER_USERNAME is required"; \
+		echo "Usage: make k8s-build-dagster DOCKER_USERNAME=yourusername"; \
+		exit 1; \
+	fi
+	@echo "Building Dagster user code image..."
+	docker build -t $(DOCKER_USERNAME)/dagster-user-code:latest -f services/dagster/Dockerfile .
+	@echo ""
+	@echo "Pushing to Docker Hub..."
+	docker push $(DOCKER_USERNAME)/dagster-user-code:latest
+	@echo ""
+	@echo "Image pushed: $(DOCKER_USERNAME)/dagster-user-code:latest"
+
 # Deploy Dagster orchestration (requires user code image)
 k8s-deploy-dagster: k8s-namespace
 	@echo "=========================================="
@@ -1280,10 +1298,19 @@ k8s-deploy-dagster: k8s-namespace
 	@kubectl apply -f $(K8S_DIR)/dagster/user-code-secrets.yaml -n $(K8S_NAMESPACE)
 	@echo ""
 	@echo "Deploying Dagster..."
-	@helm upgrade --install dagster dagster/dagster \
-		-n $(K8S_NAMESPACE) \
-		-f $(K8S_DIR)/dagster/values.yaml \
-		--wait --timeout 10m
+	@if [ -n "$(DOCKER_USERNAME)" ]; then \
+		helm upgrade --install dagster dagster/dagster \
+			-n $(K8S_NAMESPACE) \
+			-f $(K8S_DIR)/dagster/values.yaml \
+			--set "dagster-user-deployments.deployments[0].image.repository=$(DOCKER_USERNAME)/dagster-user-code" \
+			--set "dagster-user-deployments.deployments[0].image.pullPolicy=Always" \
+			--wait --timeout 10m; \
+	else \
+		helm upgrade --install dagster dagster/dagster \
+			-n $(K8S_NAMESPACE) \
+			-f $(K8S_DIR)/dagster/values.yaml \
+			--wait --timeout 10m; \
+	fi
 	@echo ""
 	@echo "Dagster deployed!"
 	@echo ""
@@ -1373,8 +1400,8 @@ k8s-port-forward-start:
 	@kubectl get svc trino -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
 		(kubectl port-forward svc/trino 8080:8080 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Trino         http://localhost:8080") || \
 		echo "    Trino         (not deployed)"
-	@kubectl get svc dagster-webserver -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
-		(kubectl port-forward svc/dagster-webserver 3000:80 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Dagster       http://localhost:3000") || \
+	@kubectl get svc dagster-dagster-webserver -n $(K8S_NAMESPACE) > /dev/null 2>&1 && \
+		(kubectl port-forward svc/dagster-dagster-webserver 3000:80 -n $(K8S_NAMESPACE) > /dev/null 2>&1 & echo "    Dagster       http://localhost:3000") || \
 		echo "    Dagster       (not deployed)"
 	@echo ""
 	@echo "  MLOps:"
