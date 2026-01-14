@@ -19,6 +19,9 @@ COPY services/dagster/pyproject.toml ./
 COPY services/dagster/src/ ./src/
 COPY services/dagster/README.md ./
 
+# Copy DBT project for dbt-dagster integration
+COPY dbt/ /app/dbt/
+
 # Install Python dependencies using pip
 # Note: Using pip instead of uv for simpler container builds
 RUN pip install --no-cache-dir /contracts && pip install --no-cache-dir -e .

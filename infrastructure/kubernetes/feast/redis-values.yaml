@@ -1,0 +1,71 @@
+# Redis Configuration for Feast Online Store (Bitnami Helm Chart)
+# Deployed using: helm install feast-redis bitnami/redis -n lakehouse -f redis-values.yaml
+#
+# Internal access: feast-redis-master.lakehouse.svc.cluster.local:6379
+
+# Allow non-standard images (required for bitnamilegacy)
+global:
+  security:
+    allowInsecureImages: true
+
+# Use bitnamilegacy since bitnami deprecated Docker Hub images (Aug 2025)
+image:
+  registry: docker.io
+  repository: bitnamilegacy/redis
+  tag: 7.4.2-debian-12-r4
+
+# Architecture - standalone for development
+architecture: standalone
+
+# Override common configuration to remove module loading (modules not in legacy image)
+commonConfiguration: |-
+  appendonly yes
+  save ""
+
+# Authentication
+auth:
+  enabled: true
+  existingSecret: feast-redis-secret
+  existingSecretPasswordKey: password
+
+# Master configuration
+master:
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # Redis configuration
+  configuration: |
+    maxmemory 200mb
+    maxmemory-policy allkeys-lru
+    save ""
+    appendonly no
+
+# No replicas for development
+replica:
+  replicaCount: 0
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    redis: 6379
+
+# Security
+containerSecurityContext:
+  runAsUser: 1001
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+
+# Metrics (optional)
+metrics:
+  enabled: false

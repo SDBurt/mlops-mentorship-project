@@ -1,0 +1,18 @@
+# Stripe-specific values for payment-transformer
+# Deploy: helm install stripe-transformer ./payment-transformer -f values.yaml -f values-stripe.yaml -n lakehouse
+
+nameOverride: "stripe-transformer"
+fullnameOverride: "stripe-transformer"
+
+provider:
+  name: "stripe"
+
+inputTopics:
+  - "webhooks.stripe.payment_intent"
+  - "webhooks.stripe.charge"
+  - "webhooks.stripe.refund"
+
+# Stripe-specific environment additions
+extraEnv:
+  - name: PROVIDER
+    value: "stripe"

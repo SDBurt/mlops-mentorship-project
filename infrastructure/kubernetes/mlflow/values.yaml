@@ -1,0 +1,93 @@
+# MLflow Tracking Server Configuration
+# Deployed using: helm install mlflow community-charts/mlflow -n lakehouse -f values.yaml
+#
+# Alternative: Use the deployment.yaml for a simpler custom deployment
+#
+# Access: mlflow.lakehouse.svc.cluster.local:5000 (port-forward for UI)
+
+# Image configuration
+image:
+  repository: ghcr.io/mlflow/mlflow
+  tag: v2.9.2
+  pullPolicy: IfNotPresent
+
+# Replicas
+replicaCount: 1
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 5000
+
+# Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Backend store - PostgreSQL
+backendStore:
+  postgres:
+    enabled: true
+    host: mlflow-postgresql
+    port: 5432
+    database: mlflow
+    user: mlflow
+    existingSecret: mlflow-db-secret
+    existingSecretKey: password
+
+# Artifact store - MinIO (S3-compatible)
+artifactRoot:
+  s3:
+    enabled: true
+    bucket: warehouse
+    path: mlflow-artifacts
+    endpoint: http://minio:9000
+    existingSecret: mlflow-s3-secret
+    accessKeyIdKey: access-key
+    secretAccessKeyKey: secret-key
+
+# PostgreSQL subchart
+postgresql:
+  enabled: true
+  auth:
+    username: mlflow
+    database: mlflow
+    existingSecret: mlflow-db-secret
+    secretKeys:
+      userPasswordKey: password
+      adminPasswordKey: postgres-password
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 5000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 5

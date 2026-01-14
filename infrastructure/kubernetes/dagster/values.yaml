@@ -57,6 +57,8 @@ dagster-user-deployments:
   deployments:
     - name: "dagster-user-code"
       image:
+        # Override with: --set dagster-user-deployments.deployments[0].image.repository
+        # =<your-dockerhub-username>/dagster-user-code
         repository: "dagster-user-code"
         tag: "latest"
         pullPolicy: IfNotPresent

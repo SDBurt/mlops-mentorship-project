@@ -47,7 +47,7 @@ additionalCatalogs:
     s3.aws-access-key=${ENV:S3_ACCESS_KEY}
     s3.aws-secret-key=${ENV:S3_SECRET_KEY}
 
-# Environment variables for S3 credentials
+# Environment variables for S3 and Polaris credentials
 # IMPORTANT: These MUST be provided via Secret (trino-env-secrets)
 # Secret is required - no fallback defaults for security
 env:
@@ -56,13 +56,16 @@ env:
       secretKeyRef:
         name: trino-env-secrets
         key: S3_ACCESS_KEY
-        # Required: Secret must exist
   - name: S3_SECRET_KEY
     valueFrom:
       secretKeyRef:
         name: trino-env-secrets
         key: S3_SECRET_KEY
-        # Required: Secret must exist
+  - name: POLARIS_OAUTH_CREDENTIAL
+    valueFrom:
+      secretKeyRef:
+        name: trino-env-secrets
+        key: POLARIS_OAUTH_CREDENTIAL
 
 # Server configuration
 server:

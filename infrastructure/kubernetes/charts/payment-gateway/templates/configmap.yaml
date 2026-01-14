@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "payment-gateway.fullname" . }}-config
+  labels:
+    {{- include "payment-gateway.labels" . | nindent 4 }}
+data:
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  KAFKA_BOOTSTRAP_SERVERS: {{ .Values.config.kafkaBootstrapServers | quote }}
+  KAFKA_CONNECTION_RETRIES: {{ .Values.config.kafkaConnectionRetries | quote }}
+  KAFKA_RETRY_DELAY: {{ .Values.config.kafkaRetryDelay | quote }}
+  KAFKA_RETRY_MAX_DELAY: {{ .Values.config.kafkaRetryMaxDelay | quote }}
+  {{- if .Values.topics.paymentIntent }}
+  KAFKA_PAYMENT_INTENT_TOPIC: {{ .Values.topics.paymentIntent | quote }}
+  {{- end }}
+  {{- if .Values.topics.charge }}
+  KAFKA_CHARGE_TOPIC: {{ .Values.topics.charge | quote }}
+  {{- end }}
+  {{- if .Values.topics.refund }}
+  KAFKA_REFUND_TOPIC: {{ .Values.topics.refund | quote }}
+  {{- end }}

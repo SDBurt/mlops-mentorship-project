@@ -1,0 +1,110 @@
+# Default values for temporal-worker
+
+replicaCount: 1
+
+image:
+  repository: localhost:5000/temporal-worker
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# No service - this is a background worker
+service:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Autoscaling (optional)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Kafka configuration
+kafka:
+  bootstrapServers: "kafka:9092"
+  inputTopic: "payments.normalized"
+  dlqTopic: "payments.validation.dlq"
+  consumerGroup: "temporal-worker-group"
+
+# Temporal configuration
+temporal:
+  host: "temporal-frontend"
+  port: 7233
+  namespace: "default"
+  taskQueue: "payment-processing"
+
+# Inference service configuration
+inference:
+  url: "http://inference-service:8002"
+  timeoutSeconds: 30
+
+# PostgreSQL configuration (payments-db)
+postgres:
+  host: "payments-db-postgresql"
+  port: 5432
+  database: "payments"
+  user: "payments"
+  existingSecret: "payments-db-secret"
+  secretKey: "password"
+
+# Iceberg/Polaris configuration (optional - for future batch loading)
+iceberg:
+  enabled: false
+  catalogUri: "http://polaris:8181/api/catalog"
+  warehouse: "polariscatalog"
+  namespace: "bronze"
+
+# S3/MinIO configuration
+s3:
+  endpoint: "http://minio:9000"
+  existingSecret: "minio-secret"
+  accessKeySecretKey: "access-key"
+  secretKeySecretKey: "secret-key"
+
+# Health check - process-based for background worker
+healthCheck:
+  enabled: true
+  command: ["pgrep", "-f", "temporal_worker.main"]
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Logging
+config:
+  logLevel: "INFO"

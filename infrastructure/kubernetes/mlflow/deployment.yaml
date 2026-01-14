@@ -1,0 +1,186 @@
+# MLflow Tracking Server - Custom Deployment
+# Use this if the Helm chart approach is too complex
+#
+# Deploy: kubectl apply -f deployment.yaml -n lakehouse
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlflow-config
+  namespace: lakehouse
+data:
+  # Note: Connection strings are constructed via command-line args and env vars
+  # These values are for reference only
+  MLFLOW_S3_ENDPOINT_URL: "http://minio:9000"
+  AWS_DEFAULT_REGION: "us-east-1"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: lakehouse
+  labels:
+    app: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v2.9.2
+          command:
+            - mlflow
+            - server
+            - --host=0.0.0.0
+            - --port=5000
+            - --backend-store-uri=sqlite:///mlflow/mlflow.db
+            - --default-artifact-root=/mlflow/artifacts
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio:9000"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-s3-secret
+                  key: access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-s3-secret
+                  key: secret-key
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+          volumeMounts:
+            - name: mlflow-data
+              mountPath: /mlflow
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+      volumes:
+        - name: mlflow-data
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: lakehouse
+  labels:
+    app: mlflow
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+      targetPort: 5000
+      protocol: TCP
+      name: http
+  selector:
+    app: mlflow
+
+---
+# PostgreSQL for MLflow backend store
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mlflow-postgresql
+  namespace: lakehouse
+spec:
+  serviceName: mlflow-postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-postgresql
+  template:
+    metadata:
+      labels:
+        app: mlflow-postgresql
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgresql
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: mlflow
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-db-secret
+                  key: password
+            - name: POSTGRES_DB
+              value: mlflow
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-postgresql
+  namespace: lakehouse
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: mlflow-postgresql
